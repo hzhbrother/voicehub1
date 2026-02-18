@@ -82,6 +82,12 @@
       <circle cx="18" cy="16" r="3"/>
     </g>
 
+    <!-- 视频图标 -->
+    <g v-else-if="name === 'video'">
+      <path d="m22 8-6 4 6 4V8Z" />
+      <rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
+    </g>
+
     <!-- 目标/选中图标 -->
     <g v-else-if="name === 'target'">
       <circle cx="12" cy="12" r="10"/>
@@ -293,6 +299,13 @@
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
       <polyline points="17 8 12 3 7 8"></polyline>
       <line x1="12" x2="12" y1="3" y2="15"></line>
+    </g>
+
+    <!-- 云上传图标 -->
+    <g v-else-if="name === 'cloud-upload'">
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+      <polyline points="16 16 12 12 8 16"></polyline>
+      <line x1="12" y1="12" x2="12" y2="21"></line>
     </g>
 
     <!-- 默认图标（如果没有匹配的图标） -->

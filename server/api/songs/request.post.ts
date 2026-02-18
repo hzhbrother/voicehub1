@@ -257,6 +257,23 @@ export default defineEventHandler(async (event) => {
             }
 
             // 创建歌曲
+            let finalMusicId = body.musicId ? String(body.musicId) : null
+            
+            // 如果是 Bilibili 平台，处理 musicId 格式
+            if (body.musicPlatform === 'bilibili') {
+                const bvId = finalMusicId?.split(':')[0]
+                if (bvId) {
+                    const musicIdParts = [bvId]
+                    if (body.bilibiliCid) {
+                        musicIdParts.push(body.bilibiliCid)
+                        if (body.bilibiliPage && Number(body.bilibiliPage) > 1) {
+                            musicIdParts.push(String(body.bilibiliPage))
+                        }
+                    }
+                    finalMusicId = musicIdParts.join(':')
+                }
+            }
+
             const songResult = await tx.insert(songs).values({
                 title: body.title,
                 artist: body.artist,
@@ -265,7 +282,7 @@ export default defineEventHandler(async (event) => {
                 semester: currentSemester, // 使用外部获取的学期名称
                 cover: body.cover || null,
                 musicPlatform: body.musicPlatform || null,
-                musicId: body.musicId ? String(body.musicId) : null,
+                musicId: finalMusicId,
                 playUrl: body.playUrl || null,
                 hitRequestId: hitRequestTime?.id || null
             }).returning()
