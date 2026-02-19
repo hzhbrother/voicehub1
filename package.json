@@ -1,6 +1,6 @@
 {
   "name": "voicehub",
-  "version": "1.5.4.3",
+  "version": "1.5.4.4",
   "description": "校园广播站点歌管理系统 - 基于数据库存储的现代化点歌、排期和播放管理平台",
   "private": true,
   "type": "module",
@@ -35,6 +35,8 @@
     "@breezystack/lamejs": "^1.2.7",
     "@netlify/functions": "^2.0.0",
     "@nuxtjs/tailwindcss": "^6.14.0",
+    "@simplewebauthn/browser": "^13.2.2",
+    "@simplewebauthn/server": "^13.2.2",
     "@types/bcrypt": "^5.0.2",
     "@types/crypto-js": "^4.2.2",
     "@types/jsonwebtoken": "^9.0.10",
