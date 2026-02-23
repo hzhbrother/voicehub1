@@ -15,6 +15,9 @@
     <main class="main-content">
       <NuxtPage />
     </main>
+
+    <!-- Vercel Web Analytics -->
+    <Analytics />
   </div>
 </template>
 
@@ -24,6 +27,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useAudioPlayer } from '~/composables/useAudioPlayer'
 import { useAuth } from '~/composables/useAuth'
 import { useRoute } from 'vue-router'
+import { Analytics } from '@vercel/analytics/nuxt'
 
 // 获取运行时配置
 const config = useRuntimeConfig()
