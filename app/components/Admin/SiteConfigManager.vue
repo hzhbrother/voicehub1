@@ -135,40 +135,104 @@
         <div class="space-y-4">
           <div>
             <label :class="labelClass">{{ locale.siteLogoUrl }}</label>
-            <input
-              v-model="formData.siteLogoUrl"
-              type="text"
-              :placeholder="locale.siteLogoPlaceholder"
-              :class="inputClass"
-            />
+            <div class="flex gap-2">
+              <input
+                v-model="formData.siteLogoUrl"
+                type="text"
+                :placeholder="locale.siteLogoPlaceholder"
+                :class="[inputClass, 'flex-1 min-w-0']"
+              />
+              <button
+                type="button"
+                :disabled="uploadingField === 'siteLogoUrl'"
+                class="shrink-0 flex items-center gap-1.5 px-4 py-2.5 bg-primary-hover hover:bg-primary text-text-primary text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="triggerLogoUpload('siteLogoUrl')"
+              >
+                <template v-if="uploadingField === 'siteLogoUrl'">
+                  <AppSpinner :size="14" color="white" />
+                </template>
+                <template v-else>
+                  <Upload :size="14" />
+                </template>
+                {{ locale.uploadImage }}
+              </button>
+            </div>
           </div>
           <div>
             <label :class="labelClass">{{ locale.schoolLogoHome }}</label>
-            <input
-              v-model="formData.schoolLogoHomeDarkUrl"
-              type="text"
-              :placeholder="locale.schoolLogoHomePlaceholder"
-              :class="inputClass"
-            />
+            <div class="flex gap-2">
+              <input
+                v-model="formData.schoolLogoHomeDarkUrl"
+                type="text"
+                :placeholder="locale.schoolLogoHomePlaceholder"
+                :class="[inputClass, 'flex-1 min-w-0']"
+              />
+              <button
+                type="button"
+                :disabled="uploadingField === 'schoolLogoHomeDarkUrl'"
+                class="shrink-0 flex items-center gap-1.5 px-4 py-2.5 bg-primary-hover hover:bg-primary text-text-primary text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="triggerLogoUpload('schoolLogoHomeDarkUrl')"
+              >
+                <template v-if="uploadingField === 'schoolLogoHomeDarkUrl'">
+                  <AppSpinner :size="14" color="white" />
+                </template>
+                <template v-else>
+                  <Upload :size="14" />
+                </template>
+                {{ locale.uploadImage }}
+              </button>
+            </div>
           </div>
           <div>
             <label :class="labelClass">{{ locale.schoolLogoHomeLight }}</label>
-            <input
-              v-model="formData.schoolLogoHomeLightUrl"
-              type="text"
-              :disabled="!String(formData.schoolLogoHomeDarkUrl || '').trim()"
-              :placeholder="locale.schoolLogoHomeLightPlaceholder"
-              :class="[inputClass, 'disabled:cursor-not-allowed disabled:opacity-50']"
-            />
+            <div class="flex gap-2">
+              <input
+                v-model="formData.schoolLogoHomeLightUrl"
+                type="text"
+                :disabled="!String(formData.schoolLogoHomeDarkUrl || '').trim()"
+                :placeholder="locale.schoolLogoHomeLightPlaceholder"
+                :class="[inputClass, 'flex-1 min-w-0', 'disabled:cursor-not-allowed disabled:opacity-50']"
+              />
+              <button
+                type="button"
+                :disabled="uploadingField === 'schoolLogoHomeLightUrl' || !String(formData.schoolLogoHomeDarkUrl || '').trim()"
+                class="shrink-0 flex items-center gap-1.5 px-4 py-2.5 bg-primary-hover hover:bg-primary text-text-primary text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="triggerLogoUpload('schoolLogoHomeLightUrl')"
+              >
+                <template v-if="uploadingField === 'schoolLogoHomeLightUrl'">
+                  <AppSpinner :size="14" color="white" />
+                </template>
+                <template v-else>
+                  <Upload :size="14" />
+                </template>
+                {{ locale.uploadImage }}
+              </button>
+            </div>
           </div>
           <div>
             <label :class="labelClass">{{ locale.schoolLogoPrint }}</label>
-            <input
-              v-model="formData.schoolLogoPrintUrl"
-              type="text"
-              :placeholder="locale.schoolLogoPrintPlaceholder"
-              :class="inputClass"
-            />
+            <div class="flex gap-2">
+              <input
+                v-model="formData.schoolLogoPrintUrl"
+                type="text"
+                :placeholder="locale.schoolLogoPrintPlaceholder"
+                :class="[inputClass, 'flex-1 min-w-0']"
+              />
+              <button
+                type="button"
+                :disabled="uploadingField === 'schoolLogoPrintUrl'"
+                class="shrink-0 flex items-center gap-1.5 px-4 py-2.5 bg-primary-hover hover:bg-primary text-text-primary text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="triggerLogoUpload('schoolLogoPrintUrl')"
+              >
+                <template v-if="uploadingField === 'schoolLogoPrintUrl'">
+                  <AppSpinner :size="14" color="white" />
+                </template>
+                <template v-else>
+                  <Upload :size="14" />
+                </template>
+                {{ locale.uploadImage }}
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -822,6 +886,15 @@
       <!-- OAuth 第三方登录配置 -->
       <OAuthConfigManager v-model="formData" class="lg:col-span-2" />
     </div>
+
+    <!-- 隐藏的图片上传 input -->
+    <input
+      ref="logoFileInput"
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+      class="hidden"
+      @change="handleLogoFileChange"
+    />
   </div>
 </template>
 
@@ -841,7 +914,8 @@ import {
   AlertCircle,
   Palette,
   Star,
-  CalendarRange
+  CalendarRange,
+  Upload
 } from '@lucide/vue'
 import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
 import { useToast } from '~/composables/useToast'
@@ -1053,6 +1127,62 @@ const formData = ref({
 })
 
 const originalData = ref({})
+
+// Logo 图片上传
+const logoFileInput = ref(null)
+const uploadingField = ref('')
+
+const triggerLogoUpload = (field) => {
+  if (uploadingField.value) return
+  uploadingField.value = field
+  logoFileInput.value?.click()
+}
+
+const handleLogoFileChange = async (event) => {
+  const file = event.target.files?.[0]
+  const field = uploadingField.value
+  if (!file || !field) {
+    uploadingField.value = ''
+    event.target.value = ''
+    return
+  }
+
+  try {
+    const uploadForm = new FormData()
+    uploadForm.append('file', file)
+
+    const response = await fetch('/api/admin/upload-image', {
+      method: 'POST',
+      credentials: 'include',
+      body: uploadForm
+    })
+
+    if (!response.ok) {
+      let message = locale.value?.uploadFailed || '上传失败'
+      try {
+        const errorData = await response.json()
+        message = localizeServerError(errorData, message)
+      } catch {
+        // 忽略解析错误，使用默认消息
+      }
+      throw new Error(message)
+    }
+
+    const data = await response.json()
+    if (data?.url) {
+      formData.value[field] = data.url
+      showNotification(locale.value?.uploadSuccess || '上传成功', 'success')
+    } else {
+      throw new Error(locale.value?.uploadFailed || '上传失败')
+    }
+  } catch (error) {
+    console.error('Logo 上传失败:', error)
+    showNotification(error?.message || locale.value?.uploadFailed || '上传失败', 'error')
+  } finally {
+    uploadingField.value = ''
+    event.target.value = ''
+  }
+}
 
 // 当前限额类型和值的快捷访问
 const activeLimitTab = ref('daily')

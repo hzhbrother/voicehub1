@@ -23,6 +23,9 @@ logs
 backups/
 *.backup
 
+# 上传的图片
+public/uploads/
+
 # Misc
 .DS_Store
 .fleet

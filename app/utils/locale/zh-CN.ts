@@ -56,6 +56,9 @@ export const siteConfig = {
   schoolLogoHomeLightPlaceholder: '请输入浅色模式学校 Logo URL',
   schoolLogoPrint: '打印排期 Logo URL (小尺寸)',
   schoolLogoPrintPlaceholder: '请输入打印页学校Logo URL',
+  uploadImage: '上传图片',
+  uploadSuccess: '图片上传成功',
+  uploadFailed: '图片上传失败，请重试',
 
   // 投稿逻辑
   submissionLogic: '投稿逻辑设置',

@@ -49,6 +49,9 @@ export const siteConfig = {
   schoolLogoHomeLightPlaceholder: 'Enter the light-mode school logo URL',
   schoolLogoPrint: 'Print Schedule Logo URL (Small)',
   schoolLogoPrintPlaceholder: 'Enter the print page school logo URL',
+  uploadImage: 'Upload',
+  uploadSuccess: 'Image uploaded successfully',
+  uploadFailed: 'Image upload failed, please retry',
 
   submissionLogic: 'Request Rules',
   enableCollaborative: 'Enable Collaboration',
