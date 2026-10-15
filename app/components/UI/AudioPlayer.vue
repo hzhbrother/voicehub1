@@ -315,6 +315,7 @@ import { useAudioQuality } from '~/composables/useAudioQuality'
 import { useAudioPlayerEnhanced } from '~/composables/useAudioPlayerEnhanced'
 import { usePlayerLayout } from '~/composables/usePlayerLayout'
 import { useMediaSession } from '~/composables/useMediaSession'
+import { useSourceReplaceModal } from '~/composables/useSourceReplaceModal'
 import {
   PLAYER_LAYOUT_MARGIN,
   PLAYER_LAYOUT_MARGIN_MOBILE,
@@ -365,6 +366,7 @@ const sync = useAudioPlayerSync()
 const { getQualityLabel, getQuality, getQualityOptions, saveQuality } = useAudioQuality()
 const enhanced = useAudioPlayerEnhanced()
 const mediaSession = useMediaSession()
+const sourceReplaceModal = useSourceReplaceModal()
 // 播放器布局：固定底部 / 自由拖拽（偏好存本浏览器）
 const {
   position: layoutPosition,
@@ -1050,6 +1052,12 @@ const handleError = async (error) => {
   const switchedSource = await trySwitchPlaybackSource()
   if (switchedSource) {
     return
+  }
+
+  // 同平台所有音源均失败时，弹出跨平台换源弹窗（哔哩哔哩走自身 iframe 兜底，不触发）
+  const songForReplace = activeSong.value
+  if (songForReplace && !isBilibiliSong(songForReplace)) {
+    sourceReplaceModal.open(songForReplace)
   }
 
   // 连续失败保护：对任意平台的歌曲在列表播放模式下都计入连续失败计数

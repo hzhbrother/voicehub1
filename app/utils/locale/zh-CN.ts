@@ -1329,6 +1329,22 @@ export const pages = {
     playerDock: '固定到底部',
     freeDragEnabled: '已切换为自由拖拽模式，拖动播放器可移动到任意位置'
   },
+  sourceReplace: {
+    title: '音源解析失败，推荐以下可播放音源',
+    failedSong: '当前歌曲',
+    currentPlatform: '当前音源',
+    searching: '正在跨平台搜索可播放音源…',
+    empty: '未在其他平台找到可播放的相同歌曲',
+    retry: '重新搜索',
+    tip: '优先推荐歌手、标题一致的音源，点击封面可试听',
+    replace: '更换音源',
+    replacing: '更换中…',
+    bottomTip: '更换后将更新歌曲记录，无需重新投稿',
+    close: '关闭',
+    replaceSuccess: '音源更换成功',
+    replaceFailed: '音源更换失败',
+    previewFailed: '试听失败，该音源可能无法播放'
+  },
   songs: {
     actions: {
       loginRequest: '需要登录才能点歌',

@@ -1318,6 +1318,22 @@ export const pages = {
     playerDock: 'Dock to bottom',
     freeDragEnabled: 'Free drag enabled, drag the player anywhere'
   },
+  sourceReplace: {
+    title: 'Source parse failed, here are playable alternatives',
+    failedSong: 'Current song',
+    currentPlatform: 'Current source',
+    searching: 'Searching other platforms for playable sources…',
+    empty: 'No playable match found on other platforms',
+    retry: 'Search again',
+    tip: 'Preferring same artist & title. Tap cover to preview.',
+    replace: 'Replace',
+    replacing: 'Replacing…',
+    bottomTip: 'Replaces the song record; no re-submission needed.',
+    close: 'Close',
+    replaceSuccess: 'Source replaced successfully',
+    replaceFailed: 'Failed to replace source',
+    previewFailed: 'Preview failed; this source may be unplayable'
+  },
   songs: {
     actions: {
       loginRequest: 'Please log in to request a song',

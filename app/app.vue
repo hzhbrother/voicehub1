@@ -14,6 +14,9 @@
     <!-- 弹窗模式的登录条款全局确认弹窗（覆盖所有登录方式） -->
     <LegalConsentModal />
 
+    <!-- 音源解析失败时的跨平台换源弹窗 -->
+    <LazyUISourceReplaceModal />
+
     <!-- 全局音频播放器 - 使用isPlayerVisible控制显示/隐藏 -->
     <LazyUIAudioPlayer
       v-show="isPlayerVisible"
@@ -213,6 +216,29 @@ const setupHarmonyOSListeners = () => {
 onMounted(() => {
   // 初始化鸿蒙系统控制事件监听
   setupHarmonyOSListeners()
+
+  // 监听音源替换成功事件，更新当前播放歌曲并重新解析播放
+  window.addEventListener('source-replaced', (e) => {
+    const detail = e.detail || {}
+    const current = audioPlayer.getCurrentSong().value
+    if (!current || String(current.id) !== String(detail.songId)) return
+
+    const updatedSong = {
+      ...current,
+      musicPlatform: detail.musicPlatform,
+      musicId: detail.musicId,
+      cover: detail.cover || current.cover,
+      title: detail.title || current.title,
+      artist: detail.artist || current.artist,
+      album: detail.album || current.album,
+      duration: detail.duration || current.duration,
+      playUrl: detail.playUrl || null,
+      musicUrl: null, // 清空旧 URL，由播放器重新解析
+      sourceInfo: detail.sourceInfo || null
+    }
+    currentSong.value = updatedSong
+    audioPlayer.playSong(updatedSong)
+  })
 })
 
 // 重要通知仅在登录或会话恢复时检查一次，不做轮询，避免增加服务器负担
