@@ -514,6 +514,16 @@
                       <Trash2 class="w-3.5 h-3.5" />
                     </button>
 
+                    <!-- 非备选池：加入排期按钮（桌面） -->
+                    <button
+                      v-if="activeTab !== 'pool'"
+                      class="hidden lg:flex p-1.5 rounded-lg bg-primary-hover-20 border border-primary-20 text-primary hover:bg-primary-hover-30 transition-colors"
+                      :title="locale.addToSchedule"
+                      @click.stop="addSongToSchedule(song)"
+                    >
+                      <Plus class="w-3.5 h-3.5" />
+                    </button>
+
                     <!-- 移动端加入备选池按钮 -->
                     <button
                       class="flex items-center justify-center lg:hidden p-2 rounded-full bg-info-10 text-info hover:bg-info-20 active:scale-95 transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1880,26 +1890,6 @@
         <Play class="w-3 h-3" />
         <span>{{ locale.playSong }}</span>
       </button>
-      <!-- 加入备选池 / 加入排期：仅桌面端保留在二级菜单，移动端使用卡片按钮 -->
-      <template v-if="contextMenuSide === 'left'">
-        <button
-          v-if="activeTab === 'normal' || activeTab === 'all' || activeTab === 'replay'"
-          class="hidden lg:flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-text-primary hover:bg-bg-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-          :disabled="poolSongIds.has(contextMenuSong.id)"
-          @click="addSingleToPool(contextMenuSong.id); contextMenuOpen = false"
-        >
-          <FolderPlus class="w-3 h-3" />
-          <span>{{ locale.addSingleToPool }}</span>
-        </button>
-        <button
-          v-if="activeTab === 'normal' || activeTab === 'all' || activeTab === 'replay' || activeTab === 'pool'"
-          class="hidden lg:flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-text-primary hover:bg-bg-primary transition-colors"
-          @click="addSongToSchedule(contextMenuSong); contextMenuOpen = false"
-        >
-          <PlaySquare class="w-3 h-3" />
-          <span>{{ locale.addToSchedule }}</span>
-        </button>
-      </template>
       <button
         class="flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-text-primary hover:bg-bg-primary transition-colors"
         @click="openSourceReplace"
