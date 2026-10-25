@@ -55,6 +55,11 @@ let pendingScheduleNavigation: {
 // 预载中的封面图引用，防止加载完成前被回收
 let pendingCoverImage: HTMLImageElement | null = null
 
+// 哔哩哔哩 iframe 浮窗全局状态（点击 B 站歌曲播放时直接弹出，不走音频播放器）
+const bilibiliIframeVisible = ref(false)
+const bilibiliIframeBvid = ref('')
+const bilibiliIframePage = ref(1)
+
 export function useAudioPlayer() {
   const { audioPlayer: audioPlayerLocale } = useLocale()
 
@@ -635,6 +640,19 @@ export function useAudioPlayer() {
     return readonly(currentPlaylist)
   }
 
+  // 打开哔哩哔哩 iframe 浮窗
+  const openBilibiliIframe = (bvid: string, page = 1) => {
+    if (!bvid) return
+    bilibiliIframeBvid.value = bvid
+    bilibiliIframePage.value = page || 1
+    bilibiliIframeVisible.value = true
+  }
+
+  // 关闭哔哩哔哩 iframe 浮窗
+  const closeBilibiliIframe = () => {
+    bilibiliIframeVisible.value = false
+  }
+
   // 获取当前播放列表索引
   const getCurrentPlaylistIndex = () => {
     return readonly(currentPlaylistIndex)
@@ -714,6 +732,11 @@ export function useAudioPlayer() {
     hasPrevious,
     prefetchNextSong,
     getCurrentPlaylist,
-    getCurrentPlaylistIndex
+    getCurrentPlaylistIndex,
+    bilibiliIframeVisible: readonly(bilibiliIframeVisible),
+    bilibiliIframeBvid: readonly(bilibiliIframeBvid),
+    bilibiliIframePage: readonly(bilibiliIframePage),
+    openBilibiliIframe,
+    closeBilibiliIframe
   }
 }

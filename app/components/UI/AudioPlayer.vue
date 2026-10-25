@@ -277,10 +277,10 @@
     <!-- 哔哩哔哩 iframe 预览模态 -->
     <ClientOnly>
       <BilibiliIframeModal
-        :show="showBilibiliIframe"
-        :bvid="activeSong?.musicId?.split(':')[0]"
-        :page="activeSong?.musicId?.split(':')[2] ? parseInt(activeSong.musicId.split(':')[2]) : 1"
-        @close="showBilibiliIframe = false"
+        :show="sync.globalAudioPlayer.bilibiliIframeVisible.value"
+        :bvid="sync.globalAudioPlayer.bilibiliIframeBvid.value"
+        :page="sync.globalAudioPlayer.bilibiliIframePage.value"
+        @close="sync.globalAudioPlayer.closeBilibiliIframe()"
       />
     </ClientOnly>
 
@@ -391,7 +391,6 @@ const showFullscreenLyrics = ref(false)
 const showQualitySettings = ref(false)
 const coverError = ref(false)
 const useAppleMusicStyle = ref(true) // 默认使用Apple Music风格
-const showBilibiliIframe = ref(false) // 显示哔哩哔哩 iframe 预览
 
 // 时长显示模式：'remaining' 显示剩余时长，'total' 显示总时长
 const timeDisplayMode = ref('remaining')
@@ -1495,17 +1494,10 @@ const openBilibiliVideo = () => {
   const song = activeSong.value
   if (!song) return
 
-  // 如果播放器有错误，显示 iframe 预览
-  if (control.hasError.value) {
-    showBilibiliIframe.value = true
-    return
-  }
-
-  // 否则在新窗口打开
-  const url = getBilibiliUrl(song)
-  if (url && url !== '#') {
-    window.open(url, '_blank')
-  }
+  // 优先弹出 iframe 浮窗预览
+  const parts = String(song.musicId || '').split(':')
+  const page = parts.length >= 3 ? parseInt(parts[2]) || 1 : 1
+  sync.globalAudioPlayer.openBilibiliIframe(parts[0], page)
 }
 
 const handleLyricSeek = async (time) => {

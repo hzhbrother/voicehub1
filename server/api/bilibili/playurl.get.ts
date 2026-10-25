@@ -9,15 +9,20 @@ import { createApiError } from '~~/server/utils/apiError'
 import { SERVER_ERROR_CODES } from '~~/server/config/constants'
 import { getClientIP } from '~~/server/utils/ip-utils'
 
-interface NoRefererPlayUrlRes {
+interface DashAudioItem {
+  id: number
+  baseUrl: string
+  bandwidth: number
+}
+
+interface PlayUrlRes {
   code: number
   message: string
   data: {
-    durl: [
-      {
-        url: string
-      }
-    ]
+    durl?: { url: string }[]
+    dash?: {
+      audio?: DashAudioItem[]
+    }
   }
 }
 
@@ -58,7 +63,7 @@ export default defineEventHandler(async (event) => {
         timeout: 10000
       })
 
-      if (!resp1?.data?.pages?.[0]?.cid) {
+      if (resp1?.code !== 0 || !resp1?.data?.pages?.[0]?.cid) {
         console.error('[Bilibili] CID 获取失败，响应:', JSON.stringify(resp1).slice(0, 300))
         // 降级：去掉 Cookie 重试，部分场景 Cookie 反而触发风控
         try {
@@ -75,7 +80,7 @@ export default defineEventHandler(async (event) => {
             finalCid = fallback.data.pages[0].cid
           } else {
             console.error('[Bilibili] 降级请求仍无 CID，响应:', JSON.stringify(fallback).slice(0, 300))
-            throw new Error('获取 CID 失败')
+            throw new Error(fallback?.message || '获取 CID 失败')
           }
         } catch (fallbackErr: any) {
           throw new Error(`获取 CID 失败: ${fallbackErr?.message || '未知错误'}`)
@@ -85,10 +90,10 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // 使用 platform=html5 参数绕过严格防盗链验证（允许前端使用 referrerpolicy="no-referrer"）
     const target_url2 = 'https://api.bilibili.com/x/player/playurl'
 
-    const resp2 = await $fetch<NoRefererPlayUrlRes>(target_url2, {
+    // 优先使用 fnval=1（progressive，durl 直链，浏览器 <audio> 兼容性最好）
+    const resp2 = await $fetch<PlayUrlRes>(target_url2, {
       method: 'GET',
       params: {
         fnval: 1,
@@ -101,14 +106,44 @@ export default defineEventHandler(async (event) => {
       timeout: 10000
     })
 
+    if (resp2.code !== 0) {
+      throw new Error(`B站接口返回错误 ${resp2.code}: ${resp2.message || '未知错误'}`)
+    }
+
+    // progressive 直链
     if (resp2.data?.durl?.length > 0) {
       const url = resp2.data.durl[0].url
       return { url, pay: false }
-    } else {
-      throw new Error(`获取歌曲链接失败: ${resp2.message || '未知错误'}`)
     }
+
+    // 回退 fnval=16（DASH），取码率最高的音频流
+    const respDash = await $fetch<PlayUrlRes>(target_url2, {
+      method: 'GET',
+      params: {
+        fnval: 16,
+        platform: 'html5',
+        high_quality: 1,
+        bvid,
+        cid: finalCid
+      },
+      headers,
+      timeout: 10000
+    })
+
+    if (respDash.code !== 0) {
+      throw new Error(`B站 DASH 接口返回错误 ${respDash.code}: ${respDash.message || '未知错误'}`)
+    }
+
+    const audios = respDash.data?.dash?.audio || []
+    if (audios.length > 0) {
+      const best = audios.reduce((a, b) => (a.bandwidth > b.bandwidth ? a : b))
+      return { url: best.baseUrl, pay: false }
+    }
+
+    console.error('[Bilibili] 无可用音频流，progressive 响应:', JSON.stringify(resp2).slice(0, 300))
+    throw new Error('视频无可用音频流（可能为付费/地区限制/仅画面）')
   } catch (error: any) {
-    console.error('Bilibili playurl error:', error)
+    console.error('[Bilibili] playurl error:', error?.message || error)
     throw createApiError(500, SERVER_ERROR_CODES.BILIBILI_PLAYURL_FAILED, error.message || '获取 Bilibili 音频链接失败')
   }
 })

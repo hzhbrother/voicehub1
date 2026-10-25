@@ -42,6 +42,14 @@ export const useSongPlayer = () => {
     queueSource?: (Song | PlayableSong)[],
     context?: SchedulePlaybackContext
   ) => {
+    // B站歌曲直接弹出视频浮窗，不走底部音频播放器
+    if (isBilibiliSong(song)) {
+      const parts = String(song.musicId || '').split(':')
+      const page = parts.length >= 3 ? parseInt(parts[2]) || 1 : 1
+      audioPlayer.openBilibiliIframe(parts[0], page)
+      return
+    }
+
     const item = context?.items[context.index]
     if (context && item && audioPlayer.isCurrentScheduleItem(item, context.source)) {
       if (audioPlayer.getPlayingStatus().value) {
