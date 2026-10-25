@@ -514,16 +514,6 @@
                       <Trash2 class="w-3.5 h-3.5" />
                     </button>
 
-                    <!-- 非备选池：加入排期按钮（桌面） -->
-                    <button
-                      v-if="activeTab !== 'pool'"
-                      class="hidden lg:flex p-1.5 rounded-lg bg-primary-hover-20 border border-primary-20 text-primary hover:bg-primary-hover-30 transition-colors"
-                      :title="locale.addToSchedule"
-                      @click.stop="addSongToSchedule(song)"
-                    >
-                      <Plus class="w-3.5 h-3.5" />
-                    </button>
-
                     <!-- 移动端加入备选池按钮 -->
                     <button
                       class="flex items-center justify-center lg:hidden p-2 rounded-full bg-info-10 text-info hover:bg-info-20 active:scale-95 transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1891,13 +1881,6 @@
         <span>{{ locale.playSong }}</span>
       </button>
       <button
-        class="hidden lg:flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-info hover:bg-info-10 transition-colors"
-        @click="menuAddToPool"
-      >
-        <FolderPlus class="w-3 h-3" />
-        <span>{{ locale.addSingleToPool }}</span>
-      </button>
-      <button
         v-if="contextMenuSide !== 'right'"
         class="hidden lg:flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-primary hover:bg-primary-hover-20 transition-colors"
         @click="menuAddToSchedule"
@@ -2442,12 +2425,6 @@ const closeContextMenu = () => { contextMenuOpen.value = false }
 // 右键菜单：统一取出歌曲本体（右侧排期项是 schedule 对象，含 .song）
 const getContextMenuSong = () =>
   contextMenuSide.value === 'right' ? contextMenuSong.value?.song : contextMenuSong.value
-
-const menuAddToPool = () => {
-  const song = getContextMenuSong()
-  contextMenuOpen.value = false
-  if (song?.id) addSingleToPool(song.id)
-}
 
 const menuAddToSchedule = () => {
   const song = getContextMenuSong()
