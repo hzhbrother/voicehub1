@@ -1940,6 +1940,7 @@ export const useMusicSources = () => {
       }
 
       // 逐个尝试音源
+      let lastSourceError: string | null = null
       for (const { source, type } of sourcesToTry) {
         if (options?.excludeSources?.includes(source.id)) {
           continue
@@ -2142,15 +2143,19 @@ export const useMusicSources = () => {
               }
             }
           } else {
-            // 未返回有效链接，继续尝试下一个音源
+            lastSourceError = `音源 ${source.id} 未返回有效播放链接`
           }
         } catch (error: any) {
-          // 当前音源获取失败，继续尝试下一个音源
-          // 继续尝试下一个音源
+          const msg = error?.data?.message || error?.message || String(error)
+          console.warn(`[getSongUrl] 音源 ${source.id} 获取失败:`, msg)
+          lastSourceError = msg
         }
       }
 
-      return { success: false, error: '所有音源均无法获取有效的播放链接' }
+      return {
+        success: false,
+        error: lastSourceError || '所有音源均无法获取有效的播放链接'
+      }
     } catch (error: any) {
       return { success: false, error: error?.message || '未知错误' }
     }

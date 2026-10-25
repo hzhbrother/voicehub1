@@ -1891,6 +1891,21 @@
         <span>{{ locale.playSong }}</span>
       </button>
       <button
+        class="hidden lg:flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-info hover:bg-info-10 transition-colors"
+        @click="menuAddToPool"
+      >
+        <FolderPlus class="w-3 h-3" />
+        <span>{{ locale.addSingleToPool }}</span>
+      </button>
+      <button
+        v-if="contextMenuSide !== 'right'"
+        class="hidden lg:flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-primary hover:bg-primary-hover-20 transition-colors"
+        @click="menuAddToSchedule"
+      >
+        <Plus class="w-3 h-3" />
+        <span>{{ locale.addToSchedule }}</span>
+      </button>
+      <button
         class="flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-text-primary hover:bg-bg-primary transition-colors"
         @click="openSourceReplace"
       >
@@ -2424,11 +2439,27 @@ const openContextMenu = (e, side, song) => {
 }
 const closeContextMenu = () => { contextMenuOpen.value = false }
 
+// 右键菜单：统一取出歌曲本体（右侧排期项是 schedule 对象，含 .song）
+const getContextMenuSong = () =>
+  contextMenuSide.value === 'right' ? contextMenuSong.value?.song : contextMenuSong.value
+
+const menuAddToPool = () => {
+  const song = getContextMenuSong()
+  contextMenuOpen.value = false
+  if (song?.id) addSingleToPool(song.id)
+}
+
+const menuAddToSchedule = () => {
+  const song = getContextMenuSong()
+  contextMenuOpen.value = false
+  if (song) addSongToSchedule(song)
+}
+
 // 换源：右侧排期卡片的菜单项拿到的是 schedule 对象，需取内层 song
 const showSourceReplaceModal = ref(false)
 const sourceReplaceSong = ref(null)
 const openSourceReplace = () => {
-  const song = contextMenuSide.value === 'right' ? contextMenuSong.value?.song : contextMenuSong.value
+  const song = getContextMenuSong()
   contextMenuOpen.value = false
   if (!song?.id) return
   sourceReplaceSong.value = song
