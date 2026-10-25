@@ -2128,6 +2128,9 @@ export const useMusicSources = () => {
             // 播放端已确认该地址无效时跳过，继续尝试下一个音源
             if (isPlaybackUrlInvalid(url)) {
               console.warn(`[getSongUrl] 音源 ${source.id} 返回已知无效地址，跳过`)
+            } else if (source.id === 'bilibili') {
+              // B 站直链服务端已取到可用 durl，跳过浏览器时长校验，避免批量解析时被 CDN 限流误判无效
+              return { success: true, url, source: source.id, actualQuality }
             } else {
               // 验证播放链接
               const validation = await validatePlayUrl(url)
