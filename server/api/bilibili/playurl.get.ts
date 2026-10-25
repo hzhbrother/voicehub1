@@ -1,11 +1,11 @@
 /**
  * Bilibili 播放链接获取接口
- * 代码参考 https://github.com/rio4raki/Bilibili-audio-extraction 优化
- * 采用 platform=html5 获取对浏览器 <audio> 标签兼容性最好的直链
+ * 优先 fnval=1 直链，失败回退 fnval=16 DASH，再回退 WBI 签名接口
  */
 import { defineEventHandler, getQuery } from 'h3'
 import { createApiError } from '~~/server/utils/apiError'
 import { SERVER_ERROR_CODES } from '~~/server/config/constants'
+import { getBilibiliWbiKeys, signBilibiliWbiRequest } from '~~/server/utils/bilibiliWbi'
 
 interface DashAudioItem {
   id: number
@@ -24,12 +24,23 @@ interface PlayUrlRes {
   }
 }
 
-// 与搜索接口保持一致的请求头，不转发客户端 IP（海外服务器转发易触发风控）
 const BILIBILI_HEADERS: Record<string, string> = {
   Cookie: 'buvid3=0',
   Referer: 'https://www.bilibili.com/',
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
+
+// 安全调用 $fetch，即使 HTTP 非 2xx 也返回响应体，避免 ofetch 抛错丢失 B 站错误码
+async function bilibiliFetch<T = any>(url: string, opts: Record<string, any>): Promise<T> {
+  try {
+    return await $fetch<T>(url, opts)
+  } catch (err: any) {
+    // ofetch 在非 2xx 时抛 FetchError，data 字段含响应体
+    const data = err?.data || err?.response?._data
+    if (data) return data as T
+    throw err
+  }
 }
 
 export default defineEventHandler(async (event) => {
@@ -45,7 +56,7 @@ export default defineEventHandler(async (event) => {
     let finalCid = cid
 
     if (!finalCid) {
-      const resp1: any = await $fetch('https://api.bilibili.com/x/web-interface/view', {
+      const resp1: any = await bilibiliFetch('https://api.bilibili.com/x/web-interface/view', {
         method: 'GET',
         params: { bvid },
         headers: BILIBILI_HEADERS,
@@ -56,21 +67,22 @@ export default defineEventHandler(async (event) => {
       if (resp1?.code === 0 && resp1?.data?.pages?.[0]?.cid) {
         finalCid = resp1.data.pages[0].cid
       } else {
-        console.error('[Bilibili] CID 获取失败，code:', resp1?.code, 'msg:', resp1?.message)
+        console.error('[Bilibili] CID 获取失败，bvid:', bvid, 'code:', resp1?.code, 'msg:', resp1?.message)
         throw new Error(resp1?.message || `获取 CID 失败（code=${resp1?.code}）`)
       }
     }
 
-    // 优先 fnval=1（progressive 直链，<audio> 兼容性最好）
-    const resp2 = await $fetch<PlayUrlRes>('https://api.bilibili.com/x/player/playurl', {
+    const baseParams = {
+      platform: 'html5',
+      high_quality: 1,
+      bvid,
+      cid: finalCid
+    }
+
+    // 1. fnval=1 直链
+    const resp2 = await bilibiliFetch<PlayUrlRes>('https://api.bilibili.com/x/player/playurl', {
       method: 'GET',
-      params: {
-        fnval: 1,
-        platform: 'html5',
-        high_quality: 1,
-        bvid,
-        cid: finalCid
-      },
+      params: { ...baseParams, fnval: 1 },
       headers: BILIBILI_HEADERS,
       timeout: 10000,
       retry: false
@@ -80,37 +92,63 @@ export default defineEventHandler(async (event) => {
       return { url: resp2.data.durl[0].url, pay: false }
     }
 
-    if (resp2.code !== 0) {
-      console.error('[Bilibili] playurl fnval=1 错误，code:', resp2.code, 'msg:', resp2.message)
-    }
-
-    // 回退 fnval=16（DASH），取码率最高的音频流
-    const respDash = await $fetch<PlayUrlRes>('https://api.bilibili.com/x/player/playurl', {
+    // 2. fnval=16 DASH
+    const respDash = await bilibiliFetch<PlayUrlRes>('https://api.bilibili.com/x/player/playurl', {
       method: 'GET',
-      params: {
-        fnval: 16,
-        platform: 'html5',
-        high_quality: 1,
-        bvid,
-        cid: finalCid
-      },
+      params: { ...baseParams, fnval: 16 },
       headers: BILIBILI_HEADERS,
       timeout: 10000,
       retry: false
     })
 
-    if (respDash.code !== 0) {
-      throw new Error(`B站接口返回错误 ${respDash.code}: ${respDash.message || '未知错误'}`)
+    if (respDash.code === 0) {
+      const audios = respDash.data?.dash?.audio || []
+      if (audios.length > 0) {
+        const best = audios.reduce((a, b) => (a.bandwidth > b.bandwidth ? a : b))
+        return { url: best.baseUrl, pay: false }
+      }
     }
 
-    const audios = respDash.data?.dash?.audio || []
-    if (audios.length > 0) {
-      const best = audios.reduce((a, b) => (a.bandwidth > b.bandwidth ? a : b))
-      return { url: best.baseUrl, pay: false }
+    // 3. WBI 签名接口回退（部分视频需要签名才能取到播放地址）
+    try {
+      const wbiKey = await getBilibiliWbiKeys()
+      const signedQuery = signBilibiliWbiRequest(
+        { ...baseParams, fnval: 16 },
+        wbiKey
+      )
+      const respWbi = await bilibiliFetch<PlayUrlRes>(
+        `https://api.bilibili.com/x/player/wbi/playurl?${signedQuery}`,
+        {
+          method: 'GET',
+          headers: BILIBILI_HEADERS,
+          timeout: 10000,
+          retry: false
+        }
+      )
+
+      if (respWbi.code === 0) {
+        if (respWbi.data?.durl?.length > 0) {
+          return { url: respWbi.data.durl[0].url, pay: false }
+        }
+        const audios = respWbi.data?.dash?.audio || []
+        if (audios.length > 0) {
+          const best = audios.reduce((a, b) => (a.bandwidth > b.bandwidth ? a : b))
+          return { url: best.baseUrl, pay: false }
+        }
+      }
+
+      console.error('[Bilibili] WBI 回退失败，code:', respWbi?.code, 'msg:', respWbi?.message)
+    } catch (wbiErr: any) {
+      console.error('[Bilibili] WBI 签名请求异常:', wbiErr?.message || wbiErr)
     }
 
-    console.error('[Bilibili] 无可用音频流，bvid:', bvid)
-    throw new Error('视频无可用音频流（可能为付费/地区限制/仅画面）')
+    // 汇总失败原因
+    const codes = [resp2?.code, respDash?.code].filter((c) => c !== undefined && c !== 0)
+    const msgs = [resp2?.message, respDash?.message].filter(Boolean)
+    console.error('[Bilibili] 所有取链方式均失败，bvid:', bvid, 'codes:', codes, 'msgs:', msgs)
+    throw new Error(
+      `B站取链失败（codes: ${codes.join('/') || 'unknown'}，msgs: ${msgs.join('; ') || '无可用音频流'}）`
+    )
   } catch (error: any) {
     const message = error?.message || '获取 Bilibili 音频链接失败'
     console.error('[Bilibili] playurl error:', message)
