@@ -152,6 +152,18 @@
           </button>
         </div>
 
+        <!-- 专题筛选 -->
+        <div v-if="activeTopics.length > 0" class="topic-filter">
+          <select
+            v-model="activeTopicId"
+            class="topic-select"
+            @change="onTopicChange"
+          >
+            <option :value="null">全部专题</option>
+            <option v-for="t in activeTopics" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+        </div>
+
         <div class="search-actions">
           <div class="search-box">
             <input
@@ -370,6 +382,12 @@
                     <Icon :size="14" name="message-circle" />
                   </button>
                 </h3>
+                <!-- 专题徽标 -->
+                <div v-if="song.topicId && topicNameMap[song.topicId]" class="mt-1">
+                  <span class="topic-badge" :title="`专题：${topicNameMap[song.topicId]}`">
+                    {{ topicNameMap[song.topicId] }}
+                  </span>
+                </div>
                 <div class="song-meta">
                   <span
                     :title="
@@ -587,6 +605,14 @@ const sortBy = ref('popularity')
 const sortOrder = ref('desc') // 'desc' for newest first, 'asc' for oldest first
 const searchQuery = ref('') // 搜索查询
 const activeTab = ref('all') // 默认显示全部投稿
+// 专题筛选
+const activeTopics = ref([])
+const activeTopicId = ref(null)
+const topicNameMap = computed(() => {
+  const map = {}
+  activeTopics.value.forEach((t) => { map[t.id] = t.name })
+  return map
+})
 const auth = useAuth()
 const isAuthenticated = computed(() => auth && auth.isAuthenticated && auth.isAuthenticated.value)
 
@@ -639,7 +665,8 @@ const buildListQuery = () => ({
   scope: activeTab.value === 'mine' ? 'mine' : activeTab.value === 'replays' ? 'replays' : '',
   search: searchQuery.value.trim(),
   sortBy: sortBy.value === 'date' ? 'createdAt' : 'votes',
-  sortOrder: sortOrder.value
+  sortOrder: sortOrder.value,
+  topicId: activeTopicId.value || ''
 })
 
 let lastEmittedQueryKey = ''
@@ -657,6 +684,11 @@ const emitListQuery = (overrides = {}) => {
 const emitListQueryDebounced = debounce((overrides = {}) => {
   emitListQuery(overrides)
 }, 300)
+
+const onTopicChange = () => {
+  currentPage.value = 1
+  emitListQuery({ page: 1 })
+}
 
 const handlePageChange = (page) => {
   emitListQuery({ page })
@@ -724,6 +756,10 @@ onMounted(async () => {
   }
 
   isDataLoading.value = true
+  // 加载活跃专题
+  try {
+    activeTopics.value = await $fetch('/api/topics')
+  } catch (e) { /* 忽略 */ }
   try {
     // 首先获取当前学期
     await fetchCurrentSemester()
@@ -881,6 +917,11 @@ const clientDisplayedSongs = computed(() => {
     result = result.filter((song) => isMySong(song))
   } else if (activeTab.value === 'replays') {
     result = result.filter((song) => song.replayRequested)
+  }
+
+  // 应用专题过滤器
+  if (activeTopicId.value) {
+    result = result.filter((song) => song.topicId === activeTopicId.value)
   }
 
   // 应用搜索过滤器
@@ -2495,6 +2536,38 @@ const vRipple = {
   flex-shrink: 0; /* 防止标签被压缩 */
   align-self: center; /* 确保垂直居中 */
 }
+
+.topic-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(139, 92, 246, 0.14);
+  color: #8b5cf6;
+  white-space: nowrap;
+}
+
+.topic-filter {
+  display: flex;
+  align-items: center;
+}
+
+.topic-select {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.topic-select:focus {
+  border-color: var(--primary);
+}
+
 
 .replay-tag {
   display: inline-flex;

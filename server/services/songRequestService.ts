@@ -8,6 +8,7 @@ import {
   cardCodes,
   songCollaborators,
   songs,
+  topics,
   users
 } from '~/drizzle/db'
 import { and, eq, gte, gt, inArray, lt, lte, or, sql } from 'drizzle-orm'
@@ -66,7 +67,11 @@ const songRequestBodySchema = z.object({
     z.number().int().positive('播出时段 ID 无效').nullable()
   ).optional(),
   cardCode: z.string().trim().max(100, 'CARD_CODE_TOO_LONG').optional().nullable(),
-  collaborators: z.array(z.union([z.string(), z.number()])).max(20, '联合投稿人不能超过20个').optional()
+  collaborators: z.array(z.union([z.string(), z.number()])).max(20, '联合投稿人不能超过20个').optional(),
+  topicId: z.preprocess(
+    (value) => value === null || value === undefined || value === '' ? null : Number(value),
+    z.number().int().positive('专题 ID 无效').nullable()
+  ).optional()
 })
 
 export async function requestSongForUser(event: any, user: SongRequestUser, body: any) {
@@ -476,6 +481,49 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
         }
       }
 
+      // 专题投稿校验：存在 topicId 时校验专题有效性与名额
+      let selectedTopic: typeof topics.$inferSelect | null = null
+      if (requestBody.topicId) {
+        const topicResult = await tx
+          .select()
+          .from(topics)
+          .where(eq(topics.id, requestBody.topicId))
+          .limit(1)
+        selectedTopic = topicResult[0] || null
+
+        if (!selectedTopic || !selectedTopic.enabled) {
+          throw createError({ statusCode: 400, message: '所选专题不存在或已关闭' })
+        }
+
+        // 名额校验：expected > 0 时检查 accepted < expected
+        if (selectedTopic.expected > 0 && selectedTopic.accepted >= selectedTopic.expected) {
+          throw createError({ statusCode: 403, message: '该专题投稿名额已满' })
+        }
+
+        // 扣减专题名额
+        if (selectedTopic.expected > 0) {
+          const topicUpdateResult = await tx
+            .update(topics)
+            .set({ accepted: sql`${topics.accepted} + 1` })
+            .where(
+              and(
+                eq(topics.id, selectedTopic.id),
+                lt(topics.accepted, selectedTopic.expected)
+              )
+            )
+            .returning()
+          if (topicUpdateResult.length === 0) {
+            throw createError({ statusCode: 403, message: '该专题投稿名额已满' })
+          }
+        } else {
+          // 不限名额时直接累加
+          await tx
+            .update(topics)
+            .set({ accepted: sql`${topics.accepted} + 1` })
+            .where(eq(topics.id, selectedTopic.id))
+        }
+      }
+
       if (hitRequestTime) {
         const latestRequestTimeResult = await tx
           .select()
@@ -543,7 +591,8 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
           submissionNotePublic,
           submissionAnonymous,
           submissionNotePublicStatus,
-          hitRequestId: hitRequestTime?.id || null
+          hitRequestId: hitRequestTime?.id || null,
+          topicId: requestBody.topicId || null
         })
         .returning()
       const newSong = songResult[0]

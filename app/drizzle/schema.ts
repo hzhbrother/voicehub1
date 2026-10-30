@@ -118,6 +118,8 @@ export const songs = pgTable('Song', {
   submissionNotePublicStatus: text('submissionNotePublicStatus'),
   hitRequestId: integer(),
   cardCodeId: integer('cardCodeId').references(() => cardCodes.id, { onDelete: 'set null' }),
+  // 专题投稿：用户主动选择归属的专题，null 表示普通投稿
+  topicId: integer('topicId'),
 }, (table) => [
   index('song_card_code_id_idx').on(table.cardCodeId),
   index('song_semester_created_at_idx').on(table.semester, table.createdAt),
@@ -554,6 +556,24 @@ export const requestTimes = pgTable("RequestTime", {
   past: boolean().default(false).notNull(),
 });
 
+// 专题投稿表
+export const topics = pgTable("Topic", {
+  id: serial().primaryKey().notNull(),
+  createdAt: timestamp({ precision: 6, mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp({ precision: 6, mode: 'string' }).defaultNow().notNull(),
+  name: text().notNull(),
+  description: text(),
+  cover: text(),
+  startTime: timestamp({ mode: 'string' }),
+  endTime: timestamp({ mode: 'string' }),
+  enabled: boolean().default(true).notNull(),
+  sortOrder: integer().default(0).notNull(),
+  // 名额上限，0 表示不限
+  expected: bigint({ mode: "number" }).default(0).notNull(),
+  // 已收数量
+  accepted: bigint({ mode: "number" }).default(0).notNull(),
+});
+
 // 联合投稿人表
 export const songCollaborators = pgTable('song_collaborators', {
     id: uuid('id').primaryKey().defaultRandom(),
@@ -840,6 +860,8 @@ export type NewSongReplayRequest = typeof songReplayRequests.$inferInsert;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type NewEmailTemplate = typeof emailTemplates.$inferInsert;export type RequestTime = typeof requestTimes.$inferSelect;
 export type NewRequestTime = typeof requestTimes.$inferInsert;
+export type Topic = typeof topics.$inferSelect;
+export type NewTopic = typeof topics.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
 export type NewUserIdentity = typeof userIdentities.$inferInsert;
 // 卡密表

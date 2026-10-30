@@ -210,6 +210,7 @@ const loadBasicSongs = async (
     ${ctes.length ? `WITH ${ctes.join(',')}` : ''}
     SELECT s.id, s.title, s.artist, s.played, s."playedAt", s.semester,
       s."createdAt", s."updatedAt", s.cover, s."musicPlatform", s."musicId",
+      s."topicId",
       ${hasSubmissionAnonymous ? 's."submissionAnonymous"' : 'false'} AS "submissionAnonymous",
       u.id AS "requesterId", u.name AS "requesterName", u.grade AS "requesterGrade", u.class AS "requesterClass",
       ${hasVote ? 'COALESCE(vc.vote_count, 0)' : '0'} AS "voteCount",
@@ -238,6 +239,7 @@ const loadBasicSongs = async (
     semester: row.semester || null, createdAt: row.createdAt, updatedAt: row.updatedAt,
     requestedAt: formatDateTime(row.createdAt), scheduled: row.scheduled === true,
     cover: row.cover || null, musicPlatform: row.musicPlatform || null, musicId: row.musicId || null,
+    topicId: row.topicId ? Number(row.topicId) : null,
     cardCodeId: null,
     durationSeconds: null, playUrl: null,
     replayRequested: row.replayRequested === true, replayRequestCount: row.replayRequested === true ? 1 : 0,
@@ -289,6 +291,7 @@ export default defineEventHandler(async (event) => {
     const semester = String(query.semester || '').trim()
     const grade = String(query.grade || '').trim()
     const scope = String(query.scope || '').trim()
+    const topicId = parseInt(String(query.topicId || ''), 10)
     // 投稿页/相似歌曲检查只需要匹配与状态字段，不拉取完整歌曲详情
     const compact = ['1', 'true'].includes(String(query.compact || '').toLowerCase())
     const sortBy = String(query.sortBy || 'createdAt')
@@ -340,6 +343,9 @@ export default defineEventHandler(async (event) => {
         list.push(
           `EXISTS (SELECT 1 FROM song_replay_requests rrp WHERE rrp.song_id = s.id AND rrp.user_id = ${bind(user.id)})`
         )
+      }
+      if (Number.isFinite(topicId) && topicId > 0) {
+        list.push(`s."topicId" = ${bind(topicId)}`)
       }
       return list
     }

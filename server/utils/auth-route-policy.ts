@@ -48,7 +48,8 @@ export const PUBLIC_API_EXACT_ROUTES: readonly RoutePolicy[] = [
   { path: '/api/music/resolve-url', methods: ['POST'] },
   { path: '/api/music/state', methods: ['POST'] },
   { path: '/api/music/websocket', methods: GET_METHODS },
-  { path: '/api/sys/time', methods: GET_METHODS }
+  { path: '/api/sys/time', methods: GET_METHODS },
+  { path: '/api/topics', methods: GET_METHODS }
 ]
 
 // /api/music-source-plugins/* 不在公开 API 白名单中，要求登录态。

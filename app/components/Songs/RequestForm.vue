@@ -428,6 +428,50 @@
               </div>
             </div>
 
+            <!-- 专题投稿选择 -->
+            <div v-if="activeTopics.length > 0" class="form-row mb-4">
+              <div class="form-group">
+                <div
+                  class="rounded-xl border border-border bg-bg-secondary/40 p-3"
+                >
+                  <label class="custom-checkbox-wrapper mb-2">
+                    <input
+                      v-model="joinTopic"
+                      type="checkbox"
+                      class="custom-checkbox-input"
+                    />
+                    <span class="custom-checkbox-box">
+                      <svg
+                        class="custom-checkbox-icon"
+                        viewBox="0 0 12 10"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <path
+                          d="M1 5L4.5 8.5L11 1.5"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="custom-checkbox-text text-[13px] font-bold">参与本期专题投稿</span>
+                  </label>
+                  <div v-if="joinTopic" class="mt-2">
+                    <CustomSelect
+                      v-model="selectedTopicId"
+                      :options="activeTopics"
+                      label="选择专题"
+                      label-key="name"
+                      value-key="id"
+                      placeholder="请选择专题"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div
               v-if="enableSubmissionRemarks || cardCodeEnabled"
               class="form-row submission-meta-row"
@@ -1610,6 +1654,15 @@ const preferredPlayTimeId = ref('')
 const submissionNote = ref('')
 const submissionNotePublic = ref(true)
 const submissionAnonymous = ref(false)
+// 专题投稿
+const activeTopics = ref([])
+const selectedTopicId = ref(null)
+const joinTopic = ref(false)
+watch(joinTopic, (val) => {
+  if (val && !selectedTopicId.value && activeTopics.value.length > 0) {
+    selectedTopicId.value = activeTopics.value[0].id
+  }
+})
 const cardCode = ref('')
 const cardCodeDraft = ref('')
 const showCardCodeModal = ref(false)
@@ -2348,6 +2401,18 @@ const fetchPlayTimes = async () => {
 
 const fileInput = ref(null)
 
+// 获取当前活跃专题
+const fetchActiveTopics = async () => {
+  try {
+    const response = await fetch('/api/topics')
+    if (response.ok) {
+      activeTopics.value = await response.json()
+    }
+  } catch (err) {
+    console.error('获取专题列表失败:', err)
+  }
+}
+
 const checkNeteaseLoginStatus = async () => {
   if (import.meta.client) {
     const cookie = localStorage.getItem('netease_cookie')
@@ -2713,6 +2778,7 @@ onMounted(async () => {
   fetchPlayTimes()
   initSiteConfig()
   fetchSubmissionStatus()
+  fetchActiveTopics()
   // 获取当前学期和所有学期选项
   await Promise.all([fetchCurrentSemester(), fetchSemesterOptions()])
   // 只有在用户已登录时才加载歌曲列表以便检查相似歌曲
@@ -3773,7 +3839,8 @@ const submitSong = async (result, options = {}) => {
       submissionAnonymous: submissionAnonymous.value,
       collaborators: collaborators.value.map((u) => u.id),
       bilibiliCid: bilibiliCid || null,
-      bilibiliPage: bilibiliPage
+      bilibiliPage: bilibiliPage,
+      topicId: joinTopic.value && selectedTopicId.value ? selectedTopicId.value : null
     }
     // 如果用户填写了点歌券，传递给后端
     if (cardCode.value && cardCode.value.trim()) {
@@ -3830,7 +3897,8 @@ const handleSubmit = async () => {
       submissionNote: submissionNote.value.trim() || null,
       submissionNotePublic: submissionNotePublic.value,
       submissionAnonymous: submissionAnonymous.value,
-      collaborators: collaborators.value.map((u) => u.id)
+      collaborators: collaborators.value.map((u) => u.id),
+      topicId: joinTopic.value && selectedTopicId.value ? selectedTopicId.value : null
     }
     if (cardCode.value && cardCode.value.trim()) {
       songData.cardCode = cardCode.value.trim()
@@ -4262,6 +4330,8 @@ const resetForm = () => {
   submissionNote.value = ''
   submissionNotePublic.value = true
   submissionAnonymous.value = false
+  joinTopic.value = false
+  selectedTopicId.value = null
   cardCode.value = ''
   cardCodeDraft.value = ''
   showCardCodeModal.value = false

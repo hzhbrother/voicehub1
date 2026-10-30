@@ -582,7 +582,8 @@ export default defineEventHandler(async (event) => {
               'durationSeconds',
               'submissionNote',
               'submissionNotePublic',
-              'submissionNotePublicStatus'
+              'submissionNotePublicStatus',
+              'topicId'
             ]
             songFields.forEach((field) => {
               if (record.hasOwnProperty(field)) {

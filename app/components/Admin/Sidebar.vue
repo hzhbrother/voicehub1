@@ -136,7 +136,8 @@ import {
   Lock,
   Ticket,
   GraduationCap,
-  Activity
+  Activity,
+  Sparkles
 } from '@lucide/vue'
 import { useLocale } from '~/utils/locale'
 
@@ -204,6 +205,7 @@ const menuGroups = computed(() => [
       { icon: Mail, label: locale.value.menu?.smtpConfig || '推送配置', id: 'smtp-config' },
       { icon: Clock, label: locale.value.menu?.playtimes || '播放时段', id: 'playtimes' },
       { icon: FileEdit, label: locale.value.menu?.requestTimes || '点歌时段', id: 'request-times' },
+      { icon: Sparkles, label: '专题管理', id: 'topics' },
       { icon: BookOpen, label: locale.value.menu?.semesters || '学期管理', id: 'semesters' },
       { icon: Ban, label: locale.value.menu?.blacklist || '黑名单', id: 'blacklist' },
       { icon: Ticket, label: locale.value.menu?.cardCodes || '卡密管理', id: 'card-codes' },
