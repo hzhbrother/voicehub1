@@ -1,6 +1,6 @@
 {
   "id": "23c380e8-db77-45fd-b882-4fc156a26355",
-  "prevId": "c084eff6-1bea-401e-8a59-b51617eeea46",
+  "prevId": "23aecf0e-9e59-44ab-a011-68e82c313f96",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -764,6 +764,287 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.CardCodeAssignment": {
+      "name": "CardCodeAssignment",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "cardCodeId": {
+          "name": "cardCodeId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "codeSnapshot": {
+          "name": "codeSnapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "userNameSnapshot": {
+          "name": "userNameSnapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignedBy": {
+          "name": "assignedBy",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignedByName": {
+          "name": "assignedByName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignedAt": {
+          "name": "assignedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "status": {
+          "name": "status",
+          "type": "card_code_assignment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ASSIGNED'"
+        },
+        "usedAt": {
+          "name": "usedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recycledAt": {
+          "name": "recycledAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recycledBy": {
+          "name": "recycledBy",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recycledByName": {
+          "name": "recycledByName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recycleReason": {
+          "name": "recycleReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failureReason": {
+          "name": "failureReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notifyStatus": {
+          "name": "notifyStatus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'SKIPPED'"
+        },
+        "notifyError": {
+          "name": "notifyError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "card_code_assignment_card_code_id_idx": {
+          "name": "card_code_assignment_card_code_id_idx",
+          "columns": [
+            {
+              "expression": "cardCodeId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "card_code_assignment_active_per_card_unique": {
+          "name": "card_code_assignment_active_per_card_unique",
+          "columns": [
+            {
+              "expression": "cardCodeId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"CardCodeAssignment\".\"status\" = 'ASSIGNED'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "card_code_assignment_user_status_idx": {
+          "name": "card_code_assignment_user_status_idx",
+          "columns": [
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "card_code_assignment_status_assigned_at_idx": {
+          "name": "card_code_assignment_status_assigned_at_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "assignedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "card_code_assignment_assigned_at_idx": {
+          "name": "card_code_assignment_assigned_at_idx",
+          "columns": [
+            {
+              "expression": "assignedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "CardCodeAssignment_cardCodeId_CardCode_id_fk": {
+          "name": "CardCodeAssignment_cardCodeId_CardCode_id_fk",
+          "tableFrom": "CardCodeAssignment",
+          "tableTo": "CardCode",
+          "columnsFrom": [
+            "cardCodeId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "CardCodeAssignment_userId_User_id_fk": {
+          "name": "CardCodeAssignment_userId_User_id_fk",
+          "tableFrom": "CardCodeAssignment",
+          "tableTo": "User",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "CardCodeAssignment_assignedBy_User_id_fk": {
+          "name": "CardCodeAssignment_assignedBy_User_id_fk",
+          "tableFrom": "CardCodeAssignment",
+          "tableTo": "User",
+          "columnsFrom": [
+            "assignedBy"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "CardCodeAssignment_recycledBy_User_id_fk": {
+          "name": "CardCodeAssignment_recycledBy_User_id_fk",
+          "tableFrom": "CardCodeAssignment",
+          "tableTo": "User",
+          "columnsFrom": [
+            "recycledBy"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.CardCodeRedeemLog": {
       "name": "CardCodeRedeemLog",
       "schema": "",
@@ -946,6 +1227,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "assignedTo": {
+          "name": "assignedTo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignedAt": {
+          "name": "assignedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "note": {
           "name": "note",
           "type": "text",
@@ -953,7 +1246,29 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "card_code_assigned_to_status_idx": {
+          "name": "card_code_assigned_to_status_idx",
+          "columns": [
+            {
+              "expression": "assignedTo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "CardCode_lockedBy_User_id_fk": {
           "name": "CardCode_lockedBy_User_id_fk",
@@ -980,6 +1295,19 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
+        },
+        "CardCode_assignedTo_User_id_fk": {
+          "name": "CardCode_assignedTo_User_id_fk",
+          "tableFrom": "CardCode",
+          "tableTo": "User",
+          "columnsFrom": [
+            "assignedTo"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -993,7 +1321,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "card_code_assigned_status_has_holder": {
+          "name": "card_code_assigned_status_has_holder",
+          "value": "CAST(\"CardCode\".\"status\" AS text) <> 'ASSIGNED' OR \"CardCode\".\"assignedTo\" IS NOT NULL"
+        },
+        "card_code_unassigned_status_no_holder": {
+          "name": "card_code_unassigned_status_no_holder",
+          "value": "CAST(\"CardCode\".\"status\" AS text) NOT IN ('AVAILABLE', 'INVALID') OR \"CardCode\".\"assignedTo\" IS NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.collaboration_logs": {
@@ -1816,9 +2153,39 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "weekdays": {
+          "name": "weekdays",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isDefault": {
+          "name": "isDefault",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "play_time_single_default_unique": {
+          "name": "play_time_single_default_unique",
+          "columns": [
+            {
+              "expression": "isDefault",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"PlayTime\".\"isDefault\" = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -2600,6 +2967,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "preferredPlayDate": {
+          "name": "preferredPlayDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2730,6 +3103,13 @@
         },
         "enablePlayTimeSelection": {
           "name": "enablePlayTimeSelection",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "playSlotRequired": {
+          "name": "playSlotRequired",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
@@ -2939,7 +3319,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "default": "'校园广播站'"
+          "default": "'\u6821\u56ed\u5e7f\u64ad\u7ad9'"
         },
         "astrbotEnabled": {
           "name": "astrbotEnabled",
@@ -4002,11 +4382,22 @@
         "GENRE"
       ]
     },
+    "public.card_code_assignment_status": {
+      "name": "card_code_assignment_status",
+      "schema": "public",
+      "values": [
+        "ASSIGNED",
+        "USED",
+        "RECYCLED",
+        "FAILED"
+      ]
+    },
     "public.card_code_status": {
       "name": "card_code_status",
       "schema": "public",
       "values": [
         "AVAILABLE",
+        "ASSIGNED",
         "LOCKED",
         "REDEEMED",
         "INVALID"

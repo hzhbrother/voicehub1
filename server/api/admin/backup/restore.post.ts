@@ -1224,6 +1224,7 @@ export default defineEventHandler(async (event) => {
                           'schoolLogoPrintUrl',
                           'siteDescription',
                           'submissionGuidelines',
+                          'announcement',
                           'icpNumber',
                           'gonganNumber',
                           'showBeianIcon',

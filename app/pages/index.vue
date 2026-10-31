@@ -214,6 +214,16 @@
           </ClientOnly>
         </div>
 
+        <!-- 站点公告栏 -->
+        <div v-if="siteAnnouncement" class="announcement-bar">
+          <div class="announcement-icon">
+            <Icon name="bell-ring" :size="16" />
+          </div>
+          <div class="announcement-content">
+            <span class="announcement-text">{{ siteAnnouncement }}</span>
+          </div>
+        </div>
+
         <!-- 内容区域 -->
         <div class="tab-content-container">
           <ClientOnly>
@@ -875,6 +885,7 @@ const {
   siteTitle,
   description: siteDescription,
   guidelines: submissionGuidelines,
+  announcement: siteAnnouncement,
   icp: icpNumber,
   schoolLogoHomeDisplayUrl
 } = useSiteConfig()
@@ -2548,6 +2559,39 @@ if (
 
 .tabs-row::-webkit-scrollbar {
   display: none;
+}
+
+/* 站点公告栏 */
+.announcement-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--primary-light, rgba(59, 130, 246, 0.1));
+  border: 1px solid var(--primary-border, rgba(59, 130, 246, 0.25));
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  margin: 0.75rem 0;
+  overflow: hidden;
+}
+.announcement-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--primary);
+}
+.announcement-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.announcement-text {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .section-tab {

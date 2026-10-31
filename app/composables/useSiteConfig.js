@@ -46,6 +46,7 @@ const siteConfig = ref({
   schoolLogoPrintUrl: '',
   siteDescription: '',
   submissionGuidelines: '',
+  announcement: '',
   icpNumber: '',
   gonganNumber: '',
   captchaEnabled: false,
@@ -137,6 +138,7 @@ export const useSiteConfig = () => {
         schoolLogoPrintUrl: '',
         siteDescription: '校园广播站点歌系统 - 让你的声音被听见',
         submissionGuidelines: defaultSubmissionGuidelines,
+        announcement: '',
         icpNumber: '',
         gonganNumber: '',
         enableReplayRequests: false,
@@ -191,6 +193,7 @@ export const useSiteConfig = () => {
   const guidelines = computed(
     () => siteConfig.value.submissionGuidelines || defaultSubmissionGuidelines
   )
+  const announcement = computed(() => siteConfig.value.announcement || '')
   const icp = computed(() => siteConfig.value.icpNumber || '')
   const gonganNumber = computed(() => siteConfig.value.gonganNumber || '')
   const showBeianIcon = computed(() => siteConfig.value.showBeianIcon || false)
@@ -311,6 +314,7 @@ export const useSiteConfig = () => {
     schoolLogoPrintDisplayUrl,
     description,
     guidelines,
+    announcement,
     icp,
     gonganNumber,
     showBeianIcon,

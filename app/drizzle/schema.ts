@@ -331,6 +331,7 @@ export const systemSettings = pgTable('SystemSettings', {
   schoolLogoPrintUrl: text('schoolLogoPrintUrl'),
   siteDescription: text('siteDescription'),
   submissionGuidelines: text('submissionGuidelines'),
+  announcement: text('announcement'),
   icpNumber: text('icpNumber'),
   gonganNumber: text('gonganNumber'),
   showBeianIcon: boolean('showBeianIcon').default(false).notNull(),
