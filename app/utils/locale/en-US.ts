@@ -1719,6 +1719,7 @@ export const pages = {
       mobileSearchPlaceholder: 'Search requests...',
       searchPlaceholder: 'Search songs',
       allTopics: 'All Topics',
+      topicFilter: 'Topic',
       tabs: {
         all: 'All Requests',
         mine: 'My Requests',
@@ -1975,6 +1976,8 @@ export const pages = {
         playFailed: 'Playback failed. Please try again later',
         songSelectedMaybeLimited: 'Song selected, but full playback may be unavailable',
         duplicateSong: 'This song is already in the list. Please support it by liking it!',
+        duplicateSubmitWarning: (title: string) =>
+          `"${title}" has already been submitted. This will be a duplicate.`,
         blacklistedSong: (reasons: string) => `This song cannot be requested: ${reasons}`,
         submitFailed: 'Submission failed. Please try again later',
         likeSuccess: 'Liked!',
@@ -2621,6 +2624,9 @@ export const admin = {
       preferredPlayTime: 'Preferred Time (optional)',
       selectPreferredPlayTime: 'Select preferred play time',
       preferredPlayDate: 'Preferred Date',
+      topic: 'Topic (optional)',
+      selectTopic: 'Select topic',
+      noTopic: 'Regular (no topic)',
       submissionNote: 'Song Remark',
       clearNote: 'Clear Remark',
       cancelClearNote: 'Undo Clear',

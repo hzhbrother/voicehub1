@@ -60,8 +60,8 @@
             </button>
 
             <div v-show="settingsOpen" class="options-accordion-content">
-            <!-- 一、播出日期 + 时段（仅在时段选择功能开启时显示） -->
-            <div v-if="slotEnabled" class="options-section">
+            <!-- 一、播出日期 + 时段（时段功能开启且未参与专题投稿时显示） -->
+            <div v-if="effectiveSlotEnabled" class="options-section">
               <div class="options-section-head">
                 <span class="options-section-title">
                   <Icon :size="14" name="calendar" />
@@ -122,7 +122,7 @@
             <div
               v-if="showNote || showAnonymous || showCardCode"
               class="options-group"
-              :class="{ 'options-group--separated': slotEnabled }"
+              :class="{ 'options-group--separated': effectiveSlotEnabled }"
             >
               <!-- 2.1 投稿留言 / 匿名投稿 -->
               <div v-if="showNote || showAnonymous" class="options-section">
@@ -209,29 +209,8 @@
                   </button>
                 </div>
 
-                <!-- 点歌券下拉：我的点歌券 + 「手动输入券码」同在一个列表里选择 -->
+                <!-- 点歌券：仅支持手动输入单个券码 -->
                 <div class="options-field">
-                  <label class="options-label" for="options-card-code-select">
-                    <span>{{ text.cardCodeSelectLabel }}</span>
-                    <span v-if="myCardCodes.length" class="options-tag">
-                      {{ text.cardCodeMyCodesCount(myCardCodes.length) }}
-                    </span>
-                  </label>
-                  <CustomSelect
-                    :model-value="cardCodeSelection"
-                    :options="cardCodeOptions"
-                    label-key="displayName"
-                    value-key="code"
-                    :placeholder="text.cardCodeSelectPlaceholder"
-                    @update:model-value="handleCardCodeSelect"
-                  />
-                  <p v-if="!myCardCodes.length" class="options-hint">
-                    {{ text.cardCodeNoCodesHint }}
-                  </p>
-                </div>
-
-                <!-- 手动输入：仅在下拉中选中「手动输入券码」后展开 -->
-                <div v-if="showManualInput" class="options-field">
                   <label class="options-label" for="options-card-code">
                     <span>{{ text.cardCodeManualInput }}</span>
                   </label>
@@ -506,11 +485,11 @@ const errorMessage = ref('')
 // 折叠面板：投稿设置、专题投稿默认收起，避免弹窗过高被底部播放器遮挡
 const settingsOpen = ref(false)
 const topicOpen = ref(false)
+// 参与专题投稿时不显示播出时段
+const effectiveSlotEnabled = computed(() => props.slotEnabled && !props.topicJoin)
 const hasSettings = computed(
-  () => props.slotEnabled || props.showNote || props.showAnonymous || props.showCardCode
+  () => effectiveSlotEnabled.value || props.showNote || props.showAnonymous || props.showCardCode
 )
-// 是否主动选中了下拉中的「手动输入券码」（选中后展开输入框）
-const manualCardCodeMode = ref(false)
 
 const minDate = computed(() => props.today || '')
 
@@ -537,58 +516,10 @@ const cardCodeDraftModel = computed({
 
 const noteLength = computed(() => String(props.note ?? '').length)
 
-/** 派发到名下的点歌券下拉项 */
-const myCardCodeOptions = computed(() =>
-  (props.myCardCodes || []).map((item) => ({
-    ...item,
-    displayName: item.code
-  }))
-)
-
-/** 「手动输入券码」在下拉列表中的特殊值 */
-const MANUAL_CARD_CODE_VALUE = '__manual__'
-
-/** 点歌券下拉包含已派发券与手动输入项。 */
-const cardCodeOptions = computed(() => [
-  ...myCardCodeOptions.value,
-  {
-    code: MANUAL_CARD_CODE_VALUE,
-    displayName: String(props.text?.cardCodeManualOption || '手动输入券码')
-  }
-])
-
-/** 根据已保存券码计算下拉选中值。 */
-const cardCodeSelection = computed(() => {
-  if (manualCardCodeMode.value) return MANUAL_CARD_CODE_VALUE
-  const current = String(props.cardCode || '').trim().toUpperCase()
-  if (!current) return ''
-  const owned = (props.myCardCodes || []).some((item) => String(item.code).toUpperCase() === current)
-  return owned ? current : MANUAL_CARD_CODE_VALUE
-})
-
-/** 是否处于「手动输入券码」模式（展开输入框） */
-const showManualInput = computed(() => cardCodeSelection.value === MANUAL_CARD_CODE_VALUE)
-
-/** 从下拉中选取点歌券：派发券走校验链路，手动输入项则展开输入框 */
-const handleCardCodeSelect = (value) => {
-  const code = String(value || '').trim()
-  if (!code) {
-    manualCardCodeMode.value = false
-    emit('clear-card-code')
-    return
-  }
-  if (code === MANUAL_CARD_CODE_VALUE) {
-    manualCardCodeMode.value = true
-    return
-  }
-  manualCardCodeMode.value = false
-  emit('select-my-card-code', code.toUpperCase())
-}
-
 /** 三段控件全部不可用时给出提示（例如留言、点歌券、时段均未开启） */
 const isEmpty = computed(
   () =>
-    !props.slotEnabled &&
+    !effectiveSlotEnabled.value &&
     !props.showNote &&
     !props.showAnonymous &&
     !props.showCardCode &&
@@ -631,24 +562,14 @@ watch(
   () => props.show,
   (visible) => {
     if (!visible) return
-    localDate.value = props.slotEnabled ? props.initialDate || '' : ''
-    localTimeId.value = props.slotEnabled && props.initialTimeId ? String(props.initialTimeId) : ''
+    localDate.value = effectiveSlotEnabled.value ? props.initialDate || '' : ''
+    localTimeId.value =
+      effectiveSlotEnabled.value && props.initialTimeId ? String(props.initialTimeId) : ''
     errorMessage.value = ''
     // 时段必选且尚未选择时展开投稿设置，其余情况保持收起
-    settingsOpen.value = !!props.slotEnabled && !!props.slotRequired && !props.initialTimeId
+    settingsOpen.value =
+      !!effectiveSlotEnabled.value && !!props.slotRequired && !props.initialTimeId
     topicOpen.value = false
-    // 打开时重置手动模式：由已保存券码是否在「我的点歌券」中决定
-    manualCardCodeMode.value = false
-  }
-)
-
-/** 父组件清空点歌券后，退出手动输入模式 */
-watch(
-  () => props.cardCode,
-  (value) => {
-    if (!String(value || '').trim()) {
-      manualCardCodeMode.value = false
-    }
   }
 )
 
@@ -679,13 +600,18 @@ const handleCancel = () => {
 
 const handleConfirm = () => {
   // 只有「投稿后强制选时段」模式才要求必须选中时段；主动打开的选项弹窗允许留空
-  if (props.mode === 'required' && !localTimeId.value) {
+  if (
+    props.mode === 'required' &&
+    effectiveSlotEnabled.value &&
+    props.slotRequired &&
+    !localTimeId.value
+  ) {
     errorMessage.value = props.text.timeRequiredError
     return
   }
   emit('confirm', {
-    date: localDate.value || null,
-    timeId: localTimeId.value || null
+    date: effectiveSlotEnabled.value ? localDate.value || null : null,
+    timeId: effectiveSlotEnabled.value ? localTimeId.value || null : null
   })
   emit('update:show', false)
 }

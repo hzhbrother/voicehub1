@@ -1029,6 +1029,27 @@
                   size="sm"
                 />
               </div>
+              <div class="space-y-2 md:col-span-2">
+                <label class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+                  >{{ locale.editModal.topic }}</label
+                >
+                <CustomSelect
+                  v-if="showEditModal"
+                  v-model="editForm.topicId"
+                  :options="topicEditOptions"
+                  label-key="label"
+                  value-key="value"
+                  :placeholder="locale.editModal.selectTopic"
+                />
+                <CustomSelect
+                  v-else
+                  v-model="addForm.topicId"
+                  :options="topicEditOptions"
+                  label-key="label"
+                  value-key="value"
+                  :placeholder="locale.editModal.selectTopic"
+                />
+              </div>
             </div>
 
             <div v-if="showEditModal" class="space-y-3">
@@ -1576,6 +1597,7 @@ const editForm = ref({
   semester: '',
   preferredPlayTimeId: 'none',
   preferredPlayDate: '',
+  topicId: 'none',
   submissionNote: '',
   submissionNotePublic: false,
   submissionAnonymous: false,
@@ -1612,6 +1634,7 @@ const addForm = ref({
   requester: '',
   semester: '',
   preferredPlayTimeId: 'none',
+  topicId: 'none',
   musicPlatform: '',
   musicId: '',
   cover: '',
@@ -1677,6 +1700,11 @@ const topicNameMap = computed(() => {
 })
 const topicOptions = computed(() => [
   { label: getNestedMessage('options', 'allTopics'), value: 'all' },
+  ...topicList.value.map((topic) => ({ label: topic.name, value: String(topic.id) }))
+])
+// 编辑/新增歌曲时的专题选项：'none' 表示不归属专题
+const topicEditOptions = computed(() => [
+  { label: getNestedMessage('editModal', 'noTopic'), value: 'none' },
   ...topicList.value.map((topic) => ({ label: topic.name, value: String(topic.id) }))
 ])
 
@@ -2459,6 +2487,7 @@ const editSong = (song) => {
     semester: song.semester || '',
     preferredPlayTimeId: song.preferredPlayTimeId || 'none',
     preferredPlayDate: song.preferredPlayDate || '',
+    topicId: song.topicId ? String(song.topicId) : 'none',
     submissionNote: song.submissionNote || '',
     submissionNotePublic: song.submissionNotePublic === true,
     submissionAnonymous: song.submissionAnonymous === true,
@@ -2582,6 +2611,7 @@ const saveEditSong = async () => {
           ? null
           : editForm.value.preferredPlayTimeId || null,
       preferredPlayDate: editForm.value.preferredPlayDate || null,
+      topicId: editForm.value.topicId === 'none' ? null : Number(editForm.value.topicId),
       submissionNote: submissionNoteClearRequested.value ? null : editForm.value.submissionNote,
       submissionNotePublic: submissionNoteClearRequested.value
         ? false
@@ -2712,6 +2742,7 @@ const cancelEditSong = () => {
     semester: '',
     preferredPlayTimeId: 'none',
     preferredPlayDate: '',
+    topicId: 'none',
     submissionNote: '',
     submissionNotePublic: false,
     musicPlatform: '',
@@ -2754,6 +2785,7 @@ const openAddSongModal = () => {
     requester: '',
     semester: selectedSemesterName.value,
     preferredPlayTimeId: selectedPlayTime.value !== 'all' && selectedPlayTime.value !== 'none' ? selectedPlayTime.value : 'none',
+    topicId: 'none',
     musicPlatform: '',
     musicId: '',
     cover: '',
@@ -2823,6 +2855,7 @@ const saveAddSong = async () => {
         addForm.value.preferredPlayTimeId === 'none'
           ? null
           : addForm.value.preferredPlayTimeId || null,
+      topicId: addForm.value.topicId === 'none' ? null : Number(addForm.value.topicId),
       musicPlatform: addForm.value.musicPlatform || null,
       musicId: addForm.value.musicId || null,
       cover: addForm.value.cover || null,
@@ -2842,6 +2875,7 @@ const saveAddSong = async () => {
       requester: '',
       semester: '',
       preferredPlayTimeId: 'none',
+      topicId: 'none',
       musicPlatform: '',
       musicId: '',
       cover: '',

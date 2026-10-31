@@ -607,8 +607,8 @@ export async function requestSongForUser(
           throw createError({ statusCode: 400, message: '所选专题不存在或已关闭' })
         }
 
-        // 时间窗口校验：专题需在有效期内
-        const nowBeijing = getBeijingTimeISOString()
+        // 时间窗口校验：专题需在有效期内（数据库 timestamp 字符串以空格分隔日期与时间）
+        const nowBeijing = getBeijingTimeISOString().replace('T', ' ')
         const startOk = !selectedTopic.startTime || selectedTopic.startTime <= nowBeijing
         const endOk = !selectedTopic.endTime || selectedTopic.endTime > nowBeijing
         if (!startOk || !endOk) {

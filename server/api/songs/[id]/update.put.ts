@@ -2,11 +2,12 @@ import { db } from '~/drizzle/db'
 import {
   songs,
   users,
+  topics,
   songCollaborators,
   collaborationLogs,
   songReplayRequests
 } from '~/drizzle/schema'
-import { eq, or, and } from 'drizzle-orm'
+import { eq, or, and, sql } from 'drizzle-orm'
 import { createSubmissionNoteClearedNotification } from '~~/server/services/notificationService'
 import { createApiError } from '~~/server/utils/apiError'
 import { SERVER_ERROR_CODES, SUBMISSION_NOTE_STATUS } from '~~/server/config/constants'
@@ -106,6 +107,24 @@ export default defineEventHandler(async (event) => {
     if (body.cover !== undefined) updateData.cover = body.cover || null
     if (body.playUrl !== undefined) updateData.playUrl = body.playUrl || null
     if (durationSeconds !== undefined) updateData.durationSeconds = durationSeconds ?? null
+
+    // 专题归属：null 或空值表示移出专题，undefined 表示不修改
+    let topicChanged = false
+    let nextTopicId: number | null = null
+    if ('topicId' in body) {
+      const rawTopicId = body.topicId
+      if (rawTopicId === null || rawTopicId === undefined || rawTopicId === '') {
+        nextTopicId = null
+      } else {
+        const parsedTopicId = Number(rawTopicId)
+        if (!Number.isInteger(parsedTopicId) || parsedTopicId <= 0) {
+          throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '专题 ID 无效')
+        }
+        nextTopicId = parsedTopicId
+      }
+      topicChanged = nextTopicId !== (existingSong.topicId ?? null)
+      updateData.topicId = nextTopicId
+    }
 
     // 处理投稿人
     if ('requester' in body) {
@@ -238,6 +257,44 @@ export default defineEventHandler(async (event) => {
           throw createApiError(404, SERVER_ERROR_CODES.COMMON_TARGET_NOT_FOUND, '重播申请不存在')
         }
       }
+      // 专题名额随归属变更调整：先校验目标专题可用，再回补旧专题、占用新专题
+      if (topicChanged) {
+        if (nextTopicId) {
+          const targetTopicResult = await tx
+            .select()
+            .from(topics)
+            .where(eq(topics.id, nextTopicId))
+            .limit(1)
+          const targetTopic = targetTopicResult[0]
+          if (!targetTopic || !targetTopic.enabled) {
+            throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '所选专题不存在或已关闭')
+          }
+          if (targetTopic.expected > 0 && targetTopic.accepted >= targetTopic.expected) {
+            throw createApiError(403, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '该专题投稿名额已满')
+          }
+        }
+        if (existingSong.topicId) {
+          await tx
+            .update(topics)
+            .set({ accepted: sql`GREATEST(0, accepted - 1)` })
+            .where(eq(topics.id, existingSong.topicId))
+        }
+        if (nextTopicId) {
+          const topicUpdateResult = await tx
+            .update(topics)
+            .set({ accepted: sql`accepted + 1` })
+            .where(
+              and(
+                eq(topics.id, nextTopicId),
+                or(eq(topics.expected, 0), sql`${topics.accepted} < ${topics.expected}`)
+              )
+            )
+            .returning({ id: topics.id })
+          if (topicUpdateResult.length === 0) {
+            throw createApiError(403, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '该专题投稿名额已满')
+          }
+        }
+      }
       const result = await tx
         .update(songs)
         .set(updateData)
@@ -349,6 +406,7 @@ export default defineEventHandler(async (event) => {
         submissionNote: songs.submissionNote,
         submissionNotePublic: songs.submissionNotePublic,
         submissionAnonymous: songs.submissionAnonymous,
+        topicId: songs.topicId,
         requesterId: songs.requesterId,
         createdAt: songs.createdAt,
         updatedAt: songs.updatedAt,

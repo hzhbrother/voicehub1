@@ -1,6 +1,6 @@
 import { db } from '~/drizzle/db'
-import { songs, users } from '~/drizzle/schema'
-import { and, eq, or } from 'drizzle-orm'
+import { songs, users, topics } from '~/drizzle/schema'
+import { and, eq, or, sql } from 'drizzle-orm'
 import { createApiError } from '~~/server/utils/apiError'
 import { SERVER_ERROR_CODES } from '~~/server/config/constants'
 
@@ -37,7 +37,8 @@ export default defineEventHandler(async (event) => {
       cover,
       playUrl,
       durationSeconds,
-      preferredPlayTimeId
+      preferredPlayTimeId,
+      topicId
     } = body
 
     // 验证必填字段
@@ -95,23 +96,55 @@ export default defineEventHandler(async (event) => {
       throw createApiError(409, 'SONG_ALREADY_EXISTS', 'Song already exists')
     }
 
-    // 创建歌曲
-    const newSongResult = await db
-      .insert(songs)
-      .values({
-        title: title.trim(),
-        artist: artist.trim(),
-        requesterId,
-        semester: semester || null,
-        preferredPlayTimeId: preferredPlayTimeId || null,
-        musicPlatform: musicPlatform || null,
-        musicId: musicId || null,
-        musicSourceData,
-        durationSeconds: durationSeconds ? Number(durationSeconds) : null,
-        cover: cover || null,
-        playUrl: playUrl || null
-      })
-      .returning()
+    // 专题归属校验：存在时须为启用中的专题且名额未满
+    let nextTopicId: number | null = null
+    if (topicId !== null && topicId !== undefined && topicId !== '') {
+      const parsedTopicId = Number(topicId)
+      if (!Number.isInteger(parsedTopicId) || parsedTopicId <= 0) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '专题 ID 无效')
+      }
+      const topicResult = await db
+        .select()
+        .from(topics)
+        .where(eq(topics.id, parsedTopicId))
+        .limit(1)
+      const targetTopic = topicResult[0]
+      if (!targetTopic || !targetTopic.enabled) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '所选专题不存在或已关闭')
+      }
+      if (targetTopic.expected > 0 && targetTopic.accepted >= targetTopic.expected) {
+        throw createApiError(403, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '该专题投稿名额已满')
+      }
+      nextTopicId = parsedTopicId
+    }
+
+    // 创建歌曲并占用专题名额
+    const newSongResult = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(songs)
+        .values({
+          title: title.trim(),
+          artist: artist.trim(),
+          requesterId,
+          semester: semester || null,
+          preferredPlayTimeId: preferredPlayTimeId || null,
+          topicId: nextTopicId,
+          musicPlatform: musicPlatform || null,
+          musicId: musicId || null,
+          musicSourceData,
+          durationSeconds: durationSeconds ? Number(durationSeconds) : null,
+          cover: cover || null,
+          playUrl: playUrl || null
+        })
+        .returning()
+      if (nextTopicId) {
+        await tx
+          .update(topics)
+          .set({ accepted: sql`accepted + 1` })
+          .where(eq(topics.id, nextTopicId))
+      }
+      return inserted
+    })
 
     const newSong = newSongResult[0]
 

@@ -156,7 +156,7 @@
         <div v-if="activeTopics.length > 0" class="topic-filter">
           <CustomSelect
             v-model="activeTopicId"
-            :label="locale.allTopics"
+            :label="locale.topicFilter || locale.allTopics"
             :options="topicFilterOptions"
             label-key="label"
             value-key="value"

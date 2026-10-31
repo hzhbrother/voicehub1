@@ -1386,10 +1386,21 @@ const activeTopics = ref([])
 const selectedTopicId = ref(null)
 const joinTopic = ref(false)
 watch([joinTopic, activeTopics], ([join, list]) => {
-  if (!join || list.length === 0) return
-  // 已选专题仍有效则保留；否则自动选中第一个，避免开关开启却未选中导致落成普通投稿
+  if (!join || list.length === 0) {
+    if (!join) selectedTopicId.value = null
+    return
+  }
+  // 已选专题仍有效则保留
   if (selectedTopicId.value && list.some((topic) => topic.id === selectedTopicId.value)) return
-  selectedTopicId.value = list[0].id
+  // 仅单个专题时默认选中，多个专题时保持为空由用户选择
+  selectedTopicId.value = list.length === 1 ? list[0].id : null
+})
+// 参与专题投稿时不再需要播出时段
+watch(joinTopic, (join) => {
+  if (!join) return
+  preferredPlayTimeId.value = ''
+  preferredPlayDate.value = ''
+  playSlotError.value = ''
 })
 // 返回本次投稿要落库的专题 ID：未开启返回 null；开启但未选中返回 undefined 并提示，避免落成普通投稿
 const resolveJoinTopicId = () => {
@@ -2656,6 +2667,11 @@ const formatPlayTimeOptionLabel = (playTime) => {
 // 校验日期与时段。
 const validatePlaySlotSelection = (enforceRequired = true) => {
   if (!playTimeSelectionEnabled.value) return true
+  // 参与专题投稿时按专题配置走，不校验播出时段
+  if (joinTopic.value) {
+    playSlotError.value = ''
+    return true
+  }
 
   if (enforceRequired && playSlotRequired.value && !preferredPlayTimeId.value) {
     playSlotError.value = locale.value.playSlotTimeRequiredError || '请选择期望播出时段'
@@ -2742,7 +2758,11 @@ const openSubmissionOptions = () => {
 
 /** 后台开启「时段必选」但尚未选择时段 → 投稿时弹窗收集，确认后继续提交 */
 const requiresSlotSelection = computed(
-  () => playTimeSelectionEnabled.value && playSlotRequired.value && !preferredPlayTimeId.value
+  () =>
+    playTimeSelectionEnabled.value &&
+    playSlotRequired.value &&
+    !preferredPlayTimeId.value &&
+    !joinTopic.value
 )
 
 const openRequiredSlotOptions = (pending) => {
@@ -3738,6 +3758,18 @@ const submitSong = async (result, options = {}) => {
       window.$showNotification(getRestrictionMessage(getRestrictionReason(result)), 'warning')
     }
     return
+  }
+
+  // 重复投稿提醒：本学期已存在同名同歌手歌曲时提示，但不阻止提交
+  if (!auth.isAdmin.value && options.replayRequest !== true) {
+    const existingSong = getSimilarSong(result)
+    if (existingSong && window.$showNotification) {
+      const warn = locale.value.notifications?.duplicateSubmitWarning
+      window.$showNotification(
+        typeof warn === 'function' ? warn(songTitle) : '该歌曲已有人投稿，本次为重复投稿',
+        'warning'
+      )
+    }
   }
 
   // 校验投稿日期与时段。
@@ -4763,8 +4795,8 @@ defineExpose({
   background: var(--surface-card-bg);
   border-radius: 13px;
   padding: 1.25rem;
-  flex: 0 0 28%;
-  min-width: 280px;
+  flex: 0 0 24%;
+  min-width: 250px;
   height: 100%;
   overflow-y: auto;
 }
@@ -5022,11 +5054,11 @@ defineExpose({
 
 .on-behalf-detail {
   display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.8rem 0.95rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--overlay-10);
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .on-behalf-identity {
@@ -5093,15 +5125,17 @@ defineExpose({
 }
 
 .on-behalf-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 0.5rem 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .on-behalf-field {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: baseline;
+  gap: 0.25rem;
   min-width: 0;
 }
 
@@ -6008,7 +6042,7 @@ defineExpose({
   border-radius: 13px;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 320px;
   padding: 0.5rem 1rem 1rem 1rem;
   position: relative;
   z-index: 1;

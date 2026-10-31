@@ -58,6 +58,7 @@ interface SongResponse extends MaskableSong {
   submissionCount?: number
   playCount?: number
   inPool?: boolean
+  topicId?: number | null
 }
 
 const calculateReplayCooldown = (status?: string | null, updatedAt?: Date | string | null) => {
@@ -406,7 +407,7 @@ export default defineEventHandler(async (event) => {
         )
         SELECT
           s.id, s.title, s.artist, s.played, s.semester, s."createdAt",
-          s."musicPlatform", s."musicId", s."submissionAnonymous",
+          s."musicPlatform", s."musicId", s."submissionAnonymous", s."topicId",
           u.id AS "requesterId", u.name AS "requesterName",
           u.grade AS "requesterGrade", u.class AS "requesterClass",
           COALESCE(vc.vote_count, 0) AS "voteCount",
@@ -465,6 +466,7 @@ export default defineEventHandler(async (event) => {
         replayRequestId: null,
         preferredPlayTimeId: null,
         preferredPlayDate: null,
+        topicId: row.topicId ? Number(row.topicId) : null,
         ...(user
           ? {
               voted: row.voted === true,
@@ -609,6 +611,7 @@ export default defineEventHandler(async (event) => {
         s."submissionAnonymous",
         s."submissionNotePublicStatus",
         s."preferredPlayTimeId",
+        s."topicId",
         to_char(s."preferredPlayDate", 'YYYY-MM-DD') AS "preferredPlayDate",
         u.id AS "requesterId",
         u.name AS "requesterName",
@@ -813,6 +816,7 @@ export default defineEventHandler(async (event) => {
         replayRequestId: row.replayRequestId ? Number(row.replayRequestId) : null,
         preferredPlayTimeId: row.preferredPlayTimeId ? Number(row.preferredPlayTimeId) : null,
         preferredPlayDate: row.preferredPlayDate || null,
+        topicId: row.topicId ? Number(row.topicId) : null,
         ...(isAdmin && row.requesterId && requesterStatsMap.has(Number(row.requesterId))
           ? {
               submissionCount: requesterStatsMap.get(Number(row.requesterId))!.submissionCount,
