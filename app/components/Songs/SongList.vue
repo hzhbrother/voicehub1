@@ -153,7 +153,7 @@
         </div>
 
         <!-- 专题筛选：普通投稿 / 专题投稿 两档切换 -->
-        <div v-if="activeTopics.length > 0" class="topic-sub-tabs">
+        <div class="topic-sub-tabs">
           <button
             v-ripple
             :class="['topic-sub-tab', { active: topicView === 'normal' }]"

@@ -607,10 +607,10 @@ export async function requestSongForUser(
           throw createError({ statusCode: 400, message: '所选专题不存在或已关闭' })
         }
 
-        // 时间窗口校验：专题需在有效期内（数据库 timestamp 字符串以空格分隔日期与时间）
-        const nowBeijing = getBeijingTimeISOString().replace('T', ' ')
-        const startOk = !selectedTopic.startTime || selectedTopic.startTime <= nowBeijing
-        const endOk = !selectedTopic.endTime || selectedTopic.endTime > nowBeijing
+        // 时间窗口校验：专题需在有效期内（数据库存 UTC 墙钟时间，用当前 UTC 时间比较）
+        const nowUtc = getServerDate().toISOString().slice(0, 19).replace('T', ' ')
+        const startOk = !selectedTopic.startTime || selectedTopic.startTime <= nowUtc
+        const endOk = !selectedTopic.endTime || selectedTopic.endTime > nowUtc
         if (!startOk || !endOk) {
           throw createError({ statusCode: 400, message: '所选专题不在投稿有效期内' })
         }

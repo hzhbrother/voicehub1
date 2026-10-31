@@ -361,6 +361,7 @@
 import { ref, onMounted } from 'vue'
 import { Sparkles, Clock, Plus, Edit2, Trash2, Upload, Camera, X } from '@lucide/vue'
 import { useToast } from '~/composables/useToast'
+import { formatDateTime, parseToBeijingTime, parseUtcTimestamp } from '~/utils/timeUtils'
 
 const toast = useToast()
 const fileInput = ref(null)
@@ -444,7 +445,8 @@ const handleCoverFile = async (event) => {
 
 const formatDate = (iso) => {
   if (!iso) return ''
-  return iso.replace('T', ' ').slice(0, 16)
+  const date = parseUtcTimestamp(iso)
+  return formatDateTime(date, 'YYYY-MM-DD HH:mm')
 }
 
 const fetchTopics = async () => {
@@ -460,14 +462,20 @@ const openCreate = () => {
   showModal.value = true
 }
 
+const toDatetimeLocal = (utcIso) => {
+  if (!utcIso) return ''
+  const date = parseUtcTimestamp(utcIso)
+  return formatDateTime(date, 'YYYY-MM-DDTHH:mm')
+}
+
 const openEdit = (topic) => {
   editingId.value = topic.id
   form.value = {
     name: topic.name || '',
     description: topic.description || '',
     cover: topic.cover || '',
-    startTime: topic.startTime ? topic.startTime.slice(0, 16) : '',
-    endTime: topic.endTime ? topic.endTime.slice(0, 16) : '',
+    startTime: toDatetimeLocal(topic.startTime),
+    endTime: toDatetimeLocal(topic.endTime),
     enabled: topic.enabled !== false,
     sortOrder: topic.sortOrder || 0,
     expected: topic.expected || 0
@@ -477,6 +485,12 @@ const openEdit = (topic) => {
 
 const closeModal = () => {
   showModal.value = false
+}
+
+const fromDatetimeLocal = (localStr) => {
+  if (!localStr) return null
+  const date = parseToBeijingTime(localStr)
+  return date.toISOString()
 }
 
 const handleSave = async () => {
@@ -490,8 +504,8 @@ const handleSave = async () => {
       name: form.value.name.trim(),
       description: form.value.description || null,
       cover: form.value.cover || null,
-      startTime: form.value.startTime ? new Date(form.value.startTime).toISOString() : null,
-      endTime: form.value.endTime ? new Date(form.value.endTime).toISOString() : null,
+      startTime: fromDatetimeLocal(form.value.startTime),
+      endTime: fromDatetimeLocal(form.value.endTime),
       enabled: form.value.enabled,
       sortOrder: form.value.sortOrder || 0,
       expected: form.value.expected || 0
