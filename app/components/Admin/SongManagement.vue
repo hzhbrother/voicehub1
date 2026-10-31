@@ -38,7 +38,7 @@
             ]"
             @click="activeSubTab = 'songs'"
           >
-            <Music :size="14" /> 歌曲
+            <Music :size="14" /> {{ locale.tabs.normal }}
           </button>
           <button
             :class="[
@@ -49,7 +49,7 @@
             ]"
             @click="activeSubTab = 'topics'"
           >
-            <Sparkles :size="14" /> 专题
+            <Sparkles :size="14" /> {{ locale.tabs.topic }}
           </button>
         </div>
 
@@ -116,7 +116,6 @@
 
       <!-- 过滤器栏 -->
       <div
-        v-if="activeSubTab === 'songs'"
         class="bg-bg-secondary-30 border border-border-secondary-60 rounded-xl p-4 flex flex-col lg:flex-row gap-4 items-stretch lg:items-center"
       >
         <div class="relative flex-1 group w-full lg:w-auto">
@@ -132,6 +131,14 @@
           />
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 lg:flex lg:items-center gap-3 w-full lg:w-auto">
+          <CustomSelect
+            v-if="activeSubTab === 'topics'"
+            v-model="topicFilter"
+            :label="locale.filters.topic"
+            :options="topicOptions"
+            :placeholder="locale.filters.selectTopic"
+            class-name="w-full lg:w-40"
+          />
           <CustomSelect
             v-model="selectedSemester"
             :label="locale.filters.semester"
@@ -176,7 +183,6 @@
       </div>
     </div>
 
-    <template v-if="activeSubTab === 'songs'">
     <!-- 歌曲表格 -->
     <div
       class="bg-bg-secondary-10 border border-border-secondary-40 rounded-xl overflow-hidden shadow-2xl relative"
@@ -250,7 +256,9 @@
         class="py-20 flex flex-col items-center justify-center text-text-tertiary"
       >
         <Music :size="48" class="text-text-primary mb-4" />
-        <p class="text-sm font-bold">{{ searchQuery ? locale.empty.search : locale.empty.default }}</p>
+        <p class="text-sm font-bold">
+          {{ searchQuery ? locale.empty.search : activeSubTab === 'topics' ? locale.empty.topic : locale.empty.default }}
+        </p>
       </div>
 
       <!-- 列表内容 -->
@@ -348,6 +356,12 @@
                   class="platform-tag px-1 whitespace-nowrap"
                   :class="'platform-' + platformTagClass(song.musicPlatform)"
                 >{{ platformLabel(song.musicPlatform) }}</span>
+              </div>
+              <!-- 专题标签 -->
+              <div v-if="song.topicId && topicNameMap[song.topicId]" class="mt-1 flex">
+                <span
+                  class="px-1 py-0.5 rounded text-[9px] font-black bg-violet-500/20 text-violet-400 border border-violet-500/30 whitespace-nowrap"
+                >{{ topicNameMap[song.topicId] }}</span>
               </div>
               <span
                 class="lg:hidden text-[9px] font-black text-text-secondary uppercase tracking-wider mt-1 inline-block"
@@ -488,10 +502,6 @@
       :total-items="filteredSongs.length"
       :item-name="locale.paginationItemName"
     />
-    </template>
-
-    <!-- 专题管理 -->
-    <TopicManager v-else />
 
     <!-- 移动端悬浮批量操作栏 -->
     <Transition
@@ -1270,7 +1280,6 @@ import DuplicateSongsModal from '~/components/Admin/DuplicateSongsModal.vue'
 import SongDownloadDialog from '~/components/Admin/SongDownloadDialog.vue'
 import SongSourceReplaceModal from '~/components/Admin/SongSourceReplaceModal.vue'
 import SubmissionRemarkDialog from '~/components/Admin/SubmissionRemarkDialog.vue'
-import TopicManager from '~/components/Admin/TopicManager.vue'
 import Pagination from '~/components/UI/Common/Pagination.vue'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
@@ -1552,6 +1561,27 @@ let editCollaboratorSearchTimeout = null
 // 数据
 const songs = ref([])
 
+// 专题列表与筛选（管理端包含禁用专题）
+const topicList = ref([])
+const topicFilter = ref('all')
+const topicNameMap = computed(() => {
+  const map = {}
+  for (const topic of topicList.value) map[topic.id] = topic.name
+  return map
+})
+const topicOptions = computed(() => [
+  { label: getNestedMessage('options', 'allTopics'), value: 'all' },
+  ...topicList.value.map((topic) => ({ label: topic.name, value: String(topic.id) }))
+])
+
+const fetchTopics = async () => {
+  try {
+    topicList.value = await $fetch('/api/admin/topics', { ...auth.getAuthConfig() })
+  } catch (error) {
+    console.error('获取专题列表失败:', error)
+  }
+}
+
 // 服务
 let songsService = null
 let adminService = null
@@ -1562,6 +1592,16 @@ const baseFilteredSongs = computed(() => {
   if (!songs.value) return []
 
   let filtered = [...songs.value]
+
+  // 子页签范围：普通页只含普通投稿，专题页只含已加入专题的歌曲
+  if (activeSubTab.value === 'topics') {
+    filtered = filtered.filter((song) => song.topicId)
+    if (topicFilter.value !== 'all') {
+      filtered = filtered.filter((song) => String(song.topicId) === String(topicFilter.value))
+    }
+  } else {
+    filtered = filtered.filter((song) => !song.topicId)
+  }
 
   // 搜索过滤
   if (searchQuery.value) {
@@ -2817,8 +2857,14 @@ const handleClickOutside = (event) => {
 }
 
 // 监听器
-watch([searchQuery, statusFilter, poolFilter, sortOption, selectedSemester, selectedPlayTime], () => {
+watch([searchQuery, statusFilter, poolFilter, sortOption, selectedSemester, selectedPlayTime, topicFilter], () => {
   currentPage.value = 1
+})
+
+// 切换普通 / 专题时重置分页与选中项
+watch(activeSubTab, () => {
+  currentPage.value = 1
+  selectedSongs.value = []
 })
 
 // 生命周期
@@ -2853,7 +2899,7 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
 
   await loadPlatformConfig()
-  await refreshSongs()
+  await Promise.all([fetchTopics(), refreshSongs()])
 })
 
 // URL验证函数

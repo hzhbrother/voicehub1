@@ -2354,6 +2354,10 @@ export const admin = {
   },
   songManagement: {
     title: '歌曲管理',
+    tabs: {
+      normal: '普通',
+      topic: '专题'
+    },
     stats: {
       total: '总计',
       played: '已播放',
@@ -2385,7 +2389,9 @@ export const admin = {
       pool: '备选池',
       selectPool: '选择备选池状态',
       sort: '排序',
-      selectSort: '选择排序'
+      selectSort: '选择排序',
+      topic: '专题',
+      selectTopic: '选择专题'
     },
     options: {
       allStatus: '全部状态',
@@ -2401,7 +2407,8 @@ export const admin = {
       hotDesc: '热度最高',
       hotAsc: '热度最低',
       titleAsc: '标题 A-Z',
-      titleDesc: '标题 Z-A'
+      titleDesc: '标题 Z-A',
+      allTopics: '全部专题'
     },
     table: {
       songInfo: '歌曲信息',
@@ -2415,7 +2422,8 @@ export const admin = {
     },
     empty: {
       search: '没有找到匹配的歌曲',
-      default: '暂无歌曲数据'
+      default: '暂无歌曲数据',
+      topic: '暂无专题投稿'
     },
     duplicateModal: {
       title: '重复歌曲检测',

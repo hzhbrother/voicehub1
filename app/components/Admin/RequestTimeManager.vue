@@ -260,6 +260,9 @@
       </TransitionGroup>
     </div>
 
+    <!-- 专题投稿管理 -->
+    <TopicManager />
+
     <!-- 统计概览 -->
     <div
       class="bg-bg-secondary-20 border border-border-secondary rounded-3xl p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8"
@@ -646,6 +649,7 @@
 
 <script lang="ts" setup>
 import { onMounted, onUnmounted, reactive, ref, computed } from 'vue'
+import TopicManager from '~/components/Admin/TopicManager.vue'
 import { useAuth } from '~/composables/useAuth'
 import { useToast } from '~/composables/useToast'
 import { useLocale } from '~/utils/locale'

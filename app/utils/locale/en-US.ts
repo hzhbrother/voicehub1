@@ -2415,6 +2415,10 @@ export const admin = {
   },
   songManagement: {
     title: 'Song Management',
+    tabs: {
+      normal: 'Normal',
+      topic: 'Topic'
+    },
     stats: {
       total: 'Total',
       played: 'Played',
@@ -2446,7 +2450,9 @@ export const admin = {
       pool: 'Pool',
       selectPool: 'Select Pool',
       sort: 'Sort',
-      selectSort: 'Select Sort'
+      selectSort: 'Select Sort',
+      topic: 'Topic',
+      selectTopic: 'Select Topic'
     },
     options: {
       allStatus: 'All Status',
@@ -2462,7 +2468,8 @@ export const admin = {
       hotDesc: 'Most Popular',
       hotAsc: 'Least Popular',
       titleAsc: 'Title A-Z',
-      titleDesc: 'Title Z-A'
+      titleDesc: 'Title Z-A',
+      allTopics: 'All Topics'
     },
     table: {
       songInfo: 'Song Info',
@@ -2476,7 +2483,8 @@ export const admin = {
     },
     empty: {
       search: 'No matching songs found',
-      default: 'No song data'
+      default: 'No song data',
+      topic: 'No topic submissions'
     },
     duplicateModal: {
       title: 'Duplicate Check',
