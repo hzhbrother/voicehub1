@@ -1673,6 +1673,7 @@ export const pages = {
     songList: {
       mobileSearchPlaceholder: '搜索点播记录...',
       searchPlaceholder: '输入想要搜索的歌曲',
+      allTopics: '全部专题',
       tabs: {
         all: '全部投稿',
         mine: '我的投稿',
@@ -1875,6 +1876,7 @@ export const pages = {
       topicJoinHint: '开启后可选择一个进行中的专题',
       topicSelectLabel: '选择专题',
       topicSelectPlaceholder: '请选择专题',
+      topicSelectRequired: '请先选择要参与的专题',
       cardCodeMyCodes: '我的点歌券',
       cardCodeSelectLabel: '选择点歌券',
       cardCodeSelectPlaceholder: '从我的点歌券中选择，或手动输入券码',

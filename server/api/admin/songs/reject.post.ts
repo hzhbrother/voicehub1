@@ -1,6 +1,6 @@
 import { releaseCardCodeAfterSongWithdrawal } from '~~/server/services/cardCodeLifecycleService'
 import { db } from '~/drizzle/db'
-import { schedules, songBlacklists, songs, votes, requestTimes } from '~/drizzle/schema'
+import { schedules, songBlacklists, songs, topics, votes, requestTimes } from '~/drizzle/schema'
 import { eq, sql } from 'drizzle-orm'
 import { createSongRejectedNotification } from '../../../services/notificationService'
 
@@ -91,6 +91,14 @@ export default defineEventHandler(async (event) => {
         } catch (error) {
           console.error(`减少投稿时段接纳数量失败: ${error.message}`)
         }
+      }
+
+      // 专题投稿名额回补
+      if (song.topicId) {
+        await tx
+          .update(topics)
+          .set({ accepted: sql`GREATEST(0, accepted - 1)` })
+          .where(eq(topics.id, song.topicId))
       }
 
       // 删除歌曲

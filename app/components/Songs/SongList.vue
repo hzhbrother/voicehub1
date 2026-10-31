@@ -154,14 +154,14 @@
 
         <!-- 专题筛选 -->
         <div v-if="activeTopics.length > 0" class="topic-filter">
-          <select
+          <CustomSelect
             v-model="activeTopicId"
-            class="topic-select"
-            @change="onTopicChange"
-          >
-            <option :value="null">全部专题</option>
-            <option v-for="t in activeTopics" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
+            :label="locale.allTopics"
+            :options="topicFilterOptions"
+            label-key="label"
+            value-key="value"
+            @update:model-value="onTopicChange"
+          />
         </div>
 
         <div class="search-actions">
@@ -536,6 +536,7 @@ import Icon from '~/components/UI/Icon.vue'
 import Pagination from '~/components/UI/Common/Pagination.vue'
 import MarqueeText from '~/components/UI/MarqueeText.vue'
 import ConfirmDialog from '~/components/UI/ConfirmDialog.vue'
+import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import { getCoverThumbUrl } from '~/utils/url'
 import { isBilibiliSong } from '~/utils/bilibiliSource'
 import { getMusicUrl as resolveMusicUrl } from '~/utils/musicUrl'
@@ -607,7 +608,11 @@ const searchQuery = ref('') // 搜索查询
 const activeTab = ref('all') // 默认显示全部投稿
 // 专题筛选
 const activeTopics = ref([])
-const activeTopicId = ref(null)
+const activeTopicId = ref('')
+const topicFilterOptions = computed(() => [
+  { label: locale.value.allTopics, value: '' },
+  ...activeTopics.value.map((topic) => ({ label: topic.name, value: topic.id }))
+])
 const topicNameMap = computed(() => {
   const map = {}
   activeTopics.value.forEach((t) => { map[t.id] = t.name })
@@ -2551,21 +2556,6 @@ const vRipple = {
 .topic-filter {
   display: flex;
   align-items: center;
-}
-
-.topic-select {
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  outline: none;
-  cursor: pointer;
-}
-
-.topic-select:focus {
-  border-color: var(--primary);
 }
 
 

@@ -1350,11 +1350,24 @@ const submissionAnonymous = ref(false)
 const activeTopics = ref([])
 const selectedTopicId = ref(null)
 const joinTopic = ref(false)
-watch(joinTopic, (val) => {
-  if (val && !selectedTopicId.value && activeTopics.value.length > 0) {
-    selectedTopicId.value = activeTopics.value[0].id
-  }
+watch([joinTopic, activeTopics], ([join, list]) => {
+  if (!join || list.length === 0) return
+  // 已选专题仍有效则保留；否则自动选中第一个，避免开关开启却未选中导致落成普通投稿
+  if (selectedTopicId.value && list.some((topic) => topic.id === selectedTopicId.value)) return
+  selectedTopicId.value = list[0].id
 })
+// 返回本次投稿要落库的专题 ID：未开启返回 null；开启但未选中返回 undefined 并提示，避免落成普通投稿
+const resolveJoinTopicId = () => {
+  if (!joinTopic.value) return null
+  if (!selectedTopicId.value) {
+    const message = locale.value.topicSelectRequired || '请先选择要参与的专题'
+    if (window.$showNotification) {
+      window.$showNotification(message, 'warning')
+    }
+    return undefined
+  }
+  return selectedTopicId.value
+}
 const cardCode = ref('')
 const cardCodeDraft = ref('')
 // 派发到当前用户名下的点歌券（用于投稿选项弹窗的下拉选择）
@@ -3745,6 +3758,13 @@ const submitSong = async (result, options = {}) => {
     return false
   }
 
+  // 专题开关已开启时必须选中专题，否则阻止提交
+  const selectedTopicForSubmit = resolveJoinTopicId()
+  if (selectedTopicForSubmit === undefined) {
+    endSubmission()
+    return false
+  }
+
   // 检查投稿限额
   const limitCheck = checkSubmissionLimit()
   if (!limitCheck.canSubmit) {
@@ -3834,7 +3854,7 @@ const submitSong = async (result, options = {}) => {
       collaborators: collaborators.value.map((u) => u.id),
       bilibiliCid: bilibiliCid || null,
       bilibiliPage: bilibiliPage,
-      topicId: joinTopic.value && selectedTopicId.value ? selectedTopicId.value : null
+      topicId: selectedTopicForSubmit
     }
     // 如果用户填写了点歌券，传递给后端
     if (cardCode.value && cardCode.value.trim()) {
@@ -3874,6 +3894,12 @@ const handleSubmit = async (fromSlotModal = false) => {
     return
   }
 
+  // 专题开关已开启时必须选中专题，否则阻止提交
+  const selectedTopicForSubmit = resolveJoinTopicId()
+  if (selectedTopicForSubmit === undefined) {
+    return
+  }
+
   // 检查投稿限额
   const limitCheck = checkSubmissionLimit()
   if (!limitCheck.canSubmit) {
@@ -3902,7 +3928,7 @@ const handleSubmit = async (fromSlotModal = false) => {
       submissionNotePublic: submissionNotePublic.value,
       submissionAnonymous: submissionAnonymous.value,
       collaborators: collaborators.value.map((u) => u.id),
-      topicId: joinTopic.value && selectedTopicId.value ? selectedTopicId.value : null
+      topicId: selectedTopicForSubmit
     }
     if (cardCode.value && cardCode.value.trim()) {
       songData.cardCode = cardCode.value.trim()
@@ -4245,6 +4271,12 @@ const handleManualSubmit = async (fromSlotModal = false) => {
     return
   }
 
+  // 专题开关已开启时必须选中专题，否则阻止提交
+  const selectedTopicForSubmit = resolveJoinTopicId()
+  if (selectedTopicForSubmit === undefined) {
+    return
+  }
+
   // 检查投稿限额
   const limitCheck = checkSubmissionLimit()
   if (!limitCheck.canSubmit) {
@@ -4305,7 +4337,7 @@ const handleManualSubmit = async (fromSlotModal = false) => {
       submissionNote: submissionNote.value.trim() || null,
       submissionNotePublic: submissionNotePublic.value,
       submissionAnonymous: submissionAnonymous.value,
-      topicId: joinTopic.value && selectedTopicId.value ? selectedTopicId.value : null
+      topicId: selectedTopicForSubmit
     }
 
     if (cardCode.value && cardCode.value.trim()) {

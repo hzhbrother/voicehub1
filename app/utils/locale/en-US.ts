@@ -1718,6 +1718,7 @@ export const pages = {
     songList: {
       mobileSearchPlaceholder: 'Search requests...',
       searchPlaceholder: 'Search songs',
+      allTopics: 'All Topics',
       tabs: {
         all: 'All Requests',
         mine: 'My Requests',
@@ -1926,6 +1927,7 @@ export const pages = {
       topicJoinHint: 'Turn on to pick an active topic',
       topicSelectLabel: 'Topic',
       topicSelectPlaceholder: 'Select a topic',
+      topicSelectRequired: 'Select a topic first',
       cardCodeMyCodes: 'My request cards',
       cardCodeSelectLabel: 'Select a request card',
       cardCodeSelectPlaceholder: 'Pick from my request cards, or enter a code manually',

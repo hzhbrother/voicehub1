@@ -5,7 +5,8 @@ import {
   votes,
   songCollaborators,
   collaborationLogs,
-  requestTimes
+  requestTimes,
+  topics
 } from '~/drizzle/schema'
 import { and, eq, sql } from 'drizzle-orm'
 import {
@@ -166,6 +167,14 @@ export default defineEventHandler(async (event) => {
         ) {
           throw createApiError(409, 'SONG_CARD_RELEASE_FAILED', '点歌券释放失败，撤回已终止')
         }
+      }
+
+      // 专题投稿名额回补
+      if (song.topicId) {
+        await tx
+          .update(topics)
+          .set({ accepted: sql`GREATEST(0, accepted - 1)` })
+          .where(eq(topics.id, song.topicId))
       }
 
       // 删除歌曲（在事务内）
