@@ -1,0 +1,164 @@
+import { isIP } from 'node:net'
+import type { H3Event } from 'h3'
+import { db } from '~/drizzle/db'
+import { users } from '~/drizzle/schema'
+import { eq } from 'drizzle-orm'
+import { SmtpService } from '~~/server/services/smtpService'
+import { JWTEnhanced } from '~~/server/utils/jwt-enhanced'
+import { formatIPForEmail, getClientIP } from '~~/server/utils/ip-utils'
+import { checkDistributedRateLimit } from '~~/server/utils/rateLimiter'
+import { getServerTimestamp } from '~~/server/utils/serverTime'
+import { createApiError } from '~~/server/utils/apiError'
+import { resolveCaptchaSettings, isPasswordLoginCaptchaRequired } from '~~/server/services/securityService'
+import { assertRequestCaptchaPassed } from '~~/server/utils/request-captcha'
+import { publicAddress } from '~~/server/utils/music-source-plugins/network'
+
+// 未配置 NUXT_PUBLIC_HOST 时可安全使用请求 Host 的部署特征：
+// 云平台按域名路由，伪造 Host 的请求到不了应用；局域网/回环地址的链接点击外部攻击者收不到
+const PLATFORM_ROUTED_ENV_KEYS = ['VERCEL', 'NETLIFY', 'CF_PAGES']
+
+const isLocalOrPrivateHostname = (hostname: string) => {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (!normalized) return false
+  if (normalized === 'localhost') return true
+  return isIP(normalized) !== 0 && !publicAddress(normalized)
+}
+
+// 重置链接的站点域名：显式配置优先，未配置时自动识别请求 Host
+const resolveSiteOrigin = (event: H3Event): string => {
+  const config = useRuntimeConfig()
+  if (config.public.host) {
+    const protocol = config.public.host.startsWith('http')
+      ? ''
+      : process.env.NODE_ENV === 'production'
+        ? 'https://'
+        : 'http://'
+    return `${protocol}${config.public.host}`
+  }
+
+  const host = getRequestHost(event)
+  const hostname = (() => {
+    try {
+      return new URL(`${getRequestProtocol(event)}://${host}`).hostname
+    } catch {
+      return ''
+    }
+  })()
+  const platformRouted = PLATFORM_ROUTED_ENV_KEYS.some((key) => Boolean(process.env[key]))
+  if (!platformRouted && !isLocalOrPrivateHostname(hostname)) {
+    console.warn(
+      `[forgot-password] NUXT_PUBLIC_HOST 未配置，重置链接将使用请求 Host（${host}）；直连源站或反向代理透传客户端 Host 的部署下该值可被伪造，建议配置 NUXT_PUBLIC_HOST`
+    )
+  }
+  return `${getRequestProtocol(event)}://${host}`
+}
+
+export default defineEventHandler(async (event) => {
+  const clientIP = getClientIP(event)
+
+  // IP 级别限流：每小时最多 5 次请求
+  const rateLimitKey = `forgot_password_ip:${clientIP}`
+  const limitResult = await checkDistributedRateLimit(rateLimitKey, 5, 60 * 60 * 1000)
+
+  if (!limitResult.isAllowed) {
+    const waitMinutes = Math.ceil((limitResult.resetTime - getServerTimestamp()) / 60000)
+    throw createApiError(429, 'AUTH_RATE_LIMITED_MINUTES', `操作过于频繁，请等待 ${waitMinutes} 分钟后再试`, { params: [waitMinutes] })
+  }
+
+  const body = await readBody(event)
+  const { username, email } = body
+
+  if (!username) {
+    throw createApiError(400, 'AUTH_ACCOUNT_NAME_REQUIRED', '请提供账号名')
+  }
+
+  // 人机验证：图形按失败阈值触发、Turnstile/ESA 每次必验，防范账号名枚举与重置邮件轰炸
+  const captchaSettings = await resolveCaptchaSettings()
+  const needCaptcha = await isPasswordLoginCaptchaRequired(String(username), clientIP, captchaSettings)
+  await assertRequestCaptchaPassed(event, {
+    settings: captchaSettings,
+    body,
+    clientIp: clientIP,
+    purpose: 'forgot_password',
+    required: needCaptcha
+  })
+
+  try {
+    const userResult = await db.select().from(users).where(eq(users.username, username)).limit(1)
+    const user = userResult[0]
+
+    // 如果未提供邮箱，则进入第一步：检查账号并返回掩码邮箱
+    if (!email) {
+      if (!user) {
+        throw createApiError(404, 'AUTH_ACCOUNT_NAME_NOT_FOUND', '找不到该账号名，请检查是否拼写错误')
+      }
+      if (!user.email) {
+        throw createApiError(400, 'AUTH_NO_SECURITY_EMAIL', '该账号未绑定安全邮箱，无法通过此方式找回密码。请联系管理员。')
+      }
+
+      // 生成掩码邮箱 (例如: a***b@gmail.com)
+      const emailParts = user.email.split('@')
+      const name = emailParts[0]
+      const domain = emailParts[1]
+      let maskedName = name
+      if (name && name.length > 2) {
+        maskedName = name.substring(0, 1) + '***' + name.substring(name.length - 1)
+      } else if (name && name.length === 2) {
+        maskedName = name.substring(0, 1) + '*'
+      }
+      const maskedEmail = `${maskedName}@${domain}`
+
+      return {
+        success: true,
+        step: 2,
+        maskedEmail,
+        message: '请输入完整的邮箱地址以验证身份'
+      }
+    }
+
+    // 无论是否匹配，都返回相同的成功提示
+    if (user && user.email && user.email.toLowerCase() === email.toLowerCase()) {
+      const payload = {
+        type: 'password_reset',
+        userId: user.id,
+        // 仅截取密码哈希的前10位，防止完整哈希泄露被离线破解
+        hash: user.password.substring(0, 10)
+      }
+      const token = JWTEnhanced.sign(payload, { expiresIn: '15m' })
+
+      const resetLink = `${resolveSiteOrigin(event)}/reset-password?token=${token}`
+
+      const smtp = SmtpService.getInstance()
+
+      // 确保SMTP配置已初始化
+      await smtp.initializeSmtpConfig()
+
+      const htmlContent = smtp.generateEmailTemplate(
+        '重置密码',
+        `<p>您好，您请求了重置密码。</p><p>请点击下方按钮重置密码（链接在15分钟内有效）。</p><p style="color:#888">如果您没有请求重置密码，请忽略此邮件。</p>`,
+        resetLink,
+        formatIPForEmail(clientIP),
+        true
+      )
+
+      event.waitUntil(
+        smtp
+          .sendMail(user.email, '重置密码 | VoiceHub', htmlContent, undefined, clientIP)
+          .catch((err) => console.error('发送重置密码邮件失败:', err))
+      )
+    }
+
+    return {
+      success: true,
+      step: 3,
+      message:
+        '如果账号名和邮箱匹配，重置密码链接已发送至您的邮箱。请查收并按照邮件中的说明重置密码。'
+    }
+  } catch (error: any) {
+    if (error.statusCode) {
+      throw error
+    }
+    console.error('重置密码请求失败:', error)
+    throw createApiError(500, 'AUTH_SYSTEM_ERROR', '系统错误，请稍后重试')
+  }
+})

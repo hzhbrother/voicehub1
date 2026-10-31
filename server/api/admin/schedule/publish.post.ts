@@ -1,0 +1,214 @@
+import { db } from '~/drizzle/db'
+import { schedules, songs } from '~/drizzle/schema'
+import { and, eq, ne } from 'drizzle-orm'
+import { createSongSelectedNotification, createReplaySongSelectedNotification } from '~~/server/services/notificationService'
+import { redeemCardCodeForSchedule } from '~~/server/services/cardCodeLifecycleService'
+import { fulfillReplayRequestsForSchedule, resolveScheduleReplayBindings } from '~~/server/utils/scheduleReplayBinding'
+import { assertSchedulePlacement } from '~~/server/utils/schedulePlacementConstraint'
+import { getServerDate } from '~~/server/utils/serverTime'
+
+export default defineEventHandler(async (event) => {
+  // 检查用户认证和权限
+  const user = event.context.user
+
+  if (!user) {
+    throw createError({
+      statusCode: 401,
+      message: '未授权访问'
+    })
+  }
+
+  if (!['SONG_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+    throw createError({
+      statusCode: 403,
+      message: '只有歌曲管理员及以上权限才能发布排期'
+    })
+  }
+
+  const body = await readBody(event)
+
+  if (!body.scheduleId) {
+    throw createError({
+      statusCode: 400,
+      message: '排期ID不能为空'
+    })
+  }
+
+  try {
+    // 检查草稿是否存在
+    const draftResult = await db
+      .select({
+        id: schedules.id,
+        songId: schedules.songId,
+        playDate: schedules.playDate,
+        sequence: schedules.sequence,
+        playTimeId: schedules.playTimeId,
+        isDraft: schedules.isDraft,
+        publishedAt: schedules.publishedAt,
+        replayRequestId: schedules.replayRequestId,
+        song: {
+          id: songs.id,
+          title: songs.title,
+          artist: songs.artist,
+          requesterId: songs.requesterId,
+          cardCodeId: songs.cardCodeId
+        }
+      })
+      .from(schedules)
+      .innerJoin(songs, eq(schedules.songId, songs.id))
+      .where(
+        and(
+          eq(schedules.id, body.scheduleId),
+          eq(schedules.isDraft, true) // 确保是草稿状态
+        )
+      )
+      .limit(1)
+
+    const draft = draftResult[0]
+
+    if (!draft) {
+      throw createError({
+        statusCode: 404,
+        message: '找不到指定的排期草稿'
+      })
+    }
+
+    // 使用事务包装更新排期和重播申请状态操作，保证原子性
+    const publishResult = await db.transaction(async (tx) => {
+      await tx.select({ id: songs.id }).from(songs).where(eq(songs.id, draft.song.id)).for('update')
+      const [currentDraft] = await tx.select({
+        songId: schedules.songId,
+        replayRequestId: schedules.replayRequestId,
+        playTimeId: schedules.playTimeId
+      }).from(schedules)
+        .where(and(eq(schedules.id, body.scheduleId), eq(schedules.isDraft, true)))
+        .for('update')
+      if (!currentDraft || currentDraft.songId !== draft.song.id) {
+        throw createError({ statusCode: 409, message: '排期已发布或状态已变化，请刷新后重试' })
+      }
+      // 更新草稿为已发布状态
+      const publishedAt = getServerDate()
+      const [resolvedItem] = await resolveScheduleReplayBindings(tx, [{
+        songId: draft.song.id,
+        replayRequestId: currentDraft.replayRequestId
+      }], currentDraft.replayRequestId ? new Map([[draft.song.id, currentDraft.replayRequestId]]) : new Map())
+      await assertSchedulePlacement(
+        { playTimeId: currentDraft.playTimeId, items: [resolvedItem!] },
+        new Map([[draft.song.id, draft.song.title]]),
+        tx
+      )
+
+      const publishResult = await tx
+        .update(schedules)
+        .set({
+          isDraft: false,
+          publishedAt: publishedAt,
+          updatedAt: publishedAt
+        })
+        .where(and(eq(schedules.id, body.scheduleId), eq(schedules.isDraft, true)))
+        .returning()
+
+      const schedule = publishResult[0]
+
+      if (!schedule) {
+        throw createError({ statusCode: 409, message: '排期已发布或状态已变化，请刷新后重试' })
+      }
+
+      // 检查该歌曲是否已经有其他已发布的排期
+      const existingPublished = await tx
+        .select({ id: schedules.id })
+        .from(schedules)
+        .where(
+          and(
+            eq(schedules.songId, draft.song.id),
+            eq(schedules.isDraft, false),
+            ne(schedules.id, body.scheduleId)
+          )
+        )
+        .limit(1)
+
+      const shouldNotify = existingPublished.length === 0
+
+      // 履行该歌曲全部待处理重播申请，优先绑定草稿指定的申请
+      let replayRequesterIds: number[] = []
+      const replayBinding = await fulfillReplayRequestsForSchedule({
+        tx,
+        songId: draft.song.id,
+        scheduleId: body.scheduleId,
+        at: publishedAt,
+        resolvedRequestId: resolvedItem!.replayRequestId
+      })
+
+      if (replayBinding) {
+        replayRequesterIds = replayBinding.replayRequesterIds
+        console.log(`发布排期：重播申请 #${replayBinding.replayRequestId} 绑定到排期 #${body.scheduleId}`)
+      }
+
+      if (existingPublished.length > 0) {
+        console.log(`歌曲 ${draft.song.id} 已有其他正式排期，不再重复发送通知`)
+      }
+
+      await redeemCardCodeForSchedule(tx, {
+        songId: draft.song.id,
+        cardCodeId: draft.song.cardCodeId,
+        operatorId: user.id,
+        at: publishedAt
+      })
+
+      return { schedule, shouldNotify, replayRequesterIds, replayRequestId: replayBinding?.replayRequestId ?? null }
+    })
+
+    // 发送重播申请已安排通知
+    if (publishResult.replayRequesterIds?.length > 0) {
+      for (const replayUserId of publishResult.replayRequesterIds) {
+        try {
+          await createReplaySongSelectedNotification(replayUserId, draft.song.id, {
+            title: draft.song.title,
+            artist: draft.song.artist,
+            playDate: publishResult.schedule.playDate
+          }, publishResult.schedule.id)
+        } catch (error) {
+          console.error(`发送重播安排通知给用户 ${replayUserId} 失败:`, error)
+        }
+      }
+    }
+
+    let notificationSent = true
+    if (publishResult.shouldNotify) {
+      try {
+        await createSongSelectedNotification(draft.song.requesterId, draft.song.id, {
+          title: draft.song.title,
+          artist: draft.song.artist,
+          playDate: publishResult.schedule.playDate
+        })
+      } catch (notificationError) {
+        notificationSent = false
+        console.error('排期已发布，但发送歌曲入选通知失败:', notificationError)
+      }
+    }
+
+    const publishedSchedule = publishResult.schedule
+
+    return {
+      ...draft,
+      ...publishedSchedule,
+      song: draft.song,
+      isDraft: false,
+      publishedAt: publishedSchedule.publishedAt,
+      // 绑定在 fulfill 中回写，.returning() 快照早于绑定，需显式覆盖
+      replayRequestId: publishResult.replayRequestId,
+      message: publishResult.shouldNotify
+        ? notificationSent
+          ? '排期发布成功，通知已发送'
+          : '排期发布成功，但通知发送失败'
+        : '排期发布成功'
+    }
+  } catch (error: any) {
+    console.error('发布排期失败:', error)
+    if (error.statusCode) throw error
+    throw createError({
+      statusCode: 500,
+      message: error.message || '发布排期失败'
+    })
+  }
+})

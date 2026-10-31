@@ -1,0 +1,55 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+docs
+.pnpm-store
+.mimosa
+
+# 构建生成的音源插件部署快照（scripts/build-music-source-plugins.ts 输出）
+server/utils/music-source-plugins/manifest.snapshot.ts
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Backups
+backups/
+*.backup
+
+# Misc
+.DS_Store
+.fleet
+.idea
+.kiro
+.cursor
+.vercel
+.netlify
+.vscode
+.trae
+.qoder
+.qoder-credits
+.codebuddy
+.figma
+.codex
+.agents
+package-lock.json
+scripts/package-lock.json
+
+# Nix build output
+result
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Tencent Cloud EdgeOne
+.edgeone/*
+.tef_dist/*

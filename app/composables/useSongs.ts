@@ -1,0 +1,922 @@
+import { computed, ref } from 'vue'
+import { useAuth } from './useAuth'
+import { extractErrorCode, useServerErrors } from './useLocaleText'
+import { getGlobalDedup } from './useRequestDedup'
+import { useLocale } from '~/utils/locale'
+import type { PlayTime, Schedule, Song } from '~/types'
+
+export interface FetchSongsOptions {
+  silent?: boolean
+  semester?: string
+  forceRefresh?: boolean
+  page?: number
+  pageSize?: number
+  scope?: string
+  search?: string
+  sortBy?: string
+  sortOrder?: string
+  compact?: boolean
+}
+
+interface SongsQuery {
+  page: number
+  pageSize: number
+  semester: string
+  scope: string
+  search: string
+  sortBy: string
+  sortOrder: string
+  compact: boolean
+}
+
+export const useSongs = (options: { pageSize?: number; compact?: boolean } = {}) => {
+  const { isAuthenticated, user, getAuthConfig } = useAuth()
+  const { songs: songsLocale } = useLocale()
+  const { localize: localizeServerError } = useServerErrors()
+  const dedup = getGlobalDedup()
+
+  // pageSize 为 0 表示不分页，后台管理与相似歌曲检查依赖完整列表
+  const defaultPageSize = Number(options.pageSize) > 0 ? Math.floor(Number(options.pageSize)) : 0
+  // 轻量模式：只返回匹配与状态字段，供投稿页的相似歌曲检查使用
+  const defaultCompact = options.compact === true
+
+  const songs = ref<Song[]>([])
+  const publicSchedules = ref<Schedule[]>([])
+  const publicSongs = ref<Song[]>([])
+  const loading = ref(false)
+  const error = ref('')
+  const notification = ref({ show: false, message: '', type: '' })
+  const playTimes = ref<PlayTime[]>([])
+  const playTimeEnabled = ref(false)
+  const songCount = ref(0)
+  const songsTotal = ref(0)
+  const songsPage = ref(1)
+  const songsTotalPages = ref(1)
+  const songSemesters = ref<string[]>([])
+  const requestFormLocale = computed(() => songsLocale.value?.requestForm)
+  const actionLocale = computed(() => songsLocale.value.actions)
+
+  // 记录最近一次歌曲列表查询，动作类接口刷新时沿用当前分页与筛选条件
+  let songsQuery: SongsQuery = {
+    page: 1,
+    pageSize: defaultPageSize,
+    semester: '',
+    scope: '',
+    search: '',
+    sortBy: '',
+    sortOrder: '',
+    compact: defaultCompact
+  }
+
+  let songsRequestVersion = 0
+  let publicSchedulesRequestVersion = 0
+
+  // 显示通知
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    // 使用全局通知
+    if (window.$showNotification) {
+      window.$showNotification(message, type)
+    } else {
+      // 备用方案
+      notification.value = {
+        show: true,
+        message,
+        type
+      }
+
+      // 3秒后自动关闭
+      setTimeout(() => {
+        notification.value.show = false
+      }, 3000)
+    }
+  }
+
+  // 获取播放时段列表
+  const fetchPlayTimes = async () => {
+    loading.value = true
+    error.value = ''
+
+    try {
+      const response = await $fetch('/api/play-times')
+      playTimeEnabled.value = response.enabled
+
+      // 确保类型兼容性
+      if (response.playTimes && Array.isArray(response.playTimes)) {
+        playTimes.value = response.playTimes.map((pt) => ({
+          id: pt.id,
+          name: pt.name,
+          startTime: pt.startTime || undefined,
+          endTime: pt.endTime || undefined,
+          enabled: pt.enabled,
+          description: pt.description || undefined
+        }))
+      } else {
+        playTimes.value = []
+      }
+
+      return response
+    } catch (err: any) {
+      error.value = err.message || '获取播放时段失败'
+      return { enabled: false, playTimes: [] }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 获取歌曲列表
+  const fetchSongs = async (options: FetchSongsOptions = {}) => {
+    const requestVersion = ++songsRequestVersion
+    const query: SongsQuery = {
+      page: options.page && options.page > 0 ? Math.floor(options.page) : songsQuery.page,
+      pageSize:
+        options.pageSize !== undefined
+          ? Math.max(0, Math.floor(options.pageSize))
+          : songsQuery.pageSize,
+      semester: options.semester !== undefined ? options.semester : songsQuery.semester,
+      scope: options.scope !== undefined ? options.scope : songsQuery.scope,
+      search: options.search !== undefined ? options.search : songsQuery.search,
+      sortBy: options.sortBy !== undefined ? options.sortBy : songsQuery.sortBy,
+      sortOrder: options.sortOrder !== undefined ? options.sortOrder : songsQuery.sortOrder,
+      compact: options.compact !== undefined ? options.compact : songsQuery.compact
+    }
+    songsQuery = query
+
+    if (!options.silent) {
+      loading.value = true
+    }
+    error.value = ''
+
+    try {
+      const requestUserId = user.value?.id ?? null
+      const requestParams = {
+        ...query,
+        audience: requestUserId ? `user:${requestUserId}` : 'guest',
+        role: user.value?.role || ''
+      }
+      const request = async () => {
+        // 构建URL参数
+        const params = new URLSearchParams()
+        if (query.semester) {
+          params.append('semester', query.semester)
+        }
+        if (query.pageSize > 0) {
+          params.append('page', String(query.page))
+          params.append('pageSize', String(query.pageSize))
+        }
+        if (query.scope) params.append('scope', query.scope)
+        if (query.search) params.append('search', query.search)
+        if (query.sortBy) params.append('sortBy', query.sortBy)
+        if (query.sortOrder) params.append('sortOrder', query.sortOrder)
+        if (query.compact) params.append('compact', '1')
+        const url = `/api/songs${params.toString() ? '?' + params.toString() : ''}`
+
+        // API请求
+        return await $fetch(url, {
+          ...getAuthConfig()
+        })
+      }
+      const response: any = options.forceRefresh
+        ? await request()
+        : await dedup.dedupedRequest('songs', request, requestParams)
+
+      if (
+        requestVersion !== songsRequestVersion ||
+        (user.value?.id ?? null) !== requestUserId ||
+        (user.value?.role ?? '') !== (requestParams.role || '')
+      )
+        return
+
+      // 正确解析API返回的数据结构
+      if (response && response.success && response.data && Array.isArray(response.data.songs)) {
+        songs.value = response.data.songs as Song[]
+        songsTotal.value = Number(response.data.total || 0)
+        songsPage.value = Number(response.data.page || 1)
+        songsTotalPages.value = Math.max(1, Number(response.data.totalPages || 1))
+        if (Array.isArray(response.data.semesters)) {
+          songSemesters.value = response.data.semesters
+            .map((item: any) => String(item))
+            .filter(Boolean)
+        }
+      } else {
+        songs.value = []
+        songsTotal.value = 0
+        songsTotalPages.value = 1
+        console.warn('API返回的数据格式不正确:', response)
+      }
+    } catch (err: any) {
+      if (requestVersion === songsRequestVersion) {
+        error.value = err.message || '获取歌曲列表失败'
+      }
+    } finally {
+      if (!options.silent && requestVersion === songsRequestVersion) {
+        loading.value = false
+      }
+    }
+  }
+
+  // 沿用当前查询条件刷新列表
+  const refreshSongsWithQuery = async () => {
+    return fetchSongs({ silent: true, forceRefresh: true })
+  }
+
+  // 静默刷新歌曲列表 - 不显示加载状态
+  const refreshSongsSilent = async () => {
+    return fetchSongs({ silent: true })
+  }
+
+  // 从排期数据中提取歌曲信息
+  const extractSongsFromSchedules = (schedules: Schedule[]): Song[] => {
+    const songsMap = new Map<string, Song>()
+
+    schedules.forEach((schedule) => {
+      if (schedule.song) {
+        const songId = String(schedule.song.id)
+        if (!songsMap.has(songId)) {
+          // 将排期中的歌曲信息转换为完整的Song对象
+          const completeSong: Song = {
+            id: schedule.song.id,
+            title: schedule.song.title,
+            artist: schedule.song.artist,
+            requester: schedule.song.requester,
+            requesterGrade: schedule.song.requesterGrade || null,
+            requesterClass: schedule.song.requesterClass || null,
+            requesterId: 0, // 默认值，公共API不提供这个信息
+            voteCount: schedule.song.voteCount,
+            played: schedule.song.played || false,
+            playedAt: schedule.song.playedAt || null,
+            semester: schedule.song.semester || null,
+            requestedAt: schedule.song.requestedAt || new Date().toISOString(),
+            cover: schedule.song.cover || null,
+            musicPlatform: schedule.song.musicPlatform || null,
+            musicId: schedule.song.musicId || null,
+            durationSeconds: schedule.song.durationSeconds || null,
+            usedCardCode: schedule.song.usedCardCode === true,
+            hasSubmissionNote: schedule.song.hasSubmissionNote === true,
+            submissionNote: schedule.song.submissionNote || null,
+            submissionNotePublic: schedule.song.submissionNotePublic === true
+          }
+          songsMap.set(songId, completeSong)
+        }
+      }
+    })
+
+    return Array.from(songsMap.values())
+  }
+
+  // 获取公共排期（无需登录）
+  const fetchPublicSchedules = async (silent = false, semester?: string, forceRefresh = false) => {
+    const requestVersion = ++publicSchedulesRequestVersion
+    if (!silent) {
+      loading.value = true
+    }
+    error.value = ''
+
+    try {
+      const requestUserId = user.value?.id ?? null
+      const requestParams = {
+        semester: semester || '',
+        audience: requestUserId ? `user:${requestUserId}` : 'guest',
+        role: user.value?.role || ''
+      }
+      const request = async () => {
+        // 构建URL参数
+        const params = new URLSearchParams()
+        if (semester) {
+          params.append('semester', semester)
+        }
+        const url = `/api/songs/public${params.toString() ? '?' + params.toString() : ''}`
+
+        const response = await $fetch(url, {
+          ...getAuthConfig()
+        })
+        return response
+      }
+      const data = forceRefresh
+        ? await request()
+        : await dedup.dedupedRequest('public-schedules', request, requestParams)
+
+      if (
+        requestVersion !== publicSchedulesRequestVersion ||
+        (user.value?.id ?? null) !== requestUserId ||
+        (user.value?.role ?? '') !== (requestParams.role || '')
+      )
+        return
+
+      // 确保每个排期的歌曲都有played属性，并处理null/undefined转换
+      const processedData = data.map((schedule: any) => {
+        // 处理歌曲属性
+        if (schedule.song && schedule.song.played === undefined) {
+          schedule.song.played = false
+        }
+
+        // 处理播放时间属性
+        let processedPlayTime = null
+        if (schedule.playTime) {
+          processedPlayTime = {
+            ...schedule.playTime,
+            startTime: schedule.playTime.startTime || undefined,
+            endTime: schedule.playTime.endTime || undefined
+          }
+        }
+
+        // 返回符合Schedule类型的对象
+        return {
+          ...schedule,
+          playTime: processedPlayTime
+        } as Schedule
+      })
+
+      publicSchedules.value = processedData
+
+      // 直接从排期数据中提取歌曲信息，避免重复请求
+      publicSongs.value = extractSongsFromSchedules(processedData)
+    } catch (err: any) {
+      if (requestVersion === publicSchedulesRequestVersion) {
+        error.value = err.message || '获取排期失败'
+      }
+    } finally {
+      if (!silent && requestVersion === publicSchedulesRequestVersion) {
+        loading.value = false
+      }
+    }
+  }
+
+  // 静默刷新公共排期 - 不显示加载状态
+  const refreshSchedulesSilent = async () => {
+    return fetchPublicSchedules(true)
+  }
+
+  // 请求歌曲
+  const requestSong = async (songData: {
+    title: string
+    artist: string
+    preferredPlayTimeId?: number | null
+    preferredPlayDate?: string | null
+    cover?: string | null
+    musicPlatform?: string | null
+    musicId?: string | null
+    selectionToken?: string
+    submissionNote?: string | null
+    submissionNotePublic?: boolean
+    cardCode?: string | null
+  }) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginRequest, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      // 使用认证配置
+      const authConfig = getAuthConfig()
+
+      const data = await $fetch('/api/songs/request', {
+        method: 'POST',
+        body: songData,
+        ...authConfig
+      })
+
+      // 绕过去重，从数据库重新校准写入后的列表
+      await refreshSongsWithQuery()
+
+      return data
+    } catch (err: any) {
+      const errorMsg = localizeServerError(err) || '点歌失败'
+      // 如果是重复投稿错误，只显示通知而不设置全局错误
+      if (errorMsg.includes('已经在列表中') || errorMsg.includes('不能重复投稿')) {
+        showNotification(errorMsg, 'info')
+      } else {
+        error.value = errorMsg
+        showNotification(errorMsg, 'error')
+      }
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 投票
+  const voteSong = async (songId: number | { id: number; unvote?: boolean }) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginVote, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    // 处理传入的可能是对象的情况
+    const actualSongId = typeof songId === 'object' ? songId.id : songId
+    const isUnvote = typeof songId === 'object' && songId.unvote === true
+
+    try {
+      // 检查是否已经投过票（只在正常投票时检查）
+      const targetSong = songs.value.find((s) => s.id === actualSongId)
+
+      if (!isUnvote && targetSong && targetSong.voted) {
+        showNotification(actionLocale.value.alreadyVoted, 'info')
+        loading.value = false
+        return null
+      }
+
+      // 使用认证配置
+      const authConfig = getAuthConfig()
+
+      try {
+        const data = await $fetch('/api/songs/vote', {
+          method: 'POST',
+          body: {
+            songId: actualSongId,
+            unvote: isUnvote // 添加取消投票参数
+          },
+          ...authConfig
+        })
+
+        // 立即更新本地歌曲的投票状态
+        if (targetSong) {
+          if (isUnvote) {
+            // 取消投票
+            targetSong.voted = false
+            targetSong.voteCount = Math.max(0, (targetSong.voteCount || 1) - 1)
+            showNotification(actionLocale.value.voteCancelled(targetSong.title), 'success')
+          } else {
+            // 正常投票
+            targetSong.voted = true
+            targetSong.voteCount = (targetSong.voteCount || 0) + 1
+            showNotification(actionLocale.value.voteSucceeded(targetSong.title), 'success')
+          }
+        }
+
+        await refreshSongsWithQuery()
+
+        return data
+      } catch (fetchErr: any) {
+        // 处理API返回的错误
+        const errorMsg = fetchErr.data?.message || fetchErr.message || '投票失败'
+
+        // 如果是已投票错误，只显示通知，不抛出异常
+        if (errorMsg.includes('已经为这首歌投过票')) {
+          showNotification(actionLocale.value.alreadyVoted, 'info')
+
+          // 如果API返回已投票错误，也更新本地状态
+          if (targetSong && !targetSong.voted) {
+            targetSong.voted = true
+          }
+
+          return null
+        }
+
+        // 其他错误则抛出
+        throw fetchErr
+      }
+    } catch (err: any) {
+      const errorMsg = err.data?.message || err.message || '投票失败'
+      error.value = errorMsg
+      showNotification(errorMsg, 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 撤回歌曲（只能撤回自己的投稿）
+  const withdrawSong = async (songId: number) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginWithdraw, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      // 查找歌曲信息用于通知
+      const targetSong = songs.value.find((s) => s.id === songId)
+      const songTitle = targetSong ? targetSong.title : actionLocale.value.fallbackSongTitle
+
+      // 使用认证配置
+      const authConfig = getAuthConfig()
+
+      const data = await $fetch('/api/songs/withdraw', {
+        method: 'POST',
+        body: { songId },
+        ...authConfig
+      })
+
+      // 绕过去重，从数据库重新校准写入后的列表
+      await refreshSongsWithQuery()
+
+      // 显示成功通知
+      let message = ''
+      if (data.action === 'leave') {
+        message = actionLocale.value.leaveCollaborationSucceeded(songTitle)
+      } else if (data.message) {
+        // 如果后端返回了特定消息，优先使用（除了撤回投稿的情况，我们要保留带标题的格式）
+        message = data.message
+      } else {
+        message = data.quotaReturned
+          ? actionLocale.value.withdrawSucceededQuota(songTitle)
+          : actionLocale.value.withdrawSucceeded(songTitle)
+      }
+
+      if (data.action !== 'leave') {
+        message = data.quotaReturned
+          ? actionLocale.value.withdrawSucceededQuota(songTitle)
+          : actionLocale.value.withdrawSucceeded(songTitle)
+      }
+
+      showNotification(message, 'success')
+      return data
+    } catch (err: any) {
+      const errorMsg = err.data?.message || err.message || '撤回歌曲失败'
+      error.value = errorMsg
+      showNotification(errorMsg, 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 删除歌曲（管理员专用）
+  const deleteSong = async (songId: number) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginDelete, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      // 使用认证配置
+      const authConfig = getAuthConfig()
+
+      const data = await $fetch('/api/admin/songs/delete', {
+        method: 'POST',
+        body: { songId },
+        ...authConfig
+      })
+
+      // 绕过去重，从数据库重新校准写入后的列表
+      await refreshSongsWithQuery()
+
+      showNotification(actionLocale.value.deleteSucceeded, 'success')
+      return data
+    } catch (err: any) {
+      const errorMsg = err.data?.message || err.message || '删除歌曲失败'
+      error.value = errorMsg
+      showNotification(errorMsg, 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 标记歌曲为已播放（管理员专用）
+  const markPlayed = async (songId: number) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginMarkPlayed, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      // 使用认证配置
+      const authConfig = getAuthConfig()
+
+      const data = await $fetch('/api/admin/songs/mark-played', {
+        method: 'POST',
+        body: { songId },
+        ...authConfig
+      })
+
+      // 绕过去重，从数据库重新校准写入后的列表
+      await refreshSongsWithQuery()
+
+      showNotification(actionLocale.value.markPlayedSucceeded, 'success')
+      return data
+    } catch (err: any) {
+      const errorMsg = err.data?.message || err.message || '标记歌曲失败'
+      error.value = errorMsg
+      showNotification(errorMsg, 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 撤回歌曲已播放状态（管理员专用）
+  const unmarkPlayed = async (songId: number) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginUnmarkPlayed, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      // 使用认证配置
+      const authConfig = getAuthConfig()
+
+      const data = await $fetch('/api/admin/songs/mark-played', {
+        method: 'POST',
+        body: { songId, unmark: true },
+        ...authConfig
+      })
+
+      // 绕过去重，从数据库重新校准写入后的列表
+      await refreshSongsWithQuery()
+
+      showNotification(actionLocale.value.unmarkPlayedSucceeded, 'success')
+      return data
+    } catch (err: any) {
+      const errorMsg = err.data?.message || err.message || '撤回歌曲已播放状态失败'
+      error.value = errorMsg
+      showNotification(errorMsg, 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 申请重播
+  const requestReplay = async (
+    songId: number,
+    options: {
+      preferredPlayTimeId?: number | null
+      submissionNote?: string | null
+      submissionNotePublic?: boolean
+    } = {}
+  ) => {
+    if (!isAuthenticated.value) {
+      showNotification(actionLocale.value.loginRequestReplay, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      const authConfig = getAuthConfig()
+      const data = await $fetch('/api/songs/replay', {
+        method: 'POST',
+        body: { songId, ...options },
+        ...authConfig
+      })
+
+      // 更新本地数据状态
+      const songIndex = songs.value.findIndex((s) => s.id === songId)
+      if (songIndex !== -1) {
+        songs.value[songIndex].replayRequested = true
+      }
+
+      await refreshSongsWithQuery()
+
+      showNotification(actionLocale.value.replaySucceeded, 'success')
+      return data
+    } catch (err: any) {
+      // 按错误码本地化展示，重复申请降级为提示
+      if (extractErrorCode(err) === 'SONG_REPLAY_ALREADY_REQUESTED') {
+        showNotification(actionLocale.value.replayAlreadyRequested, 'info')
+      } else {
+        showNotification(localizeServerError(err) || '申请重播失败', 'error')
+      }
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * 撤回重播申请
+   * @param songId 歌曲ID
+   */
+  const withdrawReplay = async (songId: number) => {
+    const { user } = useAuth()
+    if (!user.value) {
+      showNotification(actionLocale.value.loginCancelReplay, 'error')
+      return null
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      const authConfig = getAuthConfig()
+      const data = await $fetch('/api/songs/replay', {
+        method: 'DELETE',
+        body: { songId },
+        ...authConfig
+      })
+
+      // 更新本地数据状态
+      const songIndex = songs.value.findIndex((s) => s.id === songId)
+      if (songIndex !== -1) {
+        songs.value[songIndex].replayRequested = false
+      }
+
+      await refreshSongsWithQuery()
+
+      showNotification(actionLocale.value.replayCancelled, 'success')
+      return data
+    } catch (err: any) {
+      showNotification(localizeServerError(err) || '取消重播申请失败', 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 按热度排序的歌曲
+  const songsByPopularity = computed(() => {
+    return [...songs.value].sort((a, b) => b.voteCount - a.voteCount)
+  })
+
+  // 按创建时间排序的歌曲
+  const songsByDate = computed(() => {
+    return [...songs.value].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
+  })
+
+  // 已播放的歌曲
+  const playedSongs = computed(() => {
+    return songs.value.filter((song) => song.played)
+  })
+
+  // 未播放的歌曲
+  const unplayedSongs = computed(() => {
+    return songs.value.filter((song) => !song.played)
+  })
+
+  // 我的投稿歌曲
+  const mySongs = computed(() => {
+    if (!user.value) return []
+    return songs.value.filter((song) => song.requesterId === user.value?.id)
+  })
+
+  // 我的重播申请歌曲
+  const myReplaySongs = computed(() => {
+    if (!user.value) return []
+    return songs.value.filter((song) => song.replayRequested)
+  })
+
+  // 所有可见的歌曲（登录用户看到的 + 公共歌曲）
+  const visibleSongs = computed(() => {
+    return isAuthenticated.value ? songs.value : publicSongs.value
+  })
+
+  const clearPrivateSongs = () => {
+    songsRequestVersion++
+    songs.value = []
+    songsTotal.value = 0
+    songsPage.value = 1
+    songsTotalPages.value = 1
+    songSemesters.value = []
+    // 切换用户后不沿用上一位用户的筛选条件
+    songsQuery = {
+      page: 1,
+      pageSize: defaultPageSize,
+      semester: '',
+      scope: '',
+      search: '',
+      sortBy: '',
+      sortOrder: '',
+      compact: defaultCompact
+    }
+  }
+
+  const clearPublicSongs = () => {
+    publicSchedulesRequestVersion++
+    publicSongs.value = []
+    publicSchedules.value = []
+  }
+
+  // 根据播放时间段过滤歌曲排期
+  const filterSchedulesByPlayTime = (schedules: Schedule[], playTimeId: number | null) => {
+    if (playTimeId === null) {
+      return schedules.filter((s) => s.playTimeId === null)
+    }
+    return schedules.filter((s) => s.playTimeId === playTimeId)
+  }
+
+  // 获取播放时间名称
+  const getPlayTimeName = (playTimeId: number | null) => {
+    if (playTimeId === null) {
+      return '未指定时段'
+    }
+
+    const foundTime = playTimes.value.find((pt) => pt.id === playTimeId)
+    return foundTime ? foundTime.name : '未知时段'
+  }
+
+  // 格式化播放时间显示
+  const formatPlayTimeDisplay = (playTime: PlayTime | null) => {
+    if (!playTime) {
+      return '全天'
+    }
+
+    let displayText = playTime.name
+
+    // 如果有开始和结束时间，添加时间信息
+    if (playTime.startTime && playTime.endTime) {
+      displayText += ` (${playTime.startTime}-${playTime.endTime})`
+    }
+    // 如果只有开始时间
+    else if (playTime.startTime) {
+      displayText += ` (${playTime.startTime}起)`
+    }
+    // 如果只有结束时间
+    else if (playTime.endTime) {
+      displayText += ` (至${playTime.endTime})`
+    }
+
+    return displayText
+  }
+
+  // 获取歌曲总数
+  const fetchSongCount = async (forceRefresh = false) => {
+    try {
+      const request = async () => {
+        const response = await $fetch('/api/songs/count')
+        return response
+      }
+      const response = forceRefresh
+        ? await request()
+        : await dedup.dedupedRequest('song-count', request)
+
+      // 正确解析API返回的数据结构
+      if (response && typeof response.count === 'number') {
+        songCount.value = response.count
+        return response.count
+      } else {
+        console.warn('歌曲总数API返回的数据格式不正确:', response)
+        songCount.value = 0
+        return 0
+      }
+    } catch (err: any) {
+      console.error('获取歌曲总数失败:', err)
+      return 0
+    }
+  }
+
+  // 初始化加载
+  const initialize = async () => {
+    await fetchPlayTimes()
+    if (isAuthenticated.value) {
+      await fetchSongs()
+    } else {
+      await fetchPublicSchedules()
+    }
+  }
+
+  return {
+    songs,
+    publicSongs,
+    publicSchedules,
+    visibleSongs,
+    songCount,
+    songsTotal,
+    songsPage,
+    songsTotalPages,
+    songSemesters,
+    loading,
+    error,
+    notification,
+    playTimes,
+    playTimeEnabled,
+    showNotification,
+    fetchSongs,
+    fetchPublicSchedules,
+    fetchPlayTimes,
+    fetchSongCount,
+    clearPrivateSongs,
+    clearPublicSongs,
+    refreshSongsSilent,
+    refreshSchedulesSilent,
+    requestSong,
+    voteSong,
+    withdrawSong,
+    deleteSong,
+    markPlayed,
+    unmarkPlayed,
+    requestReplay,
+    withdrawReplay,
+    filterSchedulesByPlayTime,
+    getPlayTimeName,
+    formatPlayTimeDisplay,
+    extractSongsFromSchedules,
+    initialize,
+    songsByPopularity,
+    songsByDate,
+    playedSongs,
+    unplayedSongs,
+    mySongs,
+    myReplaySongs
+  }
+}

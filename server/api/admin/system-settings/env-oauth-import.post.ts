@@ -1,0 +1,118 @@
+import { db } from '~/drizzle/db'
+import { systemSettings } from '~/drizzle/schema'
+import { eq } from 'drizzle-orm'
+import { SYSTEM_SETTINGS_DEFAULTS } from '../../../utils/system-settings-defaults'
+import { maskSystemSettingsSecrets } from './secretMask'
+import {
+  getAggregateOAuthLoginTypesOrDefault,
+  isSafeAggregateOAuthUrl
+} from '~~/server/utils/oauth-providers'
+
+export default defineEventHandler(async (event) => {
+  const user = event.context.user
+
+  if (!user) {
+    throw createError({
+      statusCode: 401,
+      message: '未授权访问'
+    })
+  }
+
+  if (user.role !== 'SUPER_ADMIN') {
+    throw createError({
+      statusCode: 403,
+      message: '只有超级管理员可以导入环境配置'
+    })
+  }
+
+  const body = await readBody(event)
+  const provider = typeof body.provider === 'string' ? body.provider : ''
+
+  const updateData: Record<string, any> = {}
+
+  if (provider === 'base') {
+    if (!process.env.OAUTH_REDIRECT_URI && !process.env.OAUTH_STATE_SECRET) {
+      throw createError({ statusCode: 400, message: '未检测到可导入的基础 OAuth 环境配置' })
+    }
+    if (process.env.OAUTH_REDIRECT_URI) {
+      updateData.oauthRedirectUri = process.env.OAUTH_REDIRECT_URI
+    }
+    if (process.env.OAUTH_STATE_SECRET) {
+      updateData.oauthStateSecret = process.env.OAUTH_STATE_SECRET
+    }
+  } else if (provider === 'github') {
+    if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+      throw createError({ statusCode: 400, message: '未检测到完整的 GitHub 环境配置' })
+    }
+    updateData.githubOAuthEnabled = true
+    updateData.githubClientId = process.env.GITHUB_CLIENT_ID
+    updateData.githubClientSecret = process.env.GITHUB_CLIENT_SECRET
+  } else if (provider === 'casdoor') {
+    if (
+      !process.env.CASDOOR_ENDPOINT ||
+      !process.env.CASDOOR_CLIENT_ID ||
+      !process.env.CASDOOR_CLIENT_SECRET
+    ) {
+      throw createError({ statusCode: 400, message: '未检测到完整的 Casdoor 环境配置' })
+    }
+    updateData.casdoorOAuthEnabled = true
+    updateData.casdoorServerUrl = process.env.CASDOOR_ENDPOINT
+    updateData.casdoorClientId = process.env.CASDOOR_CLIENT_ID
+    updateData.casdoorClientSecret = process.env.CASDOOR_CLIENT_SECRET
+    updateData.casdoorOrganizationName = process.env.CASDOOR_ORGANIZATION_NAME || 'built-in'
+  } else if (provider === 'google') {
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      throw createError({ statusCode: 400, message: '未检测到完整的 Google 环境配置' })
+    }
+    updateData.googleOAuthEnabled = true
+    updateData.googleClientId = process.env.GOOGLE_CLIENT_ID
+    updateData.googleClientSecret = process.env.GOOGLE_CLIENT_SECRET
+  } else if (provider === 'aggregate') {
+    const appId = process.env.AGGREGATE_OAUTH_APP_ID?.trim()
+    const appKey = process.env.AGGREGATE_OAUTH_APP_KEY?.trim()
+    if (!appId || !appKey) {
+      throw createError({ statusCode: 400, message: '未检测到完整的聚合登陆环境配置' })
+    }
+    const loginTypes = getAggregateOAuthLoginTypesOrDefault(process.env.AGGREGATE_OAUTH_LOGIN_TYPE)
+    if (loginTypes.length === 0) {
+      throw createError({ statusCode: 400, message: '未检测到受支持的聚合登录方式' })
+    }
+    const endpoint = process.env.AGGREGATE_OAUTH_ENDPOINT?.trim()
+    if (!endpoint) {
+      throw createError({ statusCode: 400, message: '未检测到 AGGREGATE_OAUTH_ENDPOINT 环境配置' })
+    }
+    if (!isSafeAggregateOAuthUrl(endpoint)) {
+      throw createError({
+        statusCode: 400,
+        message: 'AGGREGATE_OAUTH_ENDPOINT 公网地址必须使用 HTTPS，内网地址可使用 HTTP'
+      })
+    }
+    updateData.aggregateOAuthEnabled = true
+    updateData.aggregateOAuthAppId = appId
+    updateData.aggregateOAuthAppKey = appKey
+    updateData.aggregateOAuthLoginType = JSON.stringify(loginTypes)
+    updateData.aggregateOAuthEndpoint = endpoint
+  } else {
+    throw createError({ statusCode: 400, message: '不支持的导入类型' })
+  }
+
+  const settingsResult = await db.select().from(systemSettings).limit(1)
+  let settings = settingsResult[0]
+
+  if (!settings) {
+    const inserted = await db
+      .insert(systemSettings)
+      .values({ ...SYSTEM_SETTINGS_DEFAULTS, ...updateData })
+      .returning()
+    settings = inserted[0]
+  } else {
+    const updated = await db
+      .update(systemSettings)
+      .set(updateData)
+      .where(eq(systemSettings.id, settings.id))
+      .returning()
+    settings = updated[0]
+  }
+
+  return maskSystemSettingsSecrets(settings)
+})

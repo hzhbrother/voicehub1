@@ -1,0 +1,83 @@
+import { db } from '~/drizzle/db'
+import { systemSettings } from '~/drizzle/schema'
+import { maskSystemSettingsSecrets } from './secretMask'
+import { stripSuperAdminOnlySettingFields } from '~/utils/settingsPermissions'
+import { MUSIC_SOURCE_PLATFORMS } from '~~/server/config/constants'
+import { SYSTEM_SETTINGS_DEFAULTS } from '~~/server/utils/system-settings-defaults'
+
+export default defineEventHandler(async (event) => {
+  // 检查用户认证和权限
+  const user = event.context.user
+
+  if (!user) {
+    throw createError({
+      statusCode: 401,
+      message: '未授权访问'
+    })
+  }
+
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+    throw createError({
+      statusCode: 403,
+      message: '只有管理员才能查看系统设置'
+    })
+  }
+
+  try {
+    // 系统设置包含敏感配置，始终从数据库读取。
+    const settingsResult = await db.select().from(systemSettings).limit(1)
+    let settings = settingsResult[0]
+
+    if (!settings) {
+      const newSettingsResult = await db
+        .insert(systemSettings)
+        .values({
+          ...SYSTEM_SETTINGS_DEFAULTS,
+          telemetryEnabled: true,
+          enablePlayTimeSelection: false,
+          playSlotRequired: false,
+          siteTitle: process.env.NUXT_PUBLIC_SITE_TITLE || 'VoiceHub',
+          siteLogoUrl: process.env.NUXT_PUBLIC_SITE_LOGO || '/favicon.ico',
+          schoolLogoHomeUrl: null,
+          schoolLogoPrintUrl: null,
+          siteDescription:
+            process.env.NUXT_PUBLIC_SITE_DESCRIPTION || '校园广播站点歌系统 - 让你的声音被听见',
+          submissionGuidelines: '请遵守校园规定，提交健康向上的歌曲。',
+          icpNumber: null,
+          gonganNumber: null,
+          showBeianIcon: false,
+          enableSubmissionLimit: false,
+          dailySubmissionLimit: null,
+          weeklySubmissionLimit: null,
+          monthlySubmissionLimit: null,
+          enableGlobalSubmissionLimit: false,
+          globalDailySubmissionLimit: null,
+          globalWeeklySubmissionLimit: null,
+          globalMonthlySubmissionLimit: null,
+          showBlacklistKeywords: false,
+          enableCollaborativeSubmission: true,
+          enableSubmissionRemarks: false,
+          enableSubmissionRestriction: false,
+          submissionRestrictionScope: 'all',
+          sameSongRestrictionHours: null,
+          sameArtistRestrictionHours: null,
+          enabledPlatforms: JSON.stringify([...MUSIC_SOURCE_PLATFORMS]),
+          platformOrder: JSON.stringify([...MUSIC_SOURCE_PLATFORMS]),
+          defaultTheme: 'System',
+          enabledThemes: JSON.stringify(['System', 'ClassicDark', 'ClassicLight', 'ModernLight'])
+        })
+        .returning()
+      settings = newSettingsResult[0]
+    }
+
+    const masked = maskSystemSettingsSecrets(settings)
+    // 普通管理员不回传超管专属配置（凭据、隐私与账号安全策略）
+    return user.role === 'SUPER_ADMIN' ? masked : stripSuperAdminOnlySettingFields(masked)
+  } catch (error) {
+    console.error('获取系统设置失败:', error)
+    throw createError({
+      statusCode: 500,
+      message: '获取系统设置失败'
+    })
+  }
+})

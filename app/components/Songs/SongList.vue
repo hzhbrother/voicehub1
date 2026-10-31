@@ -1,0 +1,3443 @@
+<template>
+  <div class="song-list">
+    <div class="song-list-header">
+      <!-- 移动端搜索栏 -->
+      <div class="mobile-search-container mobile-only">
+        <div class="search-bar-wrapper">
+          <div class="search-icon-box">
+            <Icon name="search" :size="18" />
+          </div>
+          <input
+            v-model="searchQuery"
+            class="mobile-search-input"
+            :placeholder="locale.mobileSearchPlaceholder"
+            type="text"
+          >
+        </div>
+
+        <div class="mobile-tabs-row">
+          <div class="mobile-tabs">
+            <button
+              v-ripple
+              :class="{ active: activeTab === 'all' }"
+              class="mobile-tab-btn"
+              @click="setActiveTab('all')"
+            >
+              {{ locale.tabs.all }}
+              <div v-if="activeTab === 'all'" class="active-indicator" />
+            </button>
+            <button
+              v-if="isAuthenticated"
+              v-ripple
+              :class="{ active: activeTab === 'mine' }"
+              class="mobile-tab-btn"
+              @click="setActiveTab('mine')"
+            >
+              {{ locale.tabs.mine }}
+              <div v-if="activeTab === 'mine'" class="active-indicator" />
+            </button>
+            <button
+              v-if="isAuthenticated"
+              v-ripple
+              :class="{ active: activeTab === 'replays' }"
+              class="mobile-tab-btn"
+              @click="setActiveTab('replays')"
+            >
+              {{ locale.tabs.replays }}
+              <div v-if="activeTab === 'replays'" class="active-indicator" />
+            </button>
+          </div>
+
+          <div class="mobile-tab-actions">
+            <!-- 学期选择器 -->
+            <div v-if="availableSemesters.length > 1" class="semester-selector-compact">
+              <button
+                :title="locale.currentSemester + selectedSemester"
+                class="semester-toggle-btn"
+                @click="showSemesterDropdown = !showSemesterDropdown"
+              >
+                <svg
+                  fill="none"
+                  height="16"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="16"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
+                </svg>
+              </button>
+
+              <Transition
+                enter-active-class="transition duration-100 ease-out"
+                enter-from-class="transform scale-95 opacity-0"
+                enter-to-class="transform scale-100 opacity-100"
+                leave-active-class="transition duration-75 ease-in"
+                leave-from-class="transform scale-100 opacity-100"
+                leave-to-class="transform scale-95 opacity-0"
+              >
+                <div v-if="showSemesterDropdown" class="semester-dropdown">
+                  <div
+                    v-for="semester in availableSemesters"
+                    :key="semester"
+                    :class="{ active: selectedSemester === semester }"
+                    class="semester-option"
+                    @click="onSemesterChange(semester)"
+                  >
+                    {{ semester }}
+                  </div>
+                </div>
+              </Transition>
+            </div>
+
+            <button
+              :disabled="loading"
+              :title="loading ? locale.refreshing : locale.refresh"
+              class="refresh-button"
+              @click="handleRefresh"
+            >
+              <svg
+                :class="{ rotating: loading }"
+                class="refresh-icon"
+                fill="none"
+                height="16"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="16"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 桌面端操作区域 (包含搜索和学期选择) -->
+      <div class="desktop-header-content desktop-only">
+        <div class="tab-controls">
+          <button
+            v-ripple
+            :class="{ active: activeTab === 'all' }"
+            class="tab-button"
+            @click="setActiveTab('all')"
+          >
+            {{ locale.tabs.all }}
+          </button>
+          <button
+            v-if="isAuthenticated"
+            v-ripple
+            :class="{ active: activeTab === 'mine' }"
+            class="tab-button"
+            @click="setActiveTab('mine')"
+          >
+            {{ locale.tabs.mine }}
+          </button>
+          <button
+            v-if="isAuthenticated"
+            v-ripple
+            :class="{ active: activeTab === 'replays' }"
+            class="tab-button"
+            @click="setActiveTab('replays')"
+          >
+            {{ locale.tabs.replays }}
+          </button>
+        </div>
+
+        <div class="search-actions">
+          <div class="search-box">
+            <input
+              v-model="searchQuery"
+              class="search-input"
+              :placeholder="locale.searchPlaceholder"
+              type="text"
+            >
+            <span class="search-icon">🔍</span>
+          </div>
+
+          <!-- 学期选择器 -->
+          <div v-if="availableSemesters.length > 1" class="semester-selector-compact">
+            <button
+              :title="locale.currentSemester + selectedSemester"
+              class="semester-toggle-btn"
+              @click="showSemesterDropdown = !showSemesterDropdown"
+            >
+              <svg
+                fill="none"
+                height="16"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="16"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
+              </svg>
+            </button>
+
+            <Transition
+              enter-active-class="transition duration-100 ease-out"
+              enter-from-class="transform scale-95 opacity-0"
+              enter-to-class="transform scale-100 opacity-100"
+              leave-active-class="transition duration-75 ease-in"
+              leave-from-class="transform scale-100 opacity-100"
+              leave-to-class="transform scale-95 opacity-0"
+            >
+              <div v-if="showSemesterDropdown" class="semester-dropdown">
+                <div
+                  v-for="semester in availableSemesters"
+                  :key="semester"
+                  :class="{ active: selectedSemester === semester }"
+                  class="semester-option"
+                  @click="onSemesterChange(semester)"
+                >
+                  {{ semester }}
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- 添加刷新按钮 - 使用SVG图标 -->
+          <button
+            :disabled="loading"
+            :title="loading ? locale.refreshing : locale.refresh"
+            class="refresh-button"
+            @click="handleRefresh"
+          >
+            <svg
+              :class="{ rotating: loading }"
+              class="refresh-icon"
+              fill="none"
+              height="16"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="16"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <!-- desktop-header-content -->
+    </div>
+
+    <!-- 使用Transition组件包裹所有内容 -->
+    <Transition mode="out-in" name="tab-switch">
+      <div v-if="loading" :key="'loading'" class="loading">
+        <div class="song-loading-skeleton" aria-hidden="true">
+          <div v-for="n in 6" :key="n" class="skeleton-card">
+            <div class="skeleton-card-main">
+              <div class="skeleton-cover shimmer-block" />
+              <div class="skeleton-lines">
+                <div class="skeleton-line shimmer-block" />
+                <div class="skeleton-line skeleton-line-short shimmer-block" />
+              </div>
+              <div class="skeleton-actions">
+                <div class="skeleton-heat shimmer-block" />
+                <div class="skeleton-like shimmer-block" />
+              </div>
+            </div>
+            <div class="skeleton-footer shimmer-block" />
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="error" :key="'error'" class="error">
+        {{ error }}
+      </div>
+
+      <div v-else-if="displayedSongs.length === 0" :key="'empty-' + activeTab" class="empty">
+        {{
+          activeTab === 'mine'
+            ? locale.emptyMine
+            : activeTab === 'replays'
+              ? locale.emptyReplays
+              : locale.emptyAll
+        }}
+      </div>
+
+      <div v-else :key="'songs-' + activeTab" class="songs-container">
+        <TransitionGroup class="song-cards" name="page" tag="div">
+          <div
+            v-for="song in paginatedSongs"
+            :key="song.id"
+            :class="{
+              played: song.played,
+              scheduled: song.scheduled,
+              focused: isSongFocused(song.id),
+              playing: isCurrentPlaying(song.id)
+            }"
+            class="song-card"
+            @click="handleSongCardClick(song)"
+          >
+            <!-- 歌曲卡片主体 -->
+            <div class="song-card-main">
+              <!-- 添加歌曲封面 -->
+              <div class="song-cover" @click.stop="togglePlaySong(song)">
+                <template v-if="song.cover && !failedCovers[song.cover]">
+                  <img
+                    :alt="song.title"
+                    :src="getCoverThumbUrl(song.cover)"
+                    class="cover-image"
+                    decoding="async"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                    @error="handleImageError(song)"
+                  >
+                </template>
+                <div v-else class="text-cover">
+                  {{ getFirstChar(song.title) }}
+                </div>
+                <!-- 添加播放按钮 (仅桌面端显示) -->
+                <div
+                  v-if="(song.musicPlatform && song.musicId) || song.playUrl"
+                  class="play-button-overlay"
+                >
+                  <button :title="isCurrentPlaying(song.id) ? locale.pause : locale.play" class="play-button">
+                    <Icon v-if="isCurrentPlaying(song.id)" :size="16" color="white" name="pause" />
+                    <Icon v-else :size="16" color="white" name="play" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="song-info">
+                <h3 :title="song.title + ' - ' + song.artist" class="song-title">
+                  <marquee-text
+                    :activated="isSongFocused(song.id)"
+                    :text="`${song.title} - ${song.artist}`"
+                  />
+                  <span
+                    v-if="song.played"
+                    :title="
+                      song.scheduleDate
+                        ? locale.playDate(formatScheduleDate(song.scheduleDate))
+                        : locale.played
+                    "
+                    class="played-tag"
+                  >
+                    {{ locale.played }}
+                  </span>
+                  <span
+                    v-else-if="song.scheduled"
+                    :title="
+                      song.scheduleDate
+                        ? locale.scheduleDate(formatScheduleDate(song.scheduleDate))
+                        : locale.scheduled
+                    "
+                    class="scheduled-tag"
+                  >
+                    {{ locale.scheduled }}
+                  </span>
+                  <span v-else-if="song.isReplay" :title="locale.replaySong" class="replay-tag"> {{ locale.replay }} </span>
+                  <!-- 点歌券标识 -->
+                  <span
+                    v-if="song.cardCodeId || song.usedCardCode"
+                    class="card-code-tag"
+                    :title="locale.cardCodeUsed"
+                  >
+                    {{ locale.cardCodeUsed }}
+                  </span>
+                  <!-- 匿名投稿角标：仅投稿人本人可见（其他人看到的投稿人已是“匿名投稿”） -->
+                  <span
+                    v-if="isMySong(song) && song.submissionAnonymous === true"
+                    class="anonymous-tag"
+                    :title="locale.anonymousTagHint"
+                  >
+                    {{ locale.anonymousTag }}
+                  </span>
+                  <button
+                    v-if="song.hasSubmissionNote && song.submissionNote"
+                    class="submission-note-trigger"
+                    :title="locale.viewSubmissionNote"
+                    @click.stop="openSubmissionNote(song)"
+                  >
+                    <Icon :size="14" name="message-circle" />
+                  </button>
+                </h3>
+                <div class="song-meta">
+                  <span
+                    :title="
+                      song.isAnonymous
+                        ? locale.requesterTitle + locale.anonymousRequester
+                        : (song.collaborators && song.collaborators.length
+                            ? locale.mainRequesterTitle
+                            : locale.requesterTitle) +
+                          song.requester +
+                          (song.collaborators && song.collaborators.length
+                            ? '\n' + locale.collaboratorsTitle +
+                              song.collaborators.map((c) => c.displayName || c.name).join(', ')
+                            : '')
+                    "
+                    class="requester"
+                  >
+                    {{ locale.requester }}{{ song.isAnonymous ? locale.anonymousRequester : song.requester }}
+                    <span v-if="!song.isAnonymous && song.collaborators && song.collaborators.length > 0">
+                      & {{ song.collaborators.map((c) => c.displayName || c.name).join(' & ') }}
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- 热度和点赞按钮区域 -->
+              <div class="action-area">
+                <!-- 热度展示 -->
+                <div class="vote-count">
+                  <span class="count">{{ song.voteCount }}</span>
+                  <span class="label">{{ locale.heat }}</span>
+                </div>
+
+                <!-- 点赞按钮 -->
+                <div class="like-button-wrapper">
+                  <button
+                    :class="{
+                      liked: song.voted,
+                      disabled: isVoteButtonDisabled(song)
+                    }"
+                    :disabled="isVoteButtonDisabled(song)"
+                    :title="getVoteButtonTitle(song)"
+                    class="like-button"
+                    @click.stop="handleVote(song)"
+                  >
+                    <img :alt="locale.likeAlt" class="like-icon" :src="getThumbsUpIcon()" >
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 投稿时间和撤销按钮 -->
+            <div class="submission-footer">
+              <div class="submission-time">{{ locale.requestedAt }}{{ song.requestedAt }}</div>
+
+              <!-- 如果是自己的投稿或联合投稿，显示撤回/退出按钮 -->
+              <button
+                v-if="(isMySong(song) || isCollaborator(song)) && !song.played && !song.scheduled"
+                :disabled="actionInProgress"
+                :title="isMySong(song) ? locale.withdrawSubmission : locale.leaveCollaboration"
+                class="withdraw-button"
+                @click.stop="handleWithdraw(song)"
+              >
+                {{ locale.withdraw }}
+              </button>
+
+              <!-- 撤回待处理的重播申请 -->
+              <button
+                v-if="isAuthenticated && shouldShowCancelReplayButton(song)"
+                :disabled="actionInProgress"
+                :title="locale.cancelReplayTitle"
+                class="withdraw-button replay-cancel-btn"
+                @click.stop="handleCancelReplay(song)"
+              >
+                {{ locale.cancelReplay }}
+              </button>
+            </div>
+          </div>
+        </TransitionGroup>
+
+        <!-- 分页控件 -->
+        <Pagination
+          v-model:current-page="currentPage"
+          :total-pages="totalPages"
+          :total-items="totalItems"
+          :item-name="locale.itemName"
+          @change="handlePageChange"
+        />
+
+        <!-- 确认对话框 -->
+        <ConfirmDialog
+          :show="confirmDialog.show"
+          :title="confirmDialog.title"
+          :message="confirmDialog.message"
+          :type="confirmDialog.type"
+          :loading="actionInProgress"
+          @confirm="confirmAction"
+          @cancel="cancelConfirm"
+        />
+
+        <Teleport to="body">
+          <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-200 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+          >
+            <div
+              v-if="submissionNoteDialog.show"
+              class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bg-primary-60 backdrop-blur-sm"
+              @click="closeSubmissionNote"
+            >
+              <div class="submission-note-modal" @click.stop>
+                <div class="submission-note-header">
+                  <h4>{{ locale.submissionNote }}</h4>
+                  <button @click="closeSubmissionNote">
+                    <Icon :size="14" name="close" />
+                  </button>
+                </div>
+                <div class="submission-note-meta">
+                  <span class="song-title-tag">{{ submissionNoteDialog.songTitle }}</span>
+                  <span :class="['visibility-tag', submissionNoteDialog.isPublic ? 'visibility-public' : 'visibility-private']">
+                    {{ submissionNoteDialog.isPublic ? locale.publicNote : locale.privateNote }}
+                  </span>
+                </div>
+                <div class="submission-note-content-box">
+                  <p class="submission-note-content">{{ submissionNoteDialog.note }}</p>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </Teleport>
+      </div>
+    </Transition>
+  </div>
+</template>
+
+<script setup>
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useAuth } from '~/composables/useAuth'
+import { useAudioPlayer } from '~/composables/useAudioPlayer'
+import { useSemesters } from '~/composables/useSemesters'
+import { useSongs } from '~/composables/useSongs'
+import Icon from '~/components/UI/Icon.vue'
+import Pagination from '~/components/UI/Common/Pagination.vue'
+import MarqueeText from '~/components/UI/MarqueeText.vue'
+import ConfirmDialog from '~/components/UI/ConfirmDialog.vue'
+import { getCoverThumbUrl } from '~/utils/url'
+import { isBilibiliSong } from '~/utils/bilibiliSource'
+import { getMusicUrl as resolveMusicUrl } from '~/utils/musicUrl'
+import { useLocale } from '~/utils/locale'
+import { useThemeImage } from '~/composables/useThemeImage'
+
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
+
+const { getThumbsUpIcon } = useThemeImage()
+const props = defineProps({
+  songs: {
+    type: Array,
+    default: () => []
+  },
+  loading: {
+    type: Boolean,
+    default: false
+  },
+  error: {
+    type: String,
+    default: ''
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false
+  },
+  // 服务端分页信息，仅登录用户生效
+  total: {
+    type: Number,
+    default: 0
+  },
+  totalPages: {
+    type: Number,
+    default: 1
+  },
+  semesters: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const emit = defineEmits([
+  'vote',
+  'withdraw',
+  'cancelReplay',
+  'refresh',
+  'semester-change',
+  'list-query-change'
+])
+const voteInProgress = ref(false)
+const actionInProgress = ref(false)
+const { currentLocale, songs: songsLocale } = useLocale()
+const locale = computed(() => {
+  const base = songsLocale.value?.songList || {}
+  const emptyText = () => ''
+  return useSafeLocale({
+    ...base,
+    playDate: base.playDate || emptyText,
+    scheduleDate: base.scheduleDate || emptyText,
+    replayRequest: base.replayRequest || emptyText
+  })
+})
+const { t: callLocale } = useLocaleText(locale)
+const sortBy = ref('popularity')
+const sortOrder = ref('desc') // 'desc' for newest first, 'asc' for oldest first
+const searchQuery = ref('') // 搜索查询
+const activeTab = ref('all') // 默认显示全部投稿
+const auth = useAuth()
+const isAuthenticated = computed(() => auth && auth.isAuthenticated && auth.isAuthenticated.value)
+
+// 焦点状态管理
+const focusedSongId = ref(null)
+
+// 处理歌曲卡片焦点切换
+const handleSongCardClick = (song) => {
+  // 如果点击的是当前已获得焦点的歌曲，则取消焦点
+  if (focusedSongId.value === song.id) {
+    focusedSongId.value = null
+  } else {
+    // 否则设置新的焦点歌曲
+    focusedSongId.value = song.id
+  }
+}
+
+// 判断歌曲是否获得焦点
+const isSongFocused = (songId) => {
+  return focusedSongId.value === songId
+}
+
+// 学期相关
+const { fetchCurrentSemester, currentSemester, semesterUpdateEvent } = useSemesters()
+const availableSemesters = ref([])
+const selectedSemester = ref('')
+const showSemesterDropdown = ref(false)
+
+// 获取完整歌曲数据源
+const songsComposable = useSongs()
+const { playTimeEnabled } = useSongs()
+const allSongsData = computed(() => songsComposable?.visibleSongs?.value || [])
+
+// 音频播放相关
+const audioPlayer = useAudioPlayer()
+
+// 分页相关
+const currentPage = ref(1)
+const pageSize = ref(12) // 每页显示12首歌曲，适合横向布局
+const isMobile = ref(false)
+
+// 登录用户的分页、筛选、搜索与排序均由服务端处理
+const serverPaginated = computed(() => Boolean(isAuthenticated.value))
+
+// 汇总当前列表查询条件
+const buildListQuery = () => ({
+  page: currentPage.value,
+  pageSize: pageSize.value,
+  semester: selectedSemester.value || '',
+  scope: activeTab.value === 'mine' ? 'mine' : activeTab.value === 'replays' ? 'replays' : '',
+  search: searchQuery.value.trim(),
+  sortBy: sortBy.value === 'date' ? 'createdAt' : 'votes',
+  sortOrder: sortOrder.value
+})
+
+let lastEmittedQueryKey = ''
+
+// 仅在查询条件实际变化时通知父组件，避免重复请求
+const emitListQuery = (overrides = {}) => {
+  if (!serverPaginated.value) return
+  const query = { ...buildListQuery(), ...overrides }
+  const key = JSON.stringify(query)
+  if (key === lastEmittedQueryKey) return
+  lastEmittedQueryKey = key
+  emit('list-query-change', query)
+}
+
+const emitListQueryDebounced = debounce((overrides = {}) => {
+  emitListQuery(overrides)
+}, 300)
+
+const handlePageChange = (page) => {
+  emitListQuery({ page })
+}
+
+// 组件初始化状态
+const isComponentInitialized = ref(false)
+const isDataLoading = ref(false)
+// 防重复调用标志
+const isFetchingSemesters = ref(false)
+// 用户手动选择学期标志
+const isUserManuallySelected = ref(false)
+
+// 切换活动标签
+const setActiveTab = (tab) => {
+  if (activeTab.value === tab) return // 如果点击的是当前标签，不执行切换
+  activeTab.value = tab
+  currentPage.value = 1 // 重置为第一页
+  emitListQuery({ page: 1 })
+}
+
+// 检测设备是否为移动设备
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
+
+// 处理学期过滤变化事件
+const handleSemesterFilterChange = (event) => {
+  const newSemester = event.detail.semester
+
+  // 更新选中的学期
+  selectedSemester.value = newSemester
+
+  // 重置到第一页
+  currentPage.value = 1
+  emitListQuery({ page: 1 })
+
+  // 保存到sessionStorage
+  if (newSemester) {
+    sessionStorage.setItem('voicehub_selected_semester', newSemester)
+  } else {
+    sessionStorage.removeItem('voicehub_selected_semester')
+  }
+}
+
+// 组件挂载和卸载时添加/移除窗口大小变化监听
+onMounted(async () => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+
+  // 添加学期过滤变化事件监听器
+  window.addEventListener('semester-filter-change', handleSemesterFilterChange)
+
+  // 首先从sessionStorage恢复学期选择状态
+  try {
+    const savedSemester = sessionStorage.getItem('voicehub_selected_semester')
+    if (savedSemester && !containsCorruptedText(savedSemester)) {
+      const cleanSavedSemester = cleanCorruptedText(savedSemester)
+      if (cleanSavedSemester) {
+        selectedSemester.value = cleanSavedSemester
+      }
+    }
+  } catch (error) {
+    console.warn('恢复学期选择状态失败:', error)
+  }
+
+  isDataLoading.value = true
+  try {
+    // 首先获取当前学期
+    await fetchCurrentSemester()
+
+    // 然后获取可用学期（初始化期间只设置列表，不执行选择逻辑）
+    await fetchAvailableSemesters()
+
+    // 标记组件初始化完成
+    isComponentInitialized.value = true
+
+    // 初始化完成后，尝试执行一次默认选择，确保正确的初始状态
+    await selectDefaultSemester()
+
+    // 按已确定的学期与筛选条件拉取列表当前页
+    emitListQuery({ page: 1 })
+  } catch (error) {
+    console.error('组件初始化失败:', error)
+  } finally {
+    isDataLoading.value = false
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+  // 移除学期过滤变化事件监听器
+  window.removeEventListener('semester-filter-change', handleSemesterFilterChange)
+})
+
+// 监听歌曲数据变化，更新学期信息
+watch(
+  () => props.songs,
+  () => {
+    // 只有在组件完全初始化后且不在获取学期信息时才处理数据更新
+    if (isComponentInitialized.value && !isDataLoading.value && !isFetchingSemesters.value) {
+      fetchAvailableSemesters()
+    }
+  },
+  { deep: true }
+)
+
+// 监听学期更新事件
+watch(semesterUpdateEvent, async () => {
+  // 只有在组件完全初始化后且不在获取学期信息时才处理学期更新
+  if (isComponentInitialized.value && !isDataLoading.value && !isFetchingSemesters.value) {
+    fetchAvailableSemesters()
+  }
+})
+
+// 监听搜索查询变化，重置分页并重新请求
+watch(searchQuery, () => {
+  currentPage.value = 1
+  emitListQueryDebounced({ page: 1, search: searchQuery.value.trim() })
+})
+
+// 监听allSongsData变化，当数据真正加载完成时重新获取学期信息
+watch(
+  allSongsData,
+  (newData) => {
+    // 只有在组件完全初始化后且数据真正有内容时才处理
+    if (
+      isComponentInitialized.value &&
+      newData &&
+      newData.length > 0 &&
+      !isFetchingSemesters.value
+    ) {
+      fetchAvailableSemesters()
+    }
+  },
+  { deep: true }
+)
+
+dayjs.extend(utc)
+dayjs.extend(timezone)
+
+const BEIJING_TIMEZONE = 'Asia/Shanghai'
+
+// 确认对话框
+const confirmDialog = ref({
+  show: false,
+  title: '',
+  message: '',
+  type: 'warning', // 'warning', 'danger', 'info', 'success'
+  action: '',
+  data: null
+})
+const submissionNoteDialog = ref({
+  show: false,
+  songTitle: '',
+  note: '',
+  isPublic: false
+})
+
+// 格式化日期为 X年X月X日
+const formatDate = (dateString) => {
+  if (!dateString) return locale.value.unknownTime
+  const date = dayjs(dateString).tz(BEIJING_TIMEZONE).toDate()
+  return new Intl.DateTimeFormat(currentLocale.value, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: BEIJING_TIMEZONE
+  }).format(date)
+}
+
+// 格式化日期为 X年X月X日 HH:MM
+const formatDateTime = (dateString) => {
+  if (!dateString) return locale.value.unknownTime
+  const date = dayjs(dateString).tz(BEIJING_TIMEZONE).toDate()
+  return new Intl.DateTimeFormat(currentLocale.value, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: BEIJING_TIMEZONE
+  }).format(date)
+}
+
+// 根据播出时段功能开启状态格式化排期日期
+const formatScheduleDate = (dateString) => {
+  if (!dateString) return ''
+  // 如果播出时段功能开启，显示完整的日期时间
+  if (playTimeEnabled.value) {
+    return formatDateTime(dateString)
+  }
+  // 如果播出时段功能未开启，只显示日期
+  return formatDate(dateString)
+}
+
+// 判断是否是自己投稿的歌曲
+const isMySong = (song) => {
+  return auth && auth.user && auth.user.value && song.requesterId === auth.user.value.id
+}
+
+// 判断是否是联合投稿人
+const isCollaborator = (song) => {
+  if (!auth || !auth.user || !auth.user.value) return false
+  if (!song.collaborators || !Array.isArray(song.collaborators)) return false
+  return song.collaborators.some((c) => c.id === auth.user.value.id)
+}
+
+// 访客使用公共歌曲数据，在本地完成过滤、排序与分页
+const clientDisplayedSongs = computed(() => {
+  if (!props.songs) return []
+
+  let result = [...props.songs]
+
+  // 应用学期过滤器
+  if (selectedSemester.value) {
+    result = result.filter((song) => song.semester === selectedSemester.value)
+  }
+
+  // 应用标签过滤器
+  if (activeTab.value === 'mine') {
+    result = result.filter((song) => isMySong(song))
+  } else if (activeTab.value === 'replays') {
+    result = result.filter((song) => song.replayRequested)
+  }
+
+  // 应用搜索过滤器
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase().trim()
+    result = result.filter(
+      (song) =>
+        song.title.toLowerCase().includes(query) ||
+        song.artist.toLowerCase().includes(query) ||
+        (song.requester && song.requester.toLowerCase().includes(query))
+    )
+  }
+
+  // 按状态分组：未排期、已排期、已播放
+  const unscheduledSongs = result.filter((song) => !song.played && !song.scheduled)
+  const scheduledSongs = result.filter((song) => !song.played && song.scheduled)
+  const playedSongs = result.filter((song) => song.played)
+
+  // 对每个分组内部进行排序
+  const sortSongs = (songs) => {
+    if (sortBy.value === 'popularity') {
+      return songs.sort((a, b) => {
+        // 首先按投票数降序排列
+        if (b.voteCount !== a.voteCount) {
+          return b.voteCount - a.voteCount
+        }
+        // 投票数相同时，按创建时间升序排列（投稿早的在前面）
+        return new Date(a.createdAt) - new Date(b.createdAt)
+      })
+    } else if (sortBy.value === 'date') {
+      return songs.sort((a, b) => {
+        const dateA = new Date(a.createdAt)
+        const dateB = new Date(b.createdAt)
+        return sortOrder.value === 'desc' ? dateB - dateA : dateA - dateB
+      })
+    }
+    return songs
+  }
+
+  // 返回按顺序排列的歌曲：未排期 → 已排期 → 已播放
+  return [...sortSongs(unscheduledSongs), ...sortSongs(scheduledSongs), ...sortSongs(playedSongs)]
+})
+
+// 登录用户直接渲染服务端返回的当前页
+const displayedSongs = computed(() =>
+  serverPaginated.value ? (Array.isArray(props.songs) ? props.songs : []) : clientDisplayedSongs.value
+)
+
+// 计算总页数
+const totalPages = computed(() => {
+  if (serverPaginated.value) return Math.max(1, Number(props.totalPages) || 1)
+  return Math.max(1, Math.ceil(clientDisplayedSongs.value.length / pageSize.value))
+})
+
+// 总条数
+const totalItems = computed(() => {
+  if (serverPaginated.value) return Math.max(0, Number(props.total) || 0)
+  return clientDisplayedSongs.value.length
+})
+
+// 获取当前页的歌曲
+const paginatedSongs = computed(() => {
+  if (serverPaginated.value) return displayedSongs.value
+  const startIndex = (currentPage.value - 1) * pageSize.value
+  const endIndex = startIndex + pageSize.value
+  return clientDisplayedSongs.value.slice(startIndex, endIndex)
+})
+
+// 学期切换后重新向服务端请求
+watch(selectedSemester, () => {
+  if (!isComponentInitialized.value) return
+  currentPage.value = 1
+  emitListQuery({ page: 1 })
+})
+
+// 登录态恢复后按服务端分页重新拉取
+watch(serverPaginated, (enabled) => {
+  if (enabled) emitListQuery({ page: 1 })
+})
+
+// 当前页超出总页数时回到最后一页（如末页最后一条被删除）
+watch(
+  () => props.totalPages,
+  (pages) => {
+    if (!serverPaginated.value) return
+    const maxPage = Math.max(1, Number(pages) || 1)
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage
+      emitListQuery({ page: maxPage })
+    }
+  }
+)
+
+// 计算分页显示的页码
+// 处理投票
+// 检查点赞按钮是否应该禁用
+const isVoteButtonDisabled = (song) => {
+  if (voteInProgress.value || !song) return true
+
+  // 检查学期
+  if (!currentSemester.value || song.semester !== currentSemester.value.name) {
+    return true
+  }
+
+  // 检查状态
+  if (song.played || song.scheduled) {
+    return true
+  }
+
+  // 检查是否是自己的歌曲
+  if (isMySong(song)) {
+    return true
+  }
+
+  return false
+}
+
+// 获取点赞按钮标题（tooltip）
+const getVoteButtonTitle = (song) => {
+  if (!song) return locale.value.like
+
+  // 检查学期
+  if (!currentSemester.value || song.semester !== currentSemester.value.name) {
+    return locale.value.inactiveSemester
+  }
+
+  // 检查状态
+  if (song.played) {
+    return locale.value.playedCannotLike
+  }
+  if (song.scheduled) {
+    return locale.value.scheduledCannotLike
+  }
+
+  // 检查是否是自己的歌曲
+  if (isMySong(song)) {
+    return locale.value.selfLikeDisabled
+  }
+
+  return song.voted ? locale.value.unlike : locale.value.like
+}
+
+const handleVote = async (song) => {
+  // 检查用户是否登录
+  if (!isAuthenticated.value) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.loginBeforeLike, 'error')
+    }
+    return
+  }
+
+  // 检查学期
+  if (!currentSemester.value || song.semester !== currentSemester.value.name) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.inactiveSemester, 'error')
+    }
+    return
+  }
+
+  // 检查歌曲状态
+  if (song.played || song.scheduled) {
+    return // 已播放或已排期的歌曲不能点赞
+  }
+
+  // 检查是否是自己的歌曲
+  if (isMySong(song)) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.selfLikeDisabled, 'error')
+    }
+    return
+  }
+
+  voteInProgress.value = true
+  try {
+    if (song.voted) {
+      // 如果已投票，则调用撤销投票
+      emit('vote', { ...song, unvote: true })
+    } else {
+      // 正常投票
+      emit('vote', song)
+    }
+  } catch (err) {
+    // 投票处理失败
+  } finally {
+    voteInProgress.value = false
+  }
+}
+
+// 处理撤回
+const handleWithdraw = (song) => {
+  if (song.scheduled) {
+    return // 已排期的歌曲不能撤回
+  }
+
+  if (isMySong(song)) {
+    confirmDialog.value = {
+      show: true,
+      title: locale.value.withdrawTitle,
+      message: callLocale('withdrawMessage', '', song.title),
+      type: 'info',
+      action: 'withdraw',
+      data: song
+    }
+  } else if (isCollaborator(song)) {
+    confirmDialog.value = {
+      show: true,
+      title: locale.value.leaveTitle,
+      message: callLocale('leaveMessage', '', song.title),
+      type: 'info',
+      action: 'withdraw', // 后端使用相同的接口，根据用户身份处理
+      data: song
+    }
+  }
+}
+
+// 仅在存在待处理重播申请时显示撤回入口
+const shouldShowCancelReplayButton = (song) => {
+  return song.played && song.replayRequested && song.replayRequestStatus === 'PENDING'
+}
+
+// 撤回待处理的重播申请
+const handleCancelReplay = (song) => {
+  confirmDialog.value = {
+    show: true,
+    title: locale.value.cancelReplayConfirmTitle,
+    message: callLocale('cancelReplayMessage', '', song.title),
+    type: 'warning',
+    action: 'cancelReplay',
+    data: song
+  }
+}
+
+// 处理刷新按钮点击
+const handleRefresh = () => {
+  emit('refresh')
+}
+
+// 确认执行操作
+const confirmAction = async () => {
+  const { action, data } = confirmDialog.value
+
+  actionInProgress.value = true
+  try {
+    emit(action, data)
+  } catch (err) {
+    // 操作执行失败
+  } finally {
+    actionInProgress.value = false
+    confirmDialog.value.show = false
+  }
+}
+
+// 取消确认
+const cancelConfirm = () => {
+  confirmDialog.value.show = false
+}
+
+const openSubmissionNote = (song) => {
+  if (!song?.submissionNote) return
+  submissionNoteDialog.value = {
+    show: true,
+    songTitle: `${song.title || locale.value.unknownSong} - ${song.artist || locale.value.unknownArtist}`,
+    note: song.submissionNote,
+    isPublic: song.submissionNotePublic === true
+  }
+}
+
+const closeSubmissionNote = () => {
+  submissionNoteDialog.value.show = false
+}
+
+// 封面加载失败的 URL；命中后由模板切到文字封面分支，容器尺寸与播放按钮保持原样
+const failedCovers = reactive({})
+
+const handleImageError = (song) => {
+  if (song?.cover) failedCovers[song.cover] = true
+}
+
+// 获取歌曲标题的第一个字符作为封面
+const getFirstChar = (title) => {
+  if (!title) return locale.value.textCoverFallback
+  return title.trim().charAt(0)
+}
+
+// 播放歌曲的辅助函数，处理 URL 获取和播放列表构建
+const playSongWithUrlFetching = async (song) => {
+  let url = null
+  try {
+    url = await getMusicUrl(song)
+  } catch (error) {
+    if (!isBilibiliSong(song)) {
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.musicUrlFailed, 'error')
+      }
+    }
+  }
+
+  const playableSong = { ...song, musicUrl: url || null }
+  const playlist = await buildPlayablePlaylist(song)
+  const currentIndex = playlist.findIndex((item) => item.id === song.id)
+  audioPlayer.playSong(playableSong, playlist, currentIndex)
+
+  if (!url && !isBilibiliSong(song)) return
+
+  // 后台预取后续歌曲的播放链接（不阻塞当前播放）
+  ;(async () => {
+    for (let i = currentIndex + 1; i < playlist.length; i++) {
+      const s = playlist[i]
+      if (!s.musicUrl && ((s.musicPlatform && s.musicId) || s.playUrl)) {
+        try {
+          s.musicUrl = await getMusicUrl(s)
+        } catch (error) {
+          console.warn(`后台预取失败: ${s.title}`, error)
+          s.musicUrl = null
+        }
+      }
+    }
+  })()
+}
+
+// 切换歌曲播放/暂停
+const togglePlaySong = async (song) => {
+  // 检查是否为当前歌曲且正在播放
+  if (audioPlayer.isCurrentSong(song.id) && audioPlayer.getPlayingStatus().value) {
+    // 如果正在播放，则暂停
+    audioPlayer.pauseSong()
+    return
+  }
+
+  // 如果是当前歌曲但已暂停，则恢复播放
+  if (audioPlayer.isCurrentSong(song.id) && !audioPlayer.getPlayingStatus().value) {
+    // 检查当前全局歌曲是否有URL
+    const currentGlobalSong = audioPlayer.getCurrentSong().value
+    if (
+      currentGlobalSong &&
+      (currentGlobalSong.musicUrl || isBilibiliSong(currentGlobalSong))
+    ) {
+      // 如果有URL或者是哔哩哔哩视频，直接恢复播放
+      audioPlayer.playSong(currentGlobalSong)
+    } else {
+      // 如果没有URL，重新获取
+      if ((song.musicPlatform && song.musicId) || song.playUrl) {
+        await playSongWithUrlFetching(song)
+      }
+    }
+    return
+  }
+
+  // 如果有平台和ID信息或playUrl，动态获取URL
+  if ((song.musicPlatform && song.musicId) || song.playUrl) {
+    await playSongWithUrlFetching(song)
+  }
+}
+
+// 构建可播放的播放列表
+const buildPlayablePlaylist = async (currentSong) => {
+  // 获取当前显示的歌曲列表（已经过滤和排序）
+  const songsToProcess = paginatedSongs.value.filter(
+    (song) => ((song.musicPlatform && song.musicId) || song.playUrl) && song.id !== currentSong.id
+  )
+
+  // 将当前歌曲添加到列表中正确的位置
+  const allSongs = [...paginatedSongs.value]
+
+  // 只返回有播放信息的歌曲，保持原有顺序
+  return allSongs.filter((song) => (song.musicPlatform && song.musicId) || song.playUrl)
+}
+
+// 动态获取音乐URL
+const getMusicUrl = async (song) => {
+  const { musicPlatform: platform, musicId, playUrl, sourceInfo } = song
+
+  // 如果有自定义播放链接，优先使用
+  if (playUrl && playUrl.trim()) {
+    console.log(`[SongList] 使用自定义播放链接: ${playUrl}`)
+    return playUrl.trim()
+  }
+
+  // 如果没有playUrl，检查platform和musicId是否有效
+  if (!platform || !musicId) {
+    throw new Error(locale.value.musicUrlFailed)
+  }
+
+  // 检查是否为播客内容
+  const isPodcast =
+    platform === 'netease-podcast' ||
+    sourceInfo?.type === 'voice' ||
+    (sourceInfo?.source === 'netease-backup' && sourceInfo?.type === 'voice')
+
+  const options = {
+    unblock: isPodcast ? false : undefined,
+    mediaId: sourceInfo?.strMediaMid || sourceInfo?.mediaId || sourceInfo?.mediaMid,
+    musicInfo: {
+      name: song.title,
+      artist: song.artist,
+      album: song.album || undefined,
+      rawItem: song
+    }
+  }
+  return resolveMusicUrl(platform, musicId, undefined, options)
+}
+
+// 判断当前是否正在播放指定ID的歌曲
+const isCurrentPlaying = (songId) => {
+  return audioPlayer.isCurrentPlaying(songId)
+}
+
+// 学期相关状态
+const semesterLoading = ref(false)
+const semesterError = ref('')
+
+// 防抖处理学期切换
+const debouncedSemesterChange = debounce((semester) => {
+  // 增强的状态检查
+  if (semesterLoading.value || isDataLoading.value || !isComponentInitialized.value) {
+    return
+  }
+
+  // 再次检查并清理学期数据
+  if (containsCorruptedText(semester)) {
+    console.warn('防抖函数检测到乱码学期数据，跳过切换')
+    return
+  }
+
+  const cleanSemester = cleanCorruptedText(semester)
+  if (!cleanSemester) {
+    console.warn('防抖函数检测到空学期数据，跳过切换')
+    return
+  }
+
+  // 检查学期是否仍在可用列表中
+  if (!availableSemesters.value.includes(cleanSemester)) {
+    console.warn('防抖函数检测到学期不在可用列表中，跳过切换:', cleanSemester)
+    return
+  }
+
+  // 执行学期切换
+
+  selectedSemester.value = cleanSemester
+  showSemesterDropdown.value = false
+  currentPage.value = 1 // 重置到第一页
+
+  // 保存到sessionStorage
+  try {
+    sessionStorage.setItem('voicehub_selected_semester', cleanSemester)
+  } catch (error) {
+    console.warn('防抖函数无法保存学期选择到sessionStorage:', error)
+  }
+
+  emit('semester-change', cleanSemester)
+}, 300)
+
+// 乱码检测函数
+const containsCorruptedText = (text) => {
+  if (!text || typeof text !== 'string') return true
+
+  // 检查Unicode替换字符
+  if (text.includes('\uFFFD') || text.includes('�')) {
+    return true
+  }
+
+  // 检查控制字符（除了常见的空白字符）
+  // eslint-disable-next-line no-control-regex
+  const controlCharRegex = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/
+  if (controlCharRegex.test(text)) {
+    return true
+  }
+
+  // 检查孤立代理对字符
+  const surrogatePairRegex = /[\uD800-\uDFFF]/
+  if (surrogatePairRegex.test(text)) {
+    return true
+  }
+
+  return false
+}
+
+// 清理乱码字符串
+const cleanCorruptedText = (text) => {
+  if (!text || typeof text !== 'string') return ''
+
+  return (
+    text
+      // 移除Unicode替换字符
+      .replace(/\uFFFD/g, '')
+      .replace(/�/g, '')
+      // 移除控制字符（保留常见空白字符）
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      // 移除孤立代理对字符
+      .replace(/[\uD800-\uDFFF]/g, '')
+      // 规范化Unicode字符
+      .normalize('NFC')
+      .trim()
+  )
+}
+
+// 学期相关函数
+const fetchAvailableSemesters = async () => {
+  // 登录用户的学期选项由服务端随分页结果下发
+  if (serverPaginated.value) {
+    return
+  }
+
+  // 防止重复请求和并发调用
+  if (semesterLoading.value || isFetchingSemesters.value) {
+    return
+  }
+
+  // 检查是否有歌曲数据，如果没有则等待
+  if (!props.songs || props.songs.length === 0) {
+    return
+  }
+
+  isFetchingSemesters.value = true
+  semesterLoading.value = true
+  semesterError.value = ''
+
+  // 如果组件正在初始化，设置数据加载状态
+  if (!isComponentInitialized.value) {
+    isDataLoading.value = true
+  }
+
+  try {
+    // 使用完整的歌曲数据源而不是过滤后的props.songs
+    let completeSongs = allSongsData.value || []
+
+    // 检查数据源状态
+
+    // 如果allSongsData为空，但props.songs有数据，直接使用props.songs作为数据源
+    if (completeSongs.length === 0 && props.songs && props.songs.length > 0) {
+      completeSongs = props.songs
+    }
+
+    // 如果完全没有数据，直接返回
+    if (completeSongs.length === 0) {
+      availableSemesters.value = []
+      return
+    }
+
+    // 从完整歌曲数据中提取学期信息，并过滤乱码
+    const rawSemesters = [...new Set(completeSongs.map((song) => song.semester).filter(Boolean))]
+    const cleanSemesters = rawSemesters
+      .filter((semester) => !containsCorruptedText(semester))
+      .map((semester) => cleanCorruptedText(semester))
+      .filter((semester) => semester.length > 0)
+
+    // 统计每个学期的歌曲数量，只保留有数据的学期
+    const semesterStats = {}
+    completeSongs.forEach((song) => {
+      if (song.semester && !containsCorruptedText(song.semester)) {
+        const cleanSemester = cleanCorruptedText(song.semester)
+        if (cleanSemester) {
+          semesterStats[cleanSemester] = (semesterStats[cleanSemester] || 0) + 1
+        }
+      }
+    })
+
+    // 只保留有数据的学期，按时间倒序排列
+    const semestersWithData = Object.keys(semesterStats)
+      .filter((semester) => semesterStats[semester] > 0)
+      .sort()
+      .reverse()
+
+    // 统计有数据的学期
+
+    // 如果用户手动选择了学期，确保该学期保留在可用学期列表中
+    const finalSemesters = [...semestersWithData]
+    if (
+      isUserManuallySelected.value &&
+      selectedSemester.value &&
+      !finalSemesters.includes(selectedSemester.value)
+    ) {
+      // 将用户选择的学期添加到列表中，保持时间倒序
+      finalSemesters.push(selectedSemester.value)
+      finalSemesters.sort().reverse()
+    }
+
+    // 更新可用学期列表
+    availableSemesters.value = [...finalSemesters]
+
+    // 缓存学期信息到sessionStorage
+    try {
+      sessionStorage.setItem(
+        'voicehub_available_semesters',
+        JSON.stringify(availableSemesters.value)
+      )
+    } catch (error) {
+      console.warn('无法缓存学期信息:', error)
+    }
+
+    // 如果组件未完全初始化，只设置availableSemesters，不执行学期选择逻辑
+    if (!isComponentInitialized.value) {
+      return
+    }
+
+    // 执行学期选择逻辑
+    await selectDefaultSemester()
+  } catch (error) {
+    console.error('获取学期信息失败:', error)
+    semesterError.value = locale.value.semesterLoadFailed
+
+    // 错误恢复：使用缓存的学期信息
+    try {
+      const cachedSemesters = sessionStorage.getItem('voicehub_available_semesters')
+      if (cachedSemesters) {
+        availableSemesters.value = JSON.parse(cachedSemesters)
+      }
+    } catch (cacheError) {
+      console.warn('无法恢复缓存的学期信息:', cacheError)
+    }
+  } finally {
+    semesterLoading.value = false
+    isFetchingSemesters.value = false
+    // 如果组件正在初始化，重置数据加载状态
+    if (!isComponentInitialized.value) {
+      isDataLoading.value = false
+    }
+  }
+}
+
+// 选择默认学期的逻辑
+const selectDefaultSemester = async () => {
+  // 如果没有可用学期，清空选择
+  if (availableSemesters.value.length === 0) {
+    selectedSemester.value = ''
+    return
+  }
+
+  // 优先级1: 总是优先检查当前活跃学期（如果有数据）
+  // 即使之前有缓存的选择，只要当前学期有数据且不是用户本次会话手动切换的，优先展示当前学期
+  if (currentSemester.value && currentSemester.value.name) {
+    const currentSemesterName = currentSemester.value.name
+
+    if (!containsCorruptedText(currentSemesterName)) {
+      const cleanCurrentSemester = cleanCorruptedText(currentSemesterName)
+
+      // 检查当前学期是否在有数据的列表中
+      if (cleanCurrentSemester && availableSemesters.value.includes(cleanCurrentSemester)) {
+        // 如果当前没有选中任何学期，或者虽然有选中但不是用户手动指定的（可能是上次缓存的），强制切回当前学期
+        if (!selectedSemester.value || !isUserManuallySelected.value) {
+          selectedSemester.value = cleanCurrentSemester
+
+          // 更新缓存
+          try {
+            sessionStorage.setItem('voicehub_selected_semester', cleanCurrentSemester)
+          } catch (error) {
+            console.warn('无法保存学期选择:', error)
+          }
+          return
+        }
+      }
+    }
+  }
+
+  // 如果已经有选中的学期且该学期在可用列表中，保持选择（包括从sessionStorage恢复的选择）
+  if (selectedSemester.value && availableSemesters.value.includes(selectedSemester.value)) {
+    // 保存选择到sessionStorage以确保状态同步
+    try {
+      sessionStorage.setItem('voicehub_selected_semester', selectedSemester.value)
+    } catch (error) {
+      console.warn('无法保存学期选择:', error)
+    }
+    return
+  }
+
+  // 优先级2: 尝试从sessionStorage恢复缓存的选择（如果有数据）
+  if (!selectedSemester.value) {
+    try {
+      const savedSemester = sessionStorage.getItem('voicehub_selected_semester')
+      if (savedSemester && !containsCorruptedText(savedSemester)) {
+        const cleanSavedSemester = cleanCorruptedText(savedSemester)
+
+        // 只有缓存的学期在有数据的列表中才使用
+        if (cleanSavedSemester && availableSemesters.value.includes(cleanSavedSemester)) {
+          selectedSemester.value = cleanSavedSemester
+          return
+        } else {
+          sessionStorage.removeItem('voicehub_selected_semester')
+        }
+      }
+    } catch (error) {
+      console.warn('恢复缓存学期选择失败:', error)
+      sessionStorage.removeItem('voicehub_selected_semester')
+    }
+  }
+
+  // 优先级3: 使用第一个有数据的学期作为默认
+  if (!selectedSemester.value && availableSemesters.value.length > 0) {
+    selectedSemester.value = availableSemesters.value[0]
+
+    // 保存选择到sessionStorage
+    try {
+      sessionStorage.setItem('voicehub_selected_semester', availableSemesters.value[0])
+    } catch (error) {
+      console.warn('无法保存学期选择:', error)
+    }
+  }
+}
+
+// 监听 currentSemester 变化，确保加载完成后能自动选中
+watch(currentSemester, (newVal) => {
+  if (newVal && newVal.name) {
+    // 当当前学期信息加载完成后，尝试重新选择默认学期
+    // 只有在没有手动选择的情况下才强制切换
+    if (!isUserManuallySelected.value) {
+      selectDefaultSemester()
+    }
+  }
+})
+
+// 登录用户使用服务端下发的学期选项（分页后无法从当前页推导完整列表）
+watch(
+  [serverPaginated, () => props.semesters],
+  () => {
+    if (!serverPaginated.value) return
+
+    const list = Array.isArray(props.semesters) ? props.semesters : []
+    const cleaned = list
+      .filter((semester) => semester && !containsCorruptedText(semester))
+      .map((semester) => cleanCorruptedText(semester))
+      .filter((semester) => semester.length > 0)
+    if (cleaned.length === 0) return
+
+    const finalSemesters = [...new Set(cleaned)]
+    // 手动选择的学期即使暂无数据也保留在选项中
+    if (
+      isUserManuallySelected.value &&
+      selectedSemester.value &&
+      !finalSemesters.includes(selectedSemester.value)
+    ) {
+      finalSemesters.push(selectedSemester.value)
+    }
+    finalSemesters.sort().reverse()
+    availableSemesters.value = finalSemesters
+
+    try {
+      sessionStorage.setItem('voicehub_available_semesters', JSON.stringify(finalSemesters))
+    } catch {
+      // 浏览器禁用会话存储时忽略缓存失败
+    }
+
+    if (isComponentInitialized.value) {
+      selectDefaultSemester()
+    }
+  },
+  { immediate: true, deep: true }
+)
+
+const onSemesterChange = (semester) => {
+  // 增强的加载状态检查
+  if (semesterLoading.value || isDataLoading.value || !isComponentInitialized.value) {
+    return // 防止在加载时或组件未初始化时切换
+  }
+
+  // 检查并清理学期数据
+  if (containsCorruptedText(semester)) {
+    console.warn('学期数据包含乱码，忽略切换请求')
+    return
+  }
+
+  const cleanSemester = cleanCorruptedText(semester)
+  if (!cleanSemester) {
+    console.warn('清理后的学期数据为空，忽略切换请求')
+    return
+  }
+
+  // 检查学期是否在可用列表中
+  if (!availableSemesters.value.includes(cleanSemester)) {
+    console.warn('选择的学期不在可用列表中:', cleanSemester)
+    return
+  }
+
+  // 标记为用户手动选择
+  isUserManuallySelected.value = true
+
+  // 立即更新选中的学期，确保UI响应
+  selectedSemester.value = cleanSemester
+
+  // 使用nextTick确保DOM更新后样式能正确应用
+  nextTick(() => {
+    // DOM已更新，学期选择样式应该已应用
+  })
+
+  // 保存学期选择到sessionStorage
+  try {
+    sessionStorage.setItem('voicehub_selected_semester', cleanSemester)
+    sessionStorage.setItem('voicehub_user_manually_selected', 'true')
+  } catch (error) {
+    console.warn('无法保存学期选择:', error)
+  }
+
+  // 关闭下拉菜单
+  showSemesterDropdown.value = false
+
+  // 使用防抖处理其他逻辑
+  debouncedSemesterChange(cleanSemester)
+}
+
+// 重试获取学期信息
+const retrySemesterFetch = () => {
+  // 检查组件状态，确保可以安全重试
+  if (semesterLoading.value || isDataLoading.value) {
+    return
+  }
+
+  semesterError.value = ''
+  fetchAvailableSemesters()
+}
+
+// 当组件销毁时不需要特殊处理，音频播放由全局管理
+
+// 波纹效果指令
+const vRipple = {
+  mounted(el) {
+    el.addEventListener('click', (e) => {
+      const rect = el.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+
+      const ripple = document.createElement('span')
+      ripple.className = 'ripple-effect'
+      ripple.style.left = `${x}px`
+      ripple.style.top = `${y}px`
+
+      el.appendChild(ripple)
+
+      setTimeout(() => {
+        ripple.remove()
+      }, 600) // 与CSS动画时间一致
+    })
+  }
+}
+</script>
+
+<style scoped>
+.song-list {
+  width: 100%;
+  position: relative;
+  z-index: 2;
+}
+
+/* 桌面端/移动端显示控制 */
+.desktop-only {
+  display: flex !important;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+}
+
+.song-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.desktop-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.mobile-search-container {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .song-list-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+
+  .mobile-search-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 16px;
+    padding: 0 4px;
+  }
+
+  .search-bar-wrapper {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+  }
+
+  .search-icon-box {
+    position: absolute;
+    left: 14px;
+    color: var(--overlay-40);
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .mobile-search-input {
+    background: var(--overlay-5);
+    border: 1px solid var(--overlay-10);
+    border-radius: 12px;
+    padding: 12px 16px 12px 42px;
+    font-size: 14px;
+    color: var(--text-primary);
+    width: 100%;
+    transition: all 0.2s ease;
+  }
+
+  .mobile-search-input:focus {
+    background: var(--overlay-8);
+    border-color: var(--color-accent-light);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-10);
+  }
+
+  .mobile-tabs {
+    display: flex;
+    gap: 20px;
+    border-bottom: 1px solid var(--overlay-5);
+    padding-bottom: 2px;
+  }
+
+  .mobile-tabs-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .mobile-tab-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .mobile-tab-btn {
+    background: transparent;
+    border: none;
+    padding: 0 0 8px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--overlay-40);
+    cursor: pointer;
+    position: relative;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+  }
+
+  .mobile-tab-btn.active {
+    color: var(--color-accent-light);
+  }
+
+  .active-indicator {
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--color-accent-light);
+    border-radius: 2px;
+    box-shadow: 0 0 8px var(--primary-50);
+  }
+}
+
+.tab-controls {
+  display: flex;
+  gap: 1rem;
+}
+
+/* 标签切换动画 */
+.tab-switch-enter-active,
+.tab-switch-leave-active {
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
+}
+
+.tab-switch-enter-from {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.tab-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-30px);
+}
+
+/* 标签按钮样式 */
+.tab-button {
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-family: 'MiSans-Demibold', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--overlay-60);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  border-bottom: 3px solid transparent;
+  margin: 0 0.5rem;
+}
+
+.tab-button:hover {
+  color: var(--overlay-90);
+  transform: translateY(-3px);
+}
+
+.tab-button.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--color-accent);
+  transform: none;
+  box-shadow: none;
+  background-color: transparent;
+}
+
+.tab-button:focus {
+  outline: none;
+}
+
+/* 波纹效果 */
+.ripple-effect {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-accent-alpha-30) 0%, var(--overlay-10) 70%);
+  transform: scale(0);
+  animation: ripple 0.8s cubic-bezier(0.25, 0.8, 0.25, 1);
+  pointer-events: none;
+  width: 150px;
+  height: 150px;
+  margin-left: -75px;
+  margin-top: -75px;
+}
+
+@keyframes ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* 紧凑型学期选择器样式 */
+.semester-selector-compact {
+  position: relative;
+}
+
+.semester-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--panel-bg);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--overlay-80);
+  font-size: 14px;
+  padding: 0;
+}
+
+.semester-toggle-btn:hover {
+  background: var(--panel-bg-contrast);
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px var(--mask-20);
+  color: var(--color-accent);
+}
+
+.semester-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform-origin: top right;
+  background: var(--panel-bg-overlay);
+  border: 1px solid var(--overlay-10);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--mask-30);
+  z-index: 100;
+  min-width: 180px;
+  overflow: hidden;
+}
+
+.semester-option {
+  padding: 0.75rem 1rem;
+  color: var(--overlay-80);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+  border-bottom: 1px solid var(--overlay-5);
+}
+
+.semester-option:last-child {
+  border-bottom: none;
+}
+
+.semester-option:hover {
+  background: var(--color-accent-alpha-10);
+  color: var(--text-primary);
+}
+
+.semester-option.active {
+  background: var(--color-accent-alpha-20);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.search-box {
+  position: relative;
+  width: 250px;
+}
+
+.search-input {
+  background: var(--panel-bg-quaternary);
+  border: 1px solid var(--panel-border-active);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  padding-right: 2.5rem;
+  font-family: 'MiSans-Demibold', sans-serif;
+  font-size: 14px;
+  color: var(--overlay-80);
+  width: 100%;
+  transition: all 0.2s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.search-icon {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--overlay-60);
+}
+
+.refresh-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--panel-bg);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--overlay-80);
+}
+
+.refresh-button:hover {
+  background: var(--panel-bg-contrast);
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px var(--mask-20);
+}
+
+.refresh-button:active {
+  transform: translateY(0);
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.refresh-icon {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.3s ease;
+}
+
+.refresh-icon.rotating {
+  animation: rotate 1.2s cubic-bezier(0.5, 0.1, 0.5, 1) infinite;
+}
+
+/* 加载骨架屏 */
+.loading {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.song-loading-skeleton {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.skeleton-card {
+  width: calc(33.333% - 0.75rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-card-main {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 1rem;
+  height: 100px;
+  background: var(--panel-bg);
+  border: 1px solid var(--song-card-border);
+  border-radius: 10px;
+}
+
+.skeleton-cover {
+  width: 55px;
+  height: 55px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.skeleton-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-line {
+  width: 60%;
+  height: 16px;
+  border-radius: 6px;
+}
+
+.skeleton-line-short {
+  width: 40%;
+  height: 12px;
+}
+
+.skeleton-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.skeleton-heat {
+  width: 45px;
+  height: 40px;
+  border-radius: 6px;
+}
+
+.skeleton-like {
+  width: 45px;
+  height: 40px;
+  border-radius: 8px;
+}
+
+.skeleton-footer {
+  height: 45px;
+  margin-top: -1px;
+  border-radius: 0 0 10px 10px;
+}
+
+.shimmer-block {
+  position: relative;
+  overflow: hidden;
+  background: var(--overlay-10);
+}
+
+.shimmer-block::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--shimmer-overlay), transparent);
+  animation: song-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes song-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.error,
+.empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--overlay-60);
+}
+
+.error {
+  color: var(--color-error);
+}
+
+.songs-container {
+  width: 100%;
+}
+
+.song-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.song-card {
+  width: calc(33.333% - 0.75rem);
+  background: transparent;
+  border-radius: 10px;
+  overflow: visible;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.song-card-main {
+  padding: 1rem 0 1rem 1rem; /* 移除右侧内边距，保留左侧、上下内边距 */
+  background: var(--panel-bg);
+  border: 1px solid var(--song-card-border);
+  box-shadow: 0px 4px 4px var(--mask-25);
+  position: relative;
+  height: 100px; /* 减小卡片高度 */
+  border-radius: 10px;
+  width: 100%;
+  z-index: 2;
+  margin-bottom: -5px;
+  overflow: hidden;
+  display: flex; /* 使用flex布局 */
+  align-items: center; /* 垂直居中 */
+  gap: 15px; /* 元素之间的间隔 */
+  box-sizing: border-box; /* 确保内边距不会增加元素的总宽度 */
+}
+
+/* 已播放歌曲的封面和文字可以保持半透明，以示区别 */
+.song-card.played .song-cover,
+.song-card.played .song-info {
+  opacity: 0.6;
+}
+
+/* 歌曲封面样式 */
+.song-cover {
+  width: 55px;
+  height: 55px;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px var(--mask-30);
+}
+
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 文字封面样式：只能作为 .song-cover 的子元素；与 .song-cover 同特异性且源序靠后，加到容器上会顶掉其固定宽高 */
+.text-cover {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  color: var(--text-primary);
+  font-size: 28px;
+  font-weight: bold;
+  font-family: 'MiSans-Demibold', sans-serif;
+}
+
+/* 播放按钮叠加层 */
+.play-button-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--mask-40);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+}
+
+.song-cover:hover .play-button-overlay {
+  opacity: 1;
+}
+
+/* 播放按钮样式 */
+.play-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--color-accent-alpha-80);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.play-button:hover {
+  transform: scale(1.1);
+}
+
+/* 播放图标样式已移至Icon组件 */
+
+/* 修改歌曲信息区域的CSS样式 */
+.song-info {
+  flex: 1;
+  width: 100%; /* 使用100%宽度 */
+  min-width: 0; /* 允许内容收缩 */
+  padding-right: 10px; /* 添加右侧内边距，而不是外边距 */
+  overflow: hidden; /* 确保内容不会溢出 */
+}
+
+.song-title {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  width: 100%; /* 确保标题占满整个容器宽度 */
+  display: flex;
+  align-items: center;
+}
+
+/* 添加一个包装器来处理歌曲标题和歌手的文本溢出 */
+.song-title-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0; /* 允许文本收缩 */
+}
+
+.song-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.requester {
+  font-family: 'MiSans', sans-serif;
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--overlay-40);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* 修改热度和点赞按钮区域的CSS样式 */
+.action-area {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0; /* 完全移除间距 */
+  margin-left: auto;
+  margin-right: 10px; /* 添加右侧外边距，使整体向左移动 */
+  flex-shrink: 0;
+  width: auto; /* 使用自动宽度 */
+  min-width: 100px; /* 增加最小宽度，确保热度和点赞按钮有更多空间 */
+  padding-right: 0; /* 移除右侧内边距 */
+}
+
+/* 热度样式 */
+.vote-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 45px; /* 增加热度显示的最小宽度 */
+}
+
+.vote-count .count {
+  font-family: 'MiSans-Demibold', sans-serif;
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--color-accent);
+  text-shadow:
+    0px 20px 30px var(--primary-50),
+    0px 8px 15px var(--primary-50),
+    0px 4px 10px var(--schedule-list-title-shadow),
+    0px 2px 10px var(--schedule-list-title-shadow-sm),
+    inset 3px 3px 10px var(--overlay-40),
+    inset -1px -1px 15px var(--overlay-40);
+}
+
+.vote-count .label {
+  font-family: 'MiSans-Demibold', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+  opacity: 0.4;
+}
+
+/* 点赞按钮样式 */
+.like-button-wrapper {
+  /* 向右移动点赞按钮，但考虑到整体已向左移动，减小负边距 */
+  margin-right: -10px;
+}
+
+.like-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 45px;
+  background: var(--like-btn-bg);
+  border: 1px solid var(--like-btn-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.like-button:hover:not(.disabled):not(.liked) {
+  background: var(--like-btn-hover-bg);
+}
+
+.like-button.liked {
+  background: var(--panel-bg-overlay);
+  border-color: var(--panel-border-active);
+  background-image: none;
+}
+
+.like-button.disabled {
+  background: var(--overlay-10);
+  border-color: var(--overlay-20);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.like-button.disabled .like-icon {
+  opacity: 0.5;
+}
+
+.like-icon {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.2s ease;
+}
+
+.like-button:hover .like-icon {
+  transform: scale(1.2);
+}
+
+.scheduled-tag {
+  display: inline-flex;
+  background: var(--success-20);
+  border: 1px solid var(--success-40);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  color: var(--color-success);
+  margin-left: 0.5rem;
+  flex-shrink: 0; /* 防止标签被压缩 */
+  align-self: center; /* 确保垂直居中 */
+}
+
+.played-tag {
+  display: inline-flex;
+  background: var(--success-20);
+  border: 1px solid var(--success-40);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  color: var(--color-success);
+  margin-left: 0.5rem;
+  flex-shrink: 0; /* 防止标签被压缩 */
+  align-self: center; /* 确保垂直居中 */
+}
+
+.replay-tag {
+  display: inline-flex;
+  background: var(--primary-20);
+  border: 1px solid var(--primary-40);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  color: var(--color-accent-light);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* 点歌券标识 */
+.card-code-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.4rem;
+  background: var(--card-code-bg);
+  border: 1px solid var(--card-code-border);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  color: var(--card-code-text);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* 匿名投稿角标（仅投稿人本人可见） */
+.anonymous-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.4rem;
+  background: var(--warning-15);
+  border: 1px solid var(--warning-20);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  color: var(--color-warning-light);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* 投稿时间和撤销按钮 */
+.submission-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel-bg);
+  border: 1px solid var(--song-card-border);
+  border-radius: 0 0 10px 10px;
+  padding: 0.5rem 1rem;
+  width: 95%;
+  position: relative;
+  z-index: 1;
+  height: 45px;
+}
+
+.submission-time {
+  font-family: 'MiSans-Demibold', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--overlay-60);
+  text-align: left;
+  max-width: 70%;
+}
+
+.withdraw-button {
+  background: linear-gradient(180deg, var(--color-error-light) 0%, var(--color-error-light) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.25rem 0.75rem;
+  font-family: 'MiSans-Demibold', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  height: 27px;
+  min-width: 51px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+}
+
+.withdraw-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px var(--mask-20);
+}
+
+.replay-cancel-btn {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  min-width: 75px;
+}
+
+.withdraw-button:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 分页控件 */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 1.5rem;
+  gap: 0.5rem;
+}
+
+.page-button,
+.page-number {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.page-number.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.page-info {
+  margin-left: 0.5rem;
+  color: var(--overlay-60);
+  font-size: 0.875rem;
+}
+
+/* 自定义跳转控件 */
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 1rem;
+}
+
+.jump-label {
+  color: var(--overlay-60);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.jump-input {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  width: 60px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.jump-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--overlay-15);
+}
+
+.jump-input::placeholder {
+  color: var(--overlay-40);
+  font-size: 0.75rem;
+}
+
+.jump-button {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.jump-button:hover:not(:disabled) {
+  background: var(--overlay-20);
+  border-color: var(--overlay-30);
+}
+
+.jump-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1200px) {
+  .song-card {
+    width: calc(50% - 0.5rem);
+  }
+
+  .skeleton-card {
+    width: calc(50% - 0.5rem);
+  }
+}
+
+@media (max-width: 768px) {
+  .song-list {
+    padding: 0;
+  }
+
+  /* 头部区域 */
+  .song-list-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+    margin-bottom: 16px;
+  }
+
+  /* 标签按钮 */
+  .tab-controls {
+    justify-content: flex-start;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 4px;
+  }
+
+  .tab-controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-button {
+    flex: 0 0 auto;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--chip-border);
+    border-radius: 20px;
+    background: var(--chip-bg);
+    color: var(--overlay-50);
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .tab-button:hover {
+    transform: none;
+    color: var(--overlay-80);
+    background: var(--chip-bg-hover);
+  }
+
+  .tab-button.active {
+    background: var(--color-accent-alpha-15);
+    color: var(--color-accent);
+    border-bottom: none;
+    box-shadow: none;
+  }
+
+  /* 搜索和操作区域 */
+  .search-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .search-box {
+    width: 100%;
+    flex: 1;
+  }
+
+  .search-input {
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    border-radius: 12px;
+    padding: 10px 16px;
+    padding-right: 40px;
+    font-size: 14px;
+  }
+
+  .search-input:focus {
+    background: var(--chip-bg-hover);
+    box-shadow: none;
+  }
+
+  .search-icon {
+    right: 12px;
+    font-size: 14px;
+  }
+
+  /* 学期选择器 */
+  .semester-selector-compact {
+    flex-shrink: 0;
+  }
+
+  .semester-toggle-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+  }
+
+  .semester-toggle-btn:hover {
+    background: var(--chip-bg-hover);
+    transform: none;
+    box-shadow: none;
+  }
+
+  .semester-dropdown {
+    background: var(--panel-bg);
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px var(--mask-40);
+    top: calc(100% + 8px);
+  }
+
+  .semester-option {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  /* 刷新按钮 */
+  .refresh-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    flex-shrink: 0;
+  }
+
+  .refresh-button:hover {
+    background: var(--chip-bg-hover);
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* 歌曲卡片 */
+  .song-cards {
+    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+  }
+
+  .song-card {
+    width: 100%;
+    background: var(--song-card-bg);
+    border-radius: 20px;
+    overflow: hidden;
+    transform: translateZ(0);
+    transition: transform 0.15s ease, box-shadow 0.3s ease;
+    border: 1px solid var(--song-card-border);
+    box-shadow: 0 4px 20px var(--mask-15);
+  }
+
+  .song-card.playing {
+    background: var(--color-accent-alpha-12);
+    border-color: var(--color-accent-alpha-40);
+    box-shadow: 0 0 20px var(--color-accent-alpha-20);
+  }
+
+  .song-card.playing .song-title {
+    color: var(--color-accent);
+    text-shadow: 0 0 10px var(--color-accent-alpha-30);
+  }
+
+  .song-card:active {
+    transform: scale(0.97);
+    background: var(--overlay-10);
+    border-color: var(--overlay-20);
+  }
+
+  .song-card.played {
+    opacity: 0.8;
+    background: var(--overlay-8);
+    border-color: var(--overlay-10);
+  }
+
+  .song-card-main {
+    height: auto;
+    min-height: 80px;
+    padding: 12px;
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  /* 歌曲封面 */
+  .song-cover {
+    width: 60px;
+    height: 60px;
+    aspect-ratio: 1;
+    border-radius: 14px;
+    box-shadow: 0 4px 12px var(--mask-30);
+  }
+
+  /* 播放按钮 */
+  .play-button-overlay {
+    display: none !important;
+  }
+
+  .song-info {
+    flex: 1;
+    min-width: 0;
+    padding-right: 0;
+  }
+
+  .song-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    letter-spacing: 0.01em;
+  }
+
+  .requester {
+    font-size: 12px;
+    color: var(--overlay-40);
+    font-weight: 400;
+    margin-top: 2px;
+  }
+
+  /* 操作区域 */
+  .action-area {
+    gap: 16px;
+    margin-left: 0;
+    min-width: auto;
+    padding-right: 4px;
+  }
+
+  .vote-count .count {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--primary);
+    font-family: 'MiSans-Bold', sans-serif;
+    line-height: 1;
+    text-shadow: 0 0 10px var(--primary-light);
+  }
+
+  .vote-count .label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--overlay-30);
+    margin-top: 2px;
+    text-transform: uppercase;
+  }
+
+  .like-button {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--like-btn-bg-mobile);
+    border: 1px solid var(--like-btn-border-mobile);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .like-button.liked {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .like-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* 投稿时间和操作 */
+  .submission-footer {
+    background: var(--song-card-footer-bg);
+    padding: 10px 16px;
+    height: auto;
+    width: 100%;
+    border-top: 1px solid var(--song-card-divider);
+  }
+
+  .submission-time {
+    font-size: 11px;
+    color: var(--overlay-30);
+    font-weight: 400;
+  }
+
+  .withdraw-button {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 12px;
+    border-radius: 8px;
+    background: var(--withdraw-btn-bg-mobile);
+    border: 1px solid var(--overlay-10);
+    color: var(--overlay-80);
+  }
+
+  .withdraw-button.replay-cancel-btn {
+    background: var(--primary-light);
+    color: var(--primary);
+    border-color: var(--primary-border);
+  }
+
+  /* 加载和空状态 */
+  .loading {
+    padding: 4px;
+  }
+
+  .song-loading-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px;
+  }
+
+  .skeleton-card {
+    width: 100%;
+    border-radius: 20px;
+    overflow: hidden;
+    background: var(--song-card-bg);
+    border: 1px solid var(--song-card-border);
+    box-shadow: 0 4px 20px var(--mask-15);
+  }
+
+  .skeleton-card-main {
+    height: auto;
+    min-height: 60px;
+    padding: 10px;
+    gap: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+
+  .skeleton-cover {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+  }
+
+  .skeleton-lines {
+    gap: 8px;
+  }
+
+  .skeleton-line {
+    height: 14px;
+  }
+
+  .skeleton-line-short {
+    height: 11px;
+  }
+
+  .skeleton-heat {
+    width: 28px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .skeleton-like {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .skeleton-footer {
+    height: 32px;
+    margin-top: 0;
+    border-top: 1px solid var(--song-card-divider);
+    border-radius: 0 0 20px 20px;
+  }
+
+  .loading,
+  .error,
+  .empty {
+    background: transparent;
+    border-radius: 0;
+  }
+
+  /* 分页 */
+  .pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 24px;
+    padding-bottom: 16px;
+  }
+
+  .page-button,
+  .page-number {
+    background: var(--overlay-4);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .page-number.active {
+    background: var(--color-accent-alpha-15);
+    color: var(--color-accent);
+  }
+
+  .page-info {
+    font-size: 13px;
+    color: var(--overlay-40);
+  }
+
+  .page-jump {
+    margin-top: 12px;
+    gap: 8px;
+  }
+
+  .jump-input {
+    background: var(--overlay-4);
+    border: none;
+    border-radius: 8px;
+    width: 50px;
+    padding: 8px;
+  }
+
+  .jump-button {
+    background: var(--overlay-8);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+
+  /* 移动端分页 */
+  .song-list-header {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .tab-button {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .song-card-main {
+    padding: 10px;
+    min-height: 60px;
+    gap: 10px;
+  }
+
+  .song-cover {
+    width: 44px;
+    height: 44px;
+    aspect-ratio: 1;
+    border-radius: 8px;
+  }
+
+  .song-title {
+    font-size: 13px;
+  }
+
+  .requester {
+    font-size: 11px;
+  }
+
+  .vote-count .count {
+    font-size: 14px;
+  }
+
+  .like-button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .like-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .submission-footer {
+    padding: 6px 10px;
+  }
+
+  .submission-time {
+    font-size: 10px;
+  }
+}
+
+/* 移动端分页 */
+@media (max-width: 768px) {
+  .pagination-mobile {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 0 10px 20px;
+  }
+
+  .page-nav-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--overlay-5);
+    border: 1px solid var(--overlay-10);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .page-nav-btn:active {
+    transform: scale(0.95);
+    background: var(--overlay-10);
+  }
+
+  .page-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .page-selector {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--overlay-3);
+    border-radius: 12px;
+    height: 40px;
+    border: 1px solid var(--overlay-8);
+  }
+
+  .mobile-page-input {
+    width: 40px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 0;
+    font-family: 'MiSans', sans-serif;
+  }
+
+  .mobile-page-input:focus {
+    outline: none;
+    color: var(--color-accent);
+  }
+
+  .page-selector .divider {
+    color: var(--overlay-30);
+    font-size: 14px;
+  }
+
+  .page-selector .total {
+    color: var(--overlay-60);
+    font-size: 14px;
+    font-weight: 500;
+  }
+}
+
+.page-nav-btn:hover:not(:disabled) {
+  background: var(--overlay-10);
+  border-color: var(--color-accent-light);
+}
+
+.page-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+}
+
+.page-indicator .current {
+  font-size: 18px;
+  color: var(--color-accent-light);
+}
+
+.page-indicator .divider {
+  font-size: 14px;
+  color: var(--overlay-20);
+}
+
+.page-indicator .total {
+  font-size: 14px;
+  color: var(--overlay-40);
+}
+
+@media (max-width: 768px) {
+  .pagination-mobile {
+    display: flex;
+  }
+}
+
+/* 翻页动画 */
+.page-enter-active,
+.page-leave-active {
+  transition: all 0.4s ease;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-30px);
+}
+
+.page-move {
+  transition: transform 0.4s ease;
+}
+
+.submission-note-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  margin-left: 6px;
+  border: 1px solid var(--primary-30);
+  border-radius: 999px;
+  background: var(--primary-10);
+  color: var(--color-accent-light);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 0 0 transparent;
+  flex-shrink: 0;
+}
+
+.submission-note-trigger:hover {
+  background: var(--primary-18);
+  border-color: var(--primary-50);
+  box-shadow: 0 6px 12px var(--primary-15);
+}
+
+.submission-note-modal {
+  width: 100%;
+  max-width: 400px;
+  background: var(--panel-bg-overlay);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--overlay-8);
+  border-radius: 20px;
+  padding: 24px;
+  color: var(--text-secondary);
+  box-shadow: 0 25px 50px -12px var(--mask-50);
+}
+
+.submission-note-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.submission-note-header h4 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.submission-note-header button {
+  border: none;
+  background: var(--overlay-5);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted-light);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.submission-note-header button:hover {
+  background: var(--overlay-10);
+  color: var(--text-primary-light);
+}
+
+.submission-note-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.song-title-tag {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--overlay-6);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.visibility-tag {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.visibility-public {
+  background: var(--primary-15);
+  color: var(--color-accent-light);
+  border: 1px solid var(--primary-20);
+}
+
+.visibility-private {
+  background: var(--warning-15);
+  color: var(--color-warning-light);
+  border: 1px solid var(--warning-20);
+}
+
+.submission-note-content-box {
+  background: var(--surface-card-bg-soft);
+  border: 1px solid var(--overlay-5);
+  border-radius: 12px;
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.submission-note-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary-lighter);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+</style>

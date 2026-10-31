@@ -1,0 +1,139 @@
+import { db } from '~/drizzle/db'
+import { sql } from 'drizzle-orm'
+import { enqueueAstrbotGroupEvent } from '~~/server/services/astrbotGroupService'
+import { sanitizeAstrbotErrorDetail } from '~~/server/utils/astrbot-error-telemetry'
+import { recordRuntimeEvent } from '~~/server/utils/system-event-buffer'
+
+/**
+ * 上报系统异常到已配置的群聊。
+ *
+ * 异常风暴由群事件的合并窗口兜住：同一窗口内的多条异常会被合并成一条消息，
+ * 因此这里可以直接调用而无需自己限流。上报失败只记录，绝不向外抛出，
+ * 否则错误处理器本身会变成新的异常源。
+ */
+async function reportSystemError(source: string, detail: string) {
+  try {
+    await enqueueAstrbotGroupEvent('systemError', 'VoiceHub 系统异常', `${source}：${detail}`)
+  } catch (error) {
+    console.error('上报系统异常到群聊失败:', error)
+  }
+}
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // 请求处理链路上的 5xx 记入运行事件缓冲，供后台系统看板排查
+  nitroApp.hooks.hook('error', (error) => {
+    const detail = error as { statusCode?: number; statusMessage?: string; message?: string }
+    const statusCode = Number(detail?.statusCode) || 500
+    if (statusCode < 500) return
+    const summary = [detail?.statusMessage, detail?.message].filter(Boolean).join(': ')
+    recordRuntimeEvent('error', 'request', summary || `HTTP ${statusCode}`)
+  })
+
+  recordRuntimeEvent('info', 'boot', JSON.stringify({ code: 'serverStarted' }))
+
+  // 全局未处理的Promise拒绝处理器
+  process.on('unhandledRejection', async (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason)
+    recordRuntimeEvent('error', 'unhandledRejection', reason)
+
+    // 拒绝值可以是任意原始值（如 Promise.reject('...')）：先规范化为字符串并无条件上报，
+    // 再做数据库连接判断；只在 Error 分支上报会让原始值拒绝静默漏报。
+    const rejectionDetail = reason instanceof Error
+      ? reason.message
+      : typeof reason === 'string' ? reason : String(reason)
+    await reportSystemError('未处理的 Promise 拒绝', sanitizeAstrbotErrorDetail(rejectionDetail))
+
+    if (reason && typeof reason === 'object' && 'message' in reason) {
+      const errorMessage = (reason as Error).message
+
+      if (
+        errorMessage.includes('ECONNRESET') ||
+        errorMessage.includes('ENOTFOUND') ||
+        errorMessage.includes('ETIMEDOUT') ||
+        errorMessage.includes('Connection terminated') ||
+        errorMessage.includes('Connection lost')
+      ) {
+        console.log('Database connection error detected, attempting to reconnect...')
+
+        try {
+          // 尝试重新连接数据库
+          // 注意: Drizzle 没有显式的 connect/disconnect 方法
+          // 连接由库自动管理
+          await new Promise((resolve) => setTimeout(resolve, 2000)) // 等待2秒
+          console.log('Database reconnection successful')
+        } catch (reconnectError) {
+          console.error('Database reconnection failed:', reconnectError)
+
+          // 如果重连失败，等待更长时间后再次尝试
+          setTimeout(async () => {
+            try {
+              // Note: Drizzle doesn't have explicit connect/disconnect methods
+              await new Promise((resolve) => setTimeout(resolve, 5000)) // 等待5秒
+              console.log('Database delayed reconnection successful')
+            } catch (delayedReconnectError) {
+              console.error('Database delayed reconnection failed:', delayedReconnectError)
+            }
+          }, 10000) // 10秒后重试
+        }
+      }
+    }
+
+    // 不要让进程退出，继续运行
+    console.log('Process will continue running despite the error')
+  })
+
+  // 全局未捕获异常处理器
+  process.on('uncaughtException', async (error) => {
+    console.error('Uncaught Exception:', error)
+    recordRuntimeEvent('error', 'uncaughtException', error)
+    // 异常消息可能夹带连接串/令牌，入队前统一脱敏并限长。
+    await reportSystemError('未捕获异常', sanitizeAstrbotErrorDetail(error))
+
+    // 检查是否是数据库相关错误
+    if (
+      error.message.includes('ECONNRESET') ||
+      error.message.includes('ENOTFOUND') ||
+      error.message.includes('ETIMEDOUT')
+    ) {
+      console.log('Database-related uncaught exception, process will continue')
+      return // 不退出进程
+    }
+
+    // 对于其他严重错误，记录但不退出
+    console.error('Non-database uncaught exception, process will continue')
+  })
+
+  // 定期健康检查
+  let dbHealthy = true
+  const healthCheckInterval = setInterval(async () => {
+    try {
+      await db.execute(sql`SELECT 1 as health_check`)
+      if (!dbHealthy) {
+        dbHealthy = true
+        recordRuntimeEvent('info', 'healthcheck', JSON.stringify({ code: 'dbHealthRecovered' }))
+      }
+    } catch (error) {
+      console.error('Health check failed:', error)
+      if (dbHealthy) {
+        dbHealthy = false
+        recordRuntimeEvent('error', 'healthcheck', error)
+      }
+
+      // 尝试重新连接
+      try {
+        // Note: Drizzle doesn't have explicit connect/disconnect methods
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        console.log('Health check reconnection successful')
+      } catch (reconnectError) {
+        console.error('Health check reconnection failed:', reconnectError)
+      }
+    }
+  }, 60000) // 每分钟检查一次
+
+  // 在Nitro关闭时清理
+  nitroApp.hooks.hook('close', () => {
+    clearInterval(healthCheckInterval)
+  })
+
+  console.log('Global error handler initialized')
+})

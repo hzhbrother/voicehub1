@@ -1,0 +1,120 @@
+import { verifyAuthenticationResponse } from '@simplewebauthn/server'
+import { getWebAuthnChallenge, clearWebAuthnChallenge } from '~~/server/utils/webauthn-token'
+import { getWebAuthnConfig } from '~~/server/utils/webauthn-config'
+import { db, eq, and, userIdentities } from '~/drizzle/db'
+import { defineEventHandler, setCookie } from 'h3'
+import { createAuthSession } from '~~/server/utils/auth-session'
+import { createApiError } from '~~/server/utils/apiError'
+
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event)
+  const challengeData = getWebAuthnChallenge(event)
+
+  if (!challengeData) {
+    throw createApiError(400, 'AUTH_CHALLENGE_EXPIRED', 'Challenge 已失效')
+  }
+
+  // 通过 credentialID 查找对应的用户身份
+  const credentialID = body.id
+  if (!credentialID) {
+    throw createApiError(400, 'AUTH_MISSING_CREDENTIAL_ID', '缺少 Credential ID')
+  }
+
+  // Challenge 只能使用一次，避免失败响应被重复提交。
+  clearWebAuthnChallenge(event)
+
+  const identity = await db.query.userIdentities.findFirst({
+    where: and(
+      eq(userIdentities.provider, 'webauthn'),
+      eq(userIdentities.providerUserId, credentialID)
+    ),
+    with: { user: true }
+  })
+
+  if (!identity) {
+    throw createApiError(400, 'AUTH_PASSKEY_ACCOUNT_NOT_FOUND', '未找到该 Passkey 关联的账号')
+  }
+
+  const user = identity.user
+
+  // 检查用户账号状态
+  if (!user || user.status !== 'active') {
+    throw createApiError(403, 'AUTH_ACCOUNT_UNAVAILABLE_OR_RESTRICTED', '该账号不可用或已限制访问')
+  }
+
+  // 解析存储的凭证数据
+  if (!identity.providerUsername) {
+    throw createApiError(500, 'AUTH_CREDENTIAL_MISSING', '凭证数据缺失')
+  }
+
+  let credentialData
+  try {
+    credentialData = JSON.parse(identity.providerUsername)
+  } catch {
+    throw createApiError(500, 'AUTH_CREDENTIAL_CORRUPTED', '凭证数据损坏')
+  }
+
+  const { publicKey, counter } = credentialData
+
+  // 验证公钥存在
+  if (!publicKey) {
+    throw createApiError(500, 'AUTH_CREDENTIAL_MISSING_PUBLICKEY', '凭证数据缺失 publicKey')
+  }
+
+  const { rpID, origin } = getWebAuthnConfig(event)
+  if (!rpID) {
+    throw createApiError(500, 'AUTH_WEBAUTHN_RP_ID_INVALID', 'WebAuthn RP ID 配置无效')
+  }
+
+  // 构造 WebAuthn 凭证对象
+  const credential = {
+    id: credentialID,
+    publicKey: Buffer.from(publicKey, 'base64url'),
+    counter: Number(counter || 0),
+    transports: credentialData.transports
+  }
+
+  try {
+    const verification = await verifyAuthenticationResponse({
+      response: body,
+      expectedChallenge: challengeData.challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      credential,
+      requireUserVerification: true
+    })
+
+    if (verification.verified) {
+      const { newCounter, credentialDeviceType, credentialBackedUp } =
+        verification.authenticationInfo
+      credentialData.counter = newCounter
+      credentialData.credentialDeviceType = credentialDeviceType
+      credentialData.credentialBackedUp = credentialBackedUp
+
+      await db
+        .update(userIdentities)
+        .set({ providerUsername: JSON.stringify(credentialData) })
+        .where(eq(userIdentities.id, identity.id))
+
+      // 签发登录 Token
+      const { token } = await createAuthSession(event, identity.user, 'webauthn')
+      setCookie(event, 'auth-token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7,
+        path: '/'
+      })
+
+      return { success: true, redirect: '/' }
+    } else {
+      throw createApiError(400, 'AUTH_VERIFICATION_FAILED', '验证失败')
+    }
+  } catch (error) {
+    // 透传已携带错误码的业务错误，避免被重新包装后丢失 code 通道。
+    if (error && typeof error === 'object' && 'statusCode' in error) throw error
+    console.error('WebAuthn 登录验证失败:', error)
+    const message = error instanceof Error ? error.message : '验证失败'
+    throw createApiError(400, 'AUTH_VERIFICATION_FAILED', message)
+  }
+})

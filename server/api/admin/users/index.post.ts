@@ -1,0 +1,134 @@
+import bcrypt from 'bcryptjs'
+import { db } from '~/drizzle/db'
+import { users } from '~/drizzle/schema'
+import { eq } from 'drizzle-orm'
+import { createApiError } from '~~/server/utils/apiError'
+import { getAdminPasswordViolation } from '~~/server/utils/admin-password-policy'
+
+const normalizeRequiredText = (value: unknown) => String(value || '').trim()
+const normalizeOptionalText = (value: unknown) => {
+  const normalized = String(value || '').trim()
+  return normalized || null
+}
+
+export default defineEventHandler(async (event) => {
+  // 检查认证和权限
+  const user = event.context.user
+  if (!user || !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+    throw createError({
+      statusCode: 403,
+      message: '没有权限访问'
+    })
+  }
+
+  const body = await readBody(event)
+  const normalizedName = normalizeRequiredText(body.name)
+  const normalizedUsername = normalizeRequiredText(body.username)
+  const initialPassword = typeof body.password === 'string' ? body.password : ''
+
+  // 验证必填字段
+  if (!normalizedName || !normalizedUsername || !initialPassword) {
+    throw createError({
+      statusCode: 400,
+      message: '姓名、用户名和密码不能为空'
+    })
+  }
+
+  const violation = getAdminPasswordViolation(initialPassword)
+  if (violation) {
+    throw createApiError(400, violation.code, violation.message)
+  }
+
+  try {
+    // 检查用户名是否已存在
+    const existingUserResult = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, normalizedUsername))
+      .limit(1)
+    const existingUser = existingUserResult[0]
+
+    if (existingUser) {
+      throw createError({
+        statusCode: 400,
+        message: '用户名已存在'
+      })
+    }
+
+    // 加密密码
+    const hashedPassword = await bcrypt.hash(initialPassword, 10)
+
+    // 角色权限控制
+    let validRole = 'USER'
+    if (body.role && ['USER', 'ADMIN', 'SONG_ADMIN', 'SUPER_ADMIN'].includes(body.role)) {
+      // 超级管理员可以创建任何角色的用户
+      if (user.role === 'SUPER_ADMIN') {
+        validRole = body.role
+      }
+      // 管理员只能创建管理员以下的角色（USER, SONG_ADMIN）
+      else if (user.role === 'ADMIN') {
+        if (['USER', 'SONG_ADMIN'].includes(body.role)) {
+          validRole = body.role
+        } else {
+          throw createError({
+            statusCode: 403,
+            message: '管理员只能创建用户和歌曲管理员角色'
+          })
+        }
+      }
+      // 其他角色不能创建用户
+      else {
+        throw createError({
+          statusCode: 403,
+          message: '没有权限创建用户'
+        })
+      }
+    }
+
+    // 状态验证
+    let validStatus = 'active'
+    if (body.status && ['active', 'withdrawn', 'graduate'].includes(body.status)) {
+      validStatus = body.status
+    }
+
+    // 创建用户
+    const newUserResult = await db
+      .insert(users)
+      .values({
+        name: normalizedName,
+        username: normalizedUsername,
+        password: hashedPassword,
+        role: validRole,
+        status: validStatus as 'active' | 'withdrawn' | 'graduate',
+        grade: normalizeOptionalText(body.grade),
+        class: normalizeOptionalText(body.class)
+      })
+      .returning({
+        id: users.id,
+        name: users.name,
+        username: users.username,
+        role: users.role,
+        status: users.status,
+        grade: users.grade,
+        class: users.class,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt
+      })
+    const newUser = newUserResult[0]
+
+    return {
+      success: true,
+      user: newUser,
+      message: '用户创建成功'
+    }
+  } catch (error: any) {
+    console.error('创建用户失败:', error)
+    if (error?.statusCode) {
+      throw error
+    }
+    throw createError({
+      statusCode: 500,
+      message: '创建用户失败'
+    })
+  }
+})

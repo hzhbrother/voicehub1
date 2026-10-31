@@ -1,0 +1,110 @@
+import { createError, defineEventHandler, readBody } from 'h3'
+import { db } from '~/drizzle/db'
+import { songBlacklists } from '~/drizzle/schema'
+import { eq } from 'drizzle-orm'
+import { getSystemSettingsCached } from '~~/server/utils/system-settings-helper'
+import { matchBlacklistGenre, matchBlacklistLanguage, resolveSongTypes } from '~~/server/utils/song-type-resolver'
+
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event)
+  const { title, artist, musicPlatform, musicId } = body
+
+  if (!title) {
+    throw createError({
+      statusCode: 400,
+      message: '歌曲标题不能为空'
+    })
+  }
+
+  // 管理员不受黑名单限制
+  const user = event.context.user
+  if (user && ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.role)) {
+    return {
+      isBlocked: false,
+      reasons: [],
+      song: {
+        title,
+        artist
+      }
+    }
+  }
+
+  try {
+    // 获取系统设置
+    const systemSettingsData = await getSystemSettingsCached()
+    const showBlacklistKeywords = systemSettingsData?.showBlacklistKeywords ?? false
+
+    // 获取所有活跃的黑名单项
+    const blacklistItems = await db
+      .select()
+      .from(songBlacklists)
+      .where(eq(songBlacklists.isActive, true))
+
+    const songFullName = `${title} - ${artist || ''}`.toLowerCase()
+    const blocked = []
+
+    // 语种/曲风黑名单：需按 platform+musicId 从音源侧解析类型，解析失败或平台不支持时放行
+    const languageItems = blacklistItems.filter((item) => item.type === 'LANGUAGE')
+    const genreItems = blacklistItems.filter((item) => item.type === 'GENRE')
+    let songTypes: Awaited<ReturnType<typeof resolveSongTypes>> = null
+    if (languageItems.length > 0 || genreItems.length > 0) {
+      songTypes = await resolveSongTypes(musicPlatform, musicId)
+    }
+
+    for (const item of blacklistItems) {
+      if (item.type === 'SONG') {
+        // 检查具体歌曲
+        if (songFullName.includes(item.value.toLowerCase())) {
+          blocked.push({
+            type: 'song',
+            value: item.value,
+            reason: item.reason || '该歌曲已被加入黑名单'
+          })
+        }
+      } else if (item.type === 'KEYWORD') {
+        // 检查关键词
+        if (songFullName.includes(item.value.toLowerCase())) {
+          blocked.push({
+            type: 'keyword',
+            value: showBlacklistKeywords ? item.value : null, // 根据设置决定是否显示具体关键词
+            reason:
+              item.reason || (showBlacklistKeywords ? `包含关键词：${item.value}` : '包含关键词')
+          })
+        }
+      } else if (item.type === 'LANGUAGE') {
+        // 检查语种（「其他」命中已判定的小语种，其余按精确匹配）
+        if (songTypes && matchBlacklistLanguage(item.value, songTypes.languages)) {
+          blocked.push({
+            type: 'language',
+            value: item.value,
+            reason: item.reason || `该歌曲语种「${item.value}」已被加入黑名单`
+          })
+        }
+      } else if (item.type === 'GENRE') {
+        // 检查曲风（与曲风一级分类比对）
+        if (songTypes && matchBlacklistGenre(item.value, songTypes.genres)) {
+          blocked.push({
+            type: 'genre',
+            value: item.value,
+            reason: item.reason || `该歌曲曲风「${item.value}」已被加入黑名单`
+          })
+        }
+      }
+    }
+
+    return {
+      isBlocked: blocked.length > 0,
+      reasons: blocked,
+      song: {
+        title,
+        artist
+      }
+    }
+  } catch (error) {
+    console.error('检查黑名单失败:', error)
+    throw createError({
+      statusCode: 500,
+      message: '检查黑名单失败'
+    })
+  }
+})

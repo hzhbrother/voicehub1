@@ -1,0 +1,617 @@
+import { createError } from 'h3'
+import type { ProviderRuntimeConfig } from '~~/server/services/oauthConfigService'
+import { isSafeAggregateOAuthUrl } from '~~/server/utils/oauth-providers'
+
+const getObjectByPath = (source: any, path?: string): any => {
+  if (!source || !path) return undefined
+  return path
+    .split('.')
+    .reduce((acc, key) => (acc !== null && acc !== undefined ? acc[key] : undefined), source)
+}
+
+const firstStringValue = (values: any[]): string | undefined => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  }
+  return undefined
+}
+
+const getAggregateProviderMessage = (value: any): string | undefined => {
+  const message = firstStringValue([value, value?.msg, value?.message, value?.error_description])
+  if (!message) return undefined
+
+  // CDN/WAF 挑战页不是聚合协议的业务错误，避免把整段 HTML 当成供应商消息记录。
+  if (/<html|just a moment|cloudflare|cf-chl-|enable javascript/i.test(message)) {
+    return undefined
+  }
+
+  return message
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(
+      /["']?\b(app(?:id|key)|client_(?:id|secret))\b["']?\s*[:=：]\s*["']?[^\s,;"'&]+["']?/gi,
+      '$1=[已隐藏]'
+    )
+    .trim()
+    .slice(0, 200)
+}
+
+const isAggregateSecurityChallenge = (value: any): boolean => {
+  const message = firstStringValue([value, value?.msg, value?.message, value?.error_description])
+  return !!message && /<html|just a moment|cloudflare|cf-chl-|enable javascript/i.test(message)
+}
+
+const AGGREGATE_REQUEST_HEADERS = {
+  Accept: 'application/json',
+  // 部分聚合站点的 CDN 会将无 User-Agent 的服务端请求送入挑战页。
+  'User-Agent':
+    'Mozilla/5.0 (compatible; VoiceHub OAuth/1.0; +https://github.com/laoshuikaixue/VoiceHub)',
+  'Cache-Control': 'no-cache'
+}
+
+const fetchAggregateEndpoint = async (url: string): Promise<any> => {
+  return $fetch<any>(url, { headers: AGGREGATE_REQUEST_HEADERS })
+}
+
+const getAggregateAuthorizeErrorMessage = (providerMessage?: string): string =>
+  providerMessage ? `聚合登陆授权地址获取失败：${providerMessage}` : '聚合登陆授权地址获取失败'
+
+const isAggregateSuccessCode = (value: unknown): boolean =>
+  value === 0 || (typeof value === 'string' && value.trim() === '0')
+
+const normalizeAggregateEndpoint = (endpoint?: string): string => {
+  const value = endpoint?.trim()
+  if (!value) {
+    throw createError({ statusCode: 500, message: '聚合登录接口地址未配置，请在管理员后台完成配置' })
+  }
+  try {
+    const url = new URL(value)
+    if (!isSafeAggregateOAuthUrl(url.toString())) {
+      throw new Error('unsupported protocol')
+    }
+    url.search = ''
+    url.hash = ''
+    url.pathname = url.pathname.replace(/\/$/, '')
+    return url.toString().replace(/\/$/, '')
+  } catch (e: any) {
+    if (e?.statusCode) throw e
+    throw createError({ statusCode: 500, message: '聚合登陆接口地址配置错误' })
+  }
+}
+
+export interface OAuthUserInfo {
+  id: string
+  username: string
+  email?: string
+  name?: string
+  avatar?: string
+}
+
+export interface OAuthStrategy {
+  /**
+   * 获取授权跳转 URL
+   */
+  getAuthorizeUrl(
+    redirectUri: string,
+    state: string,
+    config?: ProviderRuntimeConfig
+  ): string | Promise<string>
+
+  /**
+   * 使用 code 换取 access_token
+   */
+  exchangeToken(code: string, redirectUri: string, config?: ProviderRuntimeConfig): Promise<string>
+
+  /**
+   * 获取用户信息
+   */
+  getUserInfo(accessToken: string, config?: ProviderRuntimeConfig): Promise<OAuthUserInfo>
+}
+
+// GitHub 策略实现
+const githubStrategy: OAuthStrategy = {
+  getAuthorizeUrl(redirectUri: string, state: string, config?: ProviderRuntimeConfig) {
+    const clientId = config?.clientId || process.env.GITHUB_CLIENT_ID
+    if (!clientId)
+      throw createError({ statusCode: 500, message: 'GitHub Client ID not configured' })
+
+    return `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user:email&state=${encodeURIComponent(state)}`
+  },
+
+  async exchangeToken(code: string, redirectUri: string, config?: ProviderRuntimeConfig) {
+    const clientId = config?.clientId || process.env.GITHUB_CLIENT_ID
+    const clientSecret = config?.clientSecret || process.env.GITHUB_CLIENT_SECRET
+
+    if (!clientId || !clientSecret) {
+      throw createError({ statusCode: 500, message: 'GitHub config missing' })
+    }
+
+    try {
+      const tokenResponse = await $fetch<any>('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        body: {
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          redirect_uri: redirectUri
+        },
+        headers: { Accept: 'application/json' }
+      })
+
+      if (tokenResponse.error) {
+        console.error('GitHub Token Error:', tokenResponse.error)
+        throw new Error('授权失败，请重试')
+      }
+
+      if (!tokenResponse.access_token) {
+        console.error('GitHub Token Response missing access_token')
+        throw new Error('未能获取访问令牌')
+      }
+      return tokenResponse.access_token
+    } catch (e: any) {
+      console.error('GitHub token exchange failed', e.message || e)
+      const errorMessage = e.data?.error_description || e.message || '令牌请求失败'
+      throw new Error(errorMessage)
+    }
+  },
+
+  async getUserInfo(accessToken: string) {
+    try {
+      const userInfo = await $fetch<any>('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      })
+
+      return {
+        id: String(userInfo.id),
+        username: userInfo.login,
+        name: userInfo.name,
+        email: userInfo.email,
+        avatar: userInfo.avatar_url
+      }
+    } catch (e: any) {
+      console.error('GitHub user info failed', e)
+      throw new Error('获取用户信息失败')
+    }
+  }
+}
+
+// Casdoor 策略实现
+const casdoorStrategy: OAuthStrategy = {
+  getAuthorizeUrl(redirectUri: string, state: string, config?: ProviderRuntimeConfig) {
+    const clientId = config?.clientId || process.env.CASDOOR_CLIENT_ID
+    const endpoint = config?.endpoint || process.env.CASDOOR_ENDPOINT
+    if (!clientId || !endpoint)
+      throw createError({ statusCode: 500, message: 'Casdoor config missing' })
+
+    return `${endpoint}/login/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read&state=${encodeURIComponent(state)}`
+  },
+
+  async exchangeToken(code: string, redirectUri: string, config?: ProviderRuntimeConfig) {
+    const clientId = config?.clientId || process.env.CASDOOR_CLIENT_ID
+    const clientSecret = config?.clientSecret || process.env.CASDOOR_CLIENT_SECRET
+    const endpoint = config?.endpoint || process.env.CASDOOR_ENDPOINT
+
+    if (!clientId || !clientSecret || !endpoint) {
+      throw createError({ statusCode: 500, message: 'Casdoor config missing' })
+    }
+
+    try {
+      const tokenResponse = await $fetch<any>(`${endpoint}/login/oauth/access_token`, {
+        method: 'POST',
+        body: {
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri
+        },
+        headers: { Accept: 'application/json' }
+      })
+
+      if (tokenResponse.error) {
+        console.error('Casdoor Token Error:', tokenResponse.error, tokenResponse.error_description)
+        throw new Error(tokenResponse.error_description || '授权失败，请重试')
+      }
+
+      if (!tokenResponse.access_token) {
+        console.error('Casdoor Token Response missing access_token')
+        throw new Error('未能获取访问令牌，请检查 Casdoor 配置')
+      }
+      return tokenResponse.access_token
+    } catch (e: any) {
+      console.error('Casdoor token exchange failed', e.message || e)
+      const errorMessage = e.data?.error_description || e.message || '令牌请求失败'
+      throw new Error(errorMessage)
+    }
+  },
+
+  async getUserInfo(accessToken: string, config?: ProviderRuntimeConfig) {
+    const endpoint = config?.endpoint || process.env.CASDOOR_ENDPOINT
+    if (!endpoint) throw createError({ statusCode: 500, message: 'Casdoor config missing' })
+
+    let userInfo: any = {}
+    try {
+      // Casdoor 用户信息端点通常是 /api/get-account 或 /api/userinfo
+      // 标准 OIDC 使用 /userinfo
+      try {
+        userInfo = await $fetch(`${endpoint}/api/userinfo`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        })
+      } catch (e) {
+        // 尝试备用端点
+        userInfo = await $fetch(`${endpoint}/api/get-account`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        })
+      }
+
+      return {
+        id: String(userInfo.id || userInfo.sub),
+        username: userInfo.name || userInfo.preferred_username || userInfo.username,
+        name: userInfo.displayName || userInfo.name,
+        email: userInfo.email,
+        avatar: userInfo.avatar
+      }
+    } catch (e: any) {
+      console.error('Casdoor user info failed', e)
+      throw new Error('获取用户信息失败')
+    }
+  }
+}
+
+// Google 策略实现
+const googleStrategy: OAuthStrategy = {
+  getAuthorizeUrl(redirectUri: string, state: string, config?: ProviderRuntimeConfig) {
+    const clientId = config?.clientId || process.env.GOOGLE_CLIENT_ID
+    if (!clientId)
+      throw createError({ statusCode: 500, message: 'Google Client ID not configured' })
+
+    return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&state=${encodeURIComponent(state)}`
+  },
+
+  async exchangeToken(code: string, redirectUri: string, config?: ProviderRuntimeConfig) {
+    const clientId = config?.clientId || process.env.GOOGLE_CLIENT_ID
+    const clientSecret = config?.clientSecret || process.env.GOOGLE_CLIENT_SECRET
+
+    if (!clientId || !clientSecret) {
+      throw createError({ statusCode: 500, message: 'Google config missing' })
+    }
+
+    try {
+      const tokenResponse = await $fetch<any>('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        body: {
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri
+        },
+        headers: { Accept: 'application/json' }
+      })
+
+      if (tokenResponse.error) {
+        console.error('Google Token Error:', tokenResponse.error)
+        throw new Error('授权失败，请重试')
+      }
+
+      if (!tokenResponse.access_token) {
+        console.error('Google Token Response missing access_token')
+        throw new Error('未能获取访问令牌')
+      }
+      return tokenResponse.access_token
+    } catch (e: any) {
+      console.error('Google token exchange failed', e.message || e)
+      const errorMessage = e.data?.error_description || e.message || '令牌请求失败'
+      throw new Error(errorMessage)
+    }
+  },
+
+  async getUserInfo(accessToken: string) {
+    try {
+      const userInfo = await $fetch<any>('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      })
+
+      return {
+        id: userInfo.sub,
+        username: userInfo.email, // Google doesn't have a username, use email
+        name: userInfo.name,
+        email: userInfo.email,
+        avatar: userInfo.picture
+      }
+    } catch (e: any) {
+      console.error('Google user info failed', e)
+      throw new Error('获取用户信息失败')
+    }
+  }
+}
+
+
+const aggregateOAuthStrategy: OAuthStrategy = {
+  async getAuthorizeUrl(redirectUri: string, state: string, config?: ProviderRuntimeConfig) {
+    const appid = config?.clientId
+    const appkey = config?.clientSecret
+    const loginType = config?.loginType?.trim() || 'qq'
+    const endpoint = normalizeAggregateEndpoint(config?.endpoint)
+
+    if (!appid || !appkey) {
+      throw createError({ statusCode: 500, message: '聚合登陆配置缺失' })
+    }
+
+    const params = new URLSearchParams({
+      act: 'login',
+      appid,
+      appkey,
+      type: loginType,
+      redirect_uri: redirectUri,
+      state
+    })
+
+    let loginResponse: any
+    try {
+      loginResponse = await fetchAggregateEndpoint(`${endpoint}?${params.toString()}`)
+    } catch (e: any) {
+      const responseBody = e?.data || e?.response?._data
+      const providerMessage = getAggregateProviderMessage(responseBody)
+      // AppKey 位于协议规定的查询串中，避免记录可能包含完整请求 URL 的 FetchError。
+      console.error('聚合登陆授权地址请求失败', {
+        statusCode: e?.response?.status || e?.statusCode || e?.status || 'unknown',
+        providerMessage,
+        securityChallenge: isAggregateSecurityChallenge(responseBody)
+      })
+      if (isAggregateSecurityChallenge(responseBody)) {
+        throw createError({
+          statusCode: 502,
+          message:
+            '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址'
+        })
+      }
+      throw createError({
+        statusCode: 502,
+        message: getAggregateAuthorizeErrorMessage(providerMessage)
+      })
+    }
+
+    if (!isAggregateSuccessCode(loginResponse?.code) || !loginResponse?.url) {
+      if (isAggregateSecurityChallenge(loginResponse)) {
+        throw createError({
+          statusCode: 502,
+          message:
+            '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址'
+        })
+      }
+      const providerMessage = getAggregateProviderMessage(loginResponse)
+      // 上游返回的失败原因需落日志，便于管理员排查未开通/配置错误等问题
+      console.error('聚合登陆授权地址获取失败', { providerMessage })
+      throw createError({
+        statusCode: 502,
+        message: getAggregateAuthorizeErrorMessage(providerMessage)
+      })
+    }
+
+    try {
+      const authorizeUrl = new URL(loginResponse.url)
+      if (!isSafeAggregateOAuthUrl(authorizeUrl.toString())) {
+        throw new Error('unsupported protocol')
+      }
+      return authorizeUrl.toString()
+    } catch {
+      throw createError({ statusCode: 502, message: '聚合登陆返回了无效的授权地址' })
+    }
+  },
+
+  async exchangeToken(code: string, redirectUri: string, config?: ProviderRuntimeConfig) {
+    const appid = config?.clientId
+    const appkey = config?.clientSecret
+    const loginType = config?.loginType?.trim() || 'qq'
+    const endpoint = normalizeAggregateEndpoint(config?.endpoint)
+
+    if (!appid || !appkey) {
+      throw createError({ statusCode: 500, message: '聚合登陆配置缺失' })
+    }
+
+    const params = new URLSearchParams({
+      act: 'callback',
+      appid,
+      appkey,
+      type: loginType,
+      code
+    })
+
+    let tokenResponse: any
+    try {
+      tokenResponse = await fetchAggregateEndpoint(`${endpoint}?${params.toString()}`)
+    } catch (e: any) {
+      // AppKey 位于协议规定的查询串中，避免记录或继续抛出完整请求 URL。
+      const responseBody = e?.data || e?.response?._data
+      const providerMessage = getAggregateProviderMessage(responseBody)
+      console.error('聚合登陆回调请求失败', {
+        statusCode: e?.response?.status || e?.statusCode || e?.status || 'unknown',
+        providerMessage,
+        securityChallenge: isAggregateSecurityChallenge(responseBody)
+      })
+      if (isAggregateSecurityChallenge(responseBody)) {
+        throw new Error(
+          '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址',
+          { cause: e }
+        )
+      }
+      throw new Error(providerMessage ? `令牌请求失败：${providerMessage}` : '令牌请求失败', {
+        cause: e
+      })
+    }
+
+    if (!isAggregateSuccessCode(tokenResponse?.code)) {
+      if (isAggregateSecurityChallenge(tokenResponse)) {
+        throw new Error(
+          '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址'
+        )
+      }
+      throw new Error(getAggregateProviderMessage(tokenResponse) || '授权失败，请重试')
+    }
+
+    if (!tokenResponse?.social_uid) {
+      throw new Error('聚合登陆响应缺少用户唯一标识')
+    }
+
+    return Buffer.from(JSON.stringify(tokenResponse), 'utf8').toString('base64url')
+  },
+
+  async getUserInfo(accessToken: string) {
+    try {
+      const userInfo = JSON.parse(Buffer.from(accessToken, 'base64url').toString('utf8'))
+      const id = firstStringValue([userInfo.social_uid])
+      if (!id) {
+        throw new Error('用户信息中缺少 social_uid')
+      }
+
+      return {
+        id,
+        username: firstStringValue([userInfo.nickname, userInfo.social_uid]) || id,
+        name: firstStringValue([userInfo.nickname]),
+        avatar: firstStringValue([userInfo.faceimg])
+      }
+    } catch (e: any) {
+      console.error('聚合登陆 user info failed', e)
+      throw new Error(e?.message || '获取用户信息失败')
+    }
+  }
+}
+
+const customOAuth2Strategy: OAuthStrategy = {
+  getAuthorizeUrl(redirectUri: string, state: string, config?: ProviderRuntimeConfig) {
+    const authorizeUrl = config?.authorizeUrl
+    const clientId = config?.clientId
+    const scope = config?.scope?.trim() || 'openid profile email'
+
+    if (!authorizeUrl || !clientId) {
+      throw createError({ statusCode: 500, message: 'Custom OAuth2 config missing' })
+    }
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope,
+      state
+    })
+
+    return `${authorizeUrl}${authorizeUrl.includes('?') ? '&' : '?'}${params.toString()}`
+  },
+
+  async exchangeToken(code: string, redirectUri: string, config?: ProviderRuntimeConfig) {
+    const tokenUrl = config?.tokenUrl
+    const clientId = config?.clientId
+    const clientSecret = config?.clientSecret
+
+    if (!tokenUrl || !clientId || !clientSecret) {
+      throw createError({ statusCode: 500, message: 'Custom OAuth2 config missing' })
+    }
+
+    try {
+      const body = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri
+      })
+
+      const tokenResponse = await $fetch<any>(tokenUrl, {
+        method: 'POST',
+        body,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      })
+
+      if (tokenResponse?.error) {
+        throw new Error(
+          tokenResponse.error_description || tokenResponse.error || '授权失败，请重试'
+        )
+      }
+
+      if (!tokenResponse?.access_token) {
+        throw new Error('未能获取访问令牌')
+      }
+      return tokenResponse.access_token
+    } catch (e: any) {
+      console.error('Custom OAuth2 token exchange failed', e.message || e)
+      const errorMessage = e?.data?.error_description || e?.message || '令牌请求失败'
+      throw new Error(errorMessage)
+    }
+  },
+
+  async getUserInfo(accessToken: string, config?: ProviderRuntimeConfig) {
+    const userInfoUrl = config?.userInfoUrl
+    if (!userInfoUrl) {
+      throw createError({ statusCode: 500, message: 'Custom OAuth2 config missing' })
+    }
+
+    try {
+      const userInfo = await $fetch<any>(userInfoUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      })
+
+      const id = firstStringValue([
+        getObjectByPath(userInfo, config?.userIdField),
+        getObjectByPath(userInfo, 'id'),
+        getObjectByPath(userInfo, 'sub')
+      ])
+
+      if (!id) {
+        throw new Error('用户信息中缺少唯一标识字段，请配置用户 ID 字段')
+      }
+
+      const username = firstStringValue([
+        getObjectByPath(userInfo, config?.usernameField),
+        getObjectByPath(userInfo, 'username'),
+        getObjectByPath(userInfo, 'preferred_username'),
+        getObjectByPath(userInfo, 'email'),
+        getObjectByPath(userInfo, 'name'),
+        id
+      ])
+
+      return {
+        id,
+        username: username || id,
+        name: firstStringValue([
+          getObjectByPath(userInfo, config?.nameField),
+          getObjectByPath(userInfo, 'name')
+        ]),
+        email: firstStringValue([
+          getObjectByPath(userInfo, config?.emailField),
+          getObjectByPath(userInfo, 'email')
+        ]),
+        avatar: firstStringValue([
+          getObjectByPath(userInfo, config?.avatarField),
+          getObjectByPath(userInfo, 'avatar'),
+          getObjectByPath(userInfo, 'picture')
+        ])
+      }
+    } catch (e: any) {
+      console.error('Custom OAuth2 user info failed', e)
+      throw new Error(e?.message || '获取用户信息失败')
+    }
+  }
+}
+
+// 策略注册表
+const strategies: Record<string, OAuthStrategy> = {
+  github: githubStrategy,
+  casdoor: casdoorStrategy,
+  google: googleStrategy,
+  oauth2: customOAuth2Strategy,
+  aggregate: aggregateOAuthStrategy
+}
+
+export const getOAuthStrategy = (provider: string): OAuthStrategy => {
+  const strategy = strategies[provider]
+  if (!strategy) {
+    throw createError({ statusCode: 400, message: `Unknown provider: ${provider}` })
+  }
+  return strategy
+}

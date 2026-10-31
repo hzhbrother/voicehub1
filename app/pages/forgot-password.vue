@@ -1,0 +1,635 @@
+<template>
+  <div class="auth-layout">
+    <div class="auth-main">
+      <div class="auth-container">
+      <div class="form-section">
+        <div class="form-header">
+          <h1 class="form-title">{{ locale.title }}</h1>
+          <p class="form-subtitle">{{ locale.subtitle }}</p>
+          <div class="header-divider" />
+        </div>
+        
+        <div v-if="success" class="success-container">
+          <svg class="success-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <p class="success-message">{{ successMessage }}</p>
+          <NuxtLink to="/login" class="back-link-btn">{{ locale.backLogin }}</NuxtLink>
+        </div>
+
+        <form v-else :class="['auth-form', { 'has-error': !!error }]" @submit.prevent="handleSubmit">
+          <div class="form-group" v-if="step === 1">
+            <label for="username">{{ locale.username }}</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              <input
+                id="username"
+                v-model="username"
+                :class="{ 'input-error': error }"
+                :placeholder="locale.usernamePlaceholder"
+                required
+                type="text"
+                @input="error = ''"
+              >
+            </div>
+          </div>
+
+          <div class="form-group" v-if="step === 2">
+            <label for="email">{{ locale.verifyEmail }}</label>
+            <p class="text-sm text-[var(--text-secondary)] mb-2">
+              {{ locale.detectedEmailPrefix }}<strong class="text-[var(--primary)]">{{ maskedEmail }}</strong>
+            </p>
+            <div class="input-wrapper">
+              <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+              </svg>
+              <input
+                id="email"
+                v-model="email"
+                :class="{ 'input-error': error }"
+                :placeholder="locale.emailPlaceholder"
+                required
+                type="email"
+                @input="error = ''"
+              >
+            </div>
+          </div>
+
+          <div
+            v-show="showCaptcha"
+            class="form-group"
+            :class="{ 'esa-captcha-mount': captchaProvider === 'esa' && esaSceneId }"
+          >
+            <TurnstileWidget
+              v-if="captchaProvider === 'turnstile'"
+              ref="turnstileRef"
+              v-model="turnstileToken"
+            />
+            <EsaCaptchaWidget
+              v-else-if="captchaProvider === 'esa' && esaSceneId"
+              :key="esaSceneId"
+              ref="esaCaptchaRef"
+              v-model="esaVerifyParam"
+              :scene-id="esaSceneId"
+              :button-selector="esaButtonSelector"
+              @verified="handleSubmit"
+              @load-error="handleEsaCaptchaLoadError"
+            />
+            <!-- ESA 已启用但当前接口与域名解析不到场景 ID，不能回落成图形验证码 -->
+            <p v-else-if="captchaProvider === 'esa'" class="esa-scene-hint">
+              {{ captchaLocale.esaCaptchaSceneMissing }}
+            </p>
+            <CaptchaInput
+              v-else
+              ref="captchaRef"
+              v-model="captchaInput"
+              @update:captchaId="captchaId = $event"
+            />
+          </div>
+
+          <div v-if="error" class="error-container">
+            <svg class="error-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" x2="12" y1="8" y2="12" />
+              <line x1="12" x2="12.01" y1="16" y2="16" />
+            </svg>
+            <span class="error-message">{{ error }}</span>
+          </div>
+
+          <button id="forgot-password-submit-button" :disabled="loading" class="submit-btn" type="submit">
+            <svg v-if="loading" class="loading-spinner" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" fill="none" r="10" stroke="currentColor" stroke-dasharray="31.416" stroke-dashoffset="31.416" stroke-linecap="round" stroke-width="2">
+                <animate attributeName="stroke-dasharray" dur="2s" repeatCount="indefinite" values="0 31.416;15.708 15.708;0 31.416"/>
+                <animate attributeName="stroke-dashoffset" dur="2s" repeatCount="indefinite" values="0;-15.708;-31.416"/>
+              </circle>
+            </svg>
+            <span v-if="loading">{{ step === 1 ? locale.verifying : locale.sending }}</span>
+            <span v-else>{{ step === 1 ? locale.nextStep : locale.sendResetEmail }}</span>
+          </button>
+          
+          <div class="form-footer">
+            <button v-if="step === 2" type="button" @click="step = 1; error = '';" class="back-link mr-4" style="background: none; border: none; cursor: pointer;">
+              {{ locale.previousStep }}
+            </button>
+            <NuxtLink to="/login" class="back-link">{{ locale.backLogin }}</NuxtLink>
+          </div>
+        </form>
+      </div>
+      </div>
+    </div>
+    <SiteFooter />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useLocale } from '~/utils/locale'
+import CaptchaInput from '~/components/Auth/CaptchaInput.vue'
+import TurnstileWidget from '~/components/Auth/TurnstileWidget.vue'
+import EsaCaptchaWidget from '~/components/Auth/EsaCaptchaWidget.vue'
+import { ESA_CAPTCHA_VERIFY_HEADER, ESA_CAPTCHA_PASS_HEADER, getEsaCaptchaRejectCode, resolveEsaCaptchaSceneId } from '~/utils/esaCaptcha'
+
+const { siteTitle, initSiteConfig, captchaEnabled, captchaProvider, captchaMaxFailures, esaCaptchaScenes } = useSiteConfig()
+const { pages, auth } = useLocale()
+const locale = computed(() => pages.value?.forgotPassword || {})
+// 复用登录表单已有人机验证文案键，中英自动对齐
+const captchaLocale = computed(() => auth.value?.loginForm || {})
+
+const username = ref('')
+const email = ref('')
+const loading = ref(false)
+const error = ref('')
+const success = ref(false)
+const successMessage = ref('')
+const step = ref(1)
+const maskedEmail = ref('')
+
+// 服务端错误统一通过错误码本地化，成功文案直接取本地化整句
+const { localize: localizeServerError } = useServerErrors()
+
+// 人机验证：复用三 providers 组件
+const captchaId = ref('')
+const captchaInput = ref('')
+const captchaRef = ref(null)
+const turnstileToken = ref('')
+const turnstileRef = ref(null)
+const esaVerifyParam = ref('')
+const esaPassToken = ref('')
+const esaCaptchaRef = ref(null)
+const isGraphicCaptchaRequired = ref(false)
+const esaButtonSelector = '#forgot-password-submit-button'
+
+// 场景按当前域名解析（统一走公共验证接口），SSR 阶段无域名只能命中「任意域名」规则
+const esaSceneId = computed(() =>
+  resolveEsaCaptchaSceneId(
+    esaCaptchaScenes.value,
+    'common',
+    import.meta.client ? window.location.hostname : ''
+  )
+)
+
+// 显示判据：ESA 无场景 ID 视为未开启；图形按阈值/预检；Turnstile/ESA 每次必验
+const showCaptcha = computed(() => {
+  if (captchaProvider.value === 'esa' && !esaSceneId.value) return false
+  if (!captchaEnabled.value) return false
+  if (isGraphicCaptchaRequired.value) return true
+  if (captchaProvider.value === 'graphic' && captchaMaxFailures.value === 0) return true
+  return captchaProvider.value === 'turnstile' || captchaProvider.value === 'esa'
+})
+
+// 预检：输入账号名后查询服务端是否已要求图形验证码，刷新后无需先被 400 拒绝一次
+let captchaPrecheckTimer = null
+const precheckCaptchaRequired = () => {
+  if (!captchaEnabled.value || captchaProvider.value !== 'graphic') return
+  if (captchaMaxFailures.value === 0 || isGraphicCaptchaRequired.value) return
+  const name = username.value.trim()
+  if (!name) return
+  $fetch('/api/auth/captcha-required', { query: { username: name } })
+    .then((res) => {
+      if (res?.captchaRequired) isGraphicCaptchaRequired.value = true
+    })
+    .catch(() => {})
+}
+watch(username, () => {
+  clearTimeout(captchaPrecheckTimer)
+  captchaPrecheckTimer = setTimeout(precheckCaptchaRequired, 400)
+})
+onUnmounted(() => clearTimeout(captchaPrecheckTimer))
+
+// ESA SDK 脚本加载失败时给出提示而非静默无响应
+const handleEsaCaptchaLoadError = () => {
+  error.value = captchaLocale.value.esaCaptchaLoadFailed || '人机验证组件加载失败，请刷新页面重试'
+}
+
+// 请求被 ESA 边缘拦截时源站收不到请求，按响应头原因码提示
+const applyEsaCaptchaRejectError = (err) => {
+  const code = getEsaCaptchaRejectCode(err)
+  if (!code) return false
+  const reason = captchaLocale.value.esaVerifyCodes?.[code]
+  error.value = reason
+    ? formatLocale(
+        captchaLocale.value.esaVerifyFailedWithReason || '人机验证未通过：{0}（原因码 {1}），请重试或联系管理员',
+        reason,
+        code
+      )
+    : formatLocale(captchaLocale.value.esaVerifyFailed || '人机验证未通过（原因码 {0}），请重试或联系管理员', code)
+  return true
+}
+
+// ESA 必须先取得验签参数（一次性有效，由按钮触发弹窗后经 verified 回调再次进入）
+const ensureEsaCaptchaVerified = () => {
+  if (!showCaptcha.value || captchaProvider.value !== 'esa') return true
+  return !!esaVerifyParam.value
+}
+
+// 用一次性验签参数向公共验证接口换取短期通过凭证；找回密码分两步，每次提交都重新换取
+const ensureEsaPassToken = async () => {
+  if (!showCaptcha.value || captchaProvider.value !== 'esa') return true
+  try {
+    const res = await $fetch('/api/captcha/verify', {
+      method: 'POST',
+      headers: { [ESA_CAPTCHA_VERIFY_HEADER]: esaVerifyParam.value },
+      body: { purpose: 'forgot_password' }
+    })
+    esaPassToken.value = res?.required && res?.passToken ? res.passToken : ''
+    return true
+  } catch (err) {
+    if (!applyEsaCaptchaRejectError(err)) {
+      error.value = localizeServerError(err, locale.value.requestFailed)
+    }
+    esaCaptchaRef.value?.reset?.()
+    return false
+  }
+}
+
+// 一次验证仅服务一步提交，进入下一步或失败后清空一次性参数并按需刷新
+const refreshCaptcha = () => {
+  esaVerifyParam.value = ''
+  esaPassToken.value = ''
+  if (!showCaptcha.value) return
+  nextTick(() => {
+    if (captchaProvider.value === 'turnstile') turnstileRef.value?.reset?.()
+    else if (captchaProvider.value === 'esa') esaCaptchaRef.value?.reset?.()
+    else if (captchaProvider.value === 'graphic') captchaRef.value?.refreshCaptcha?.()
+  })
+}
+
+useHead({
+  title: () => siteTitle.value ? `${locale.value.title} | ${siteTitle.value}` : locale.value.title
+})
+
+onMounted(async () => {
+  await initSiteConfig()
+})
+
+const handleSubmit = async () => {
+  if (step.value === 1) {
+    if (!username.value) {
+      error.value = locale.value.usernameRequired
+      return
+    }
+  } else if (step.value === 2) {
+    if (!email.value) {
+      error.value = locale.value.emailRequired
+      return
+    }
+  }
+
+  // ESA：提交按钮先触发 SDK 弹窗，验证通过回调再次进入此处；未取得验签参数前不发起请求
+  if (!ensureEsaCaptchaVerified()) return
+
+  loading.value = true
+  error.value = ''
+
+  try {
+    const body = step.value === 1
+      ? { username: username.value }
+      : { username: username.value, email: email.value }
+
+    // 图形/Turnstile 走请求体，ESA 走换取到的短期通过凭证请求头
+    const headers = {}
+    if (showCaptcha.value) {
+      if (captchaProvider.value === 'turnstile') {
+        body.turnstileToken = turnstileToken.value
+      } else if (captchaProvider.value === 'esa') {
+        if (!(await ensureEsaPassToken())) return
+        if (esaPassToken.value) headers[ESA_CAPTCHA_PASS_HEADER] = esaPassToken.value
+      } else {
+        body.captchaId = captchaId.value
+        body.captchaInput = captchaInput.value.trim()
+      }
+    }
+
+    const response = await $fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      body,
+      headers
+    })
+
+    if (response.success) {
+      if (response.step === 2) {
+        // 进入补全邮箱步骤，下一步需重新验证
+        step.value = 2
+        maskedEmail.value = response.maskedEmail || ''
+        refreshCaptcha()
+      } else if (response.step === 3) {
+        // 成功发送邮件
+        success.value = true
+        successMessage.value = locale.value.serverMessages?.mailSentFull || locale.value.mailSent
+      }
+    }
+  } catch (err) {
+    error.value = localizeServerError(err, locale.value.requestFailed)
+    applyEsaCaptchaRejectError(err)
+
+    const innerData = err.data?.data
+    // 后端要求验证码时显示验证区域（图形验证码场景）
+    if (innerData?.captchaRequired) isGraphicCaptchaRequired.value = true
+    refreshCaptcha()
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<style scoped>
+.auth-layout {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 20px;
+}
+
+.auth-main {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding-bottom: clamp(16px, 4vh, 40px);
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border-primary);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.form-section {
+  padding: 40px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+}
+
+.form-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.form-title {
+  font-size: 24px;
+  font-weight: var(--font-bold);
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+}
+
+.form-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.header-divider {
+  height: 1px;
+  background: var(--border-secondary);
+  margin: 20px auto 0;
+  width: 100%;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 14px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-wrapper::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 2px;
+  opacity: 0;
+  transform: scaleX(0.2);
+  transition: transform var(--transition-normal), opacity var(--transition-normal);
+}
+
+.input-wrapper:focus-within::after {
+  opacity: 0.35;
+  transform: scaleX(1);
+}
+
+.input-icon {
+  position: absolute;
+  left: 16px;
+  width: 20px;
+  height: 20px;
+  color: var(--text-quaternary);
+  z-index: 1;
+}
+
+.input-wrapper input {
+  width: 100%;
+  padding: 16px 16px 16px 48px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-lg);
+  color: var(--input-text);
+  font-size: 16px;
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.input-wrapper input::placeholder {
+  color: var(--input-placeholder);
+}
+
+.input-wrapper input:focus {
+  outline: none;
+  border-color: var(--input-border-focus);
+  box-shadow: var(--input-shadow-focus);
+}
+
+.input-wrapper input:focus + .input-icon,
+.input-wrapper input:not(:placeholder-shown) + .input-icon {
+  color: var(--primary);
+}
+
+.input-wrapper input.input-error {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px var(--error-light);
+}
+
+.error-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--error-light);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-lg);
+  color: var(--error);
+}
+
+.auth-form.has-error {
+  animation: shake 0.4s ease;
+}
+
+@keyframes shake {
+  0% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+  90% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+
+.error-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.error-message {
+  font-size: 14px;
+  font-weight: var(--font-medium);
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 16px;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: 1px solid var(--btn-primary-border);
+  border-radius: var(--radius-lg);
+  font-size: 16px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: background var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
+.submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+}
+
+/* ESA 为弹窗形态，挂载点没有可见内容；移出布局避免在表单里占出一段空白 */
+.esa-captcha-mount {
+  position: absolute;
+}
+
+/* ESA 已启用但场景 ID 缺失时的提示 */
+.esa-scene-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--error);
+}
+
+.form-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.back-link {
+  font-size: 14px;
+  color: var(--primary);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.back-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.success-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 0;
+  width: 100%;
+}
+
+.success-icon {
+  width: 64px;
+  height: 64px;
+  color: var(--success);
+  margin-bottom: 20px;
+}
+
+.success-message {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: 32px;
+  line-height: 1.5;
+}
+
+.back-link-btn {
+  padding: 12px 32px;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  font-weight: var(--font-medium);
+  transition: opacity 0.2s ease;
+}
+
+.back-link-btn:hover {
+  opacity: 0.9;
+}
+
+@media (max-width: 768px) {
+  .auth-layout {
+    padding: 10px;
+  }
+  .auth-container {
+    border-radius: 16px;
+  }
+  .form-section {
+    padding: 30px 20px;
+  }
+}
+</style>

@@ -1,0 +1,325 @@
+import { db } from '~/drizzle/db'
+import { schedules, songs } from '~/drizzle/schema'
+import { inArray, and, eq, gte, lte } from 'drizzle-orm'
+import {
+  createSongSelectedNotifications,
+  createReplaySongSelectedNotifications,
+  type SongSelectedEntry
+} from '~~/server/services/notificationService'
+import { getClientIP } from '~~/server/utils/ip-utils'
+import {
+  redeemCardCodeForSchedule,
+  restoreCardCodeAfterScheduleRemoval
+} from '~~/server/services/cardCodeLifecycleService'
+import {
+  fulfillReplayRequestsForSchedule,
+  resolveScheduleReplayBindings,
+  parseScheduleReplayRequestId,
+  restoreReplayRequestsToPending
+} from '~~/server/utils/scheduleReplayBinding'
+import { assertSchedulePlacement, loadSongTitleMap } from '~~/server/utils/schedulePlacementConstraint'
+import { getServerDate } from '~~/server/utils/serverTime'
+
+export default defineEventHandler(async (event) => {
+  // 检查用户认证和权限
+  const user = event.context.user
+
+  if (!user) {
+    throw createError({
+      statusCode: 401,
+      message: '未授权访问'
+    })
+  }
+
+  if (!['SONG_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+    throw createError({
+      statusCode: 403,
+      message: '只有歌曲管理员及以上权限才能发布排期'
+    })
+  }
+
+  const body = await readBody(event)
+
+  // 验证必要参数
+  if (!body.playDate || !body.songs || !Array.isArray(body.songs)) {
+    throw createError({
+      statusCode: 400,
+      message: '参数无效：需要 playDate 和 songs 数组'
+    })
+  }
+
+  const scheduleItems: Array<{ songId: number; sequence: number; replayRequestId: number | null }> =
+    (body.songs as any[]).map((item: any, index: number) => {
+      const songId = Number(item?.songId)
+      const sequence = Number(item?.sequence)
+      if (
+        !Number.isInteger(songId) ||
+        songId <= 0 ||
+        !Number.isInteger(sequence) ||
+        sequence <= 0
+      ) {
+        throw createError({ statusCode: 400, message: `第 ${index + 1} 条排期数据无效` })
+      }
+      // 管理员拖拽时显式选择的重播申请，发布时优先绑定
+      const replayRequestId = parseScheduleReplayRequestId(item?.replayRequestId)
+      return {
+        songId,
+        sequence,
+        replayRequestId
+      }
+    })
+
+  const clientIP = getClientIP(event)
+  const startTime = Date.now()
+
+  try {
+    // 解析日期
+    const inputDateStr =
+      typeof body.playDate === 'string' ? body.playDate : body.playDate.toISOString()
+    // 确保使用当天的开始时间（UTC）
+    const playDate = new Date(inputDateStr + 'T00:00:00.000Z')
+    const startOfDay = new Date(inputDateStr + 'T00:00:00.000Z')
+    const endOfDay = new Date(inputDateStr + 'T23:59:59.999Z')
+    const playTimeId = body.playTimeId ? parseInt(body.playTimeId) : null
+
+    // 获取所有涉及的歌曲详情（用于通知）
+    const songIds = scheduleItems.map((item) => item.songId)
+    if (songIds.length === 0) {
+      // 如果列表为空，说明是清空排期，直接执行删除逻辑即可
+    }
+
+    const songDetails =
+      songIds.length > 0 ? await db.select().from(songs).where(inArray(songs.id, songIds)) : []
+
+    const songMap = new Map(songDetails.map((s: any) => [s.id, s]))
+    const missingSongIds = Array.from(new Set(songIds)).filter((songId) => !songMap.has(songId))
+    if (missingSongIds.length > 0) {
+      throw createError({
+        statusCode: 404,
+        message: `歌曲不存在：${missingSongIds.join(', ')}`
+      })
+    }
+
+    // 需要发送通知的列表
+    const notificationsToSend: SongSelectedEntry[] = []
+    const replayNotificationsToSend: SongSelectedEntry[] = []
+
+    // 开始事务
+    await db.transaction(async (tx) => {
+      // 1. 构建查询条件：指定日期 + (可选)指定时段
+      const whereConditions = [
+        gte(schedules.playDate, startOfDay),
+        lte(schedules.playDate, endOfDay)
+      ]
+
+      if (playTimeId) {
+        whereConditions.push(eq(schedules.playTimeId, playTimeId))
+      }
+
+      // 2. 查找全库内已发布的排期（用于避免重复发送通知）
+      const newSongIds = new Set<number>(scheduleItems.map((item) => item.songId))
+      const newSongIdsArray = Array.from(newSongIds)
+
+      const globalExistingPublished =
+        newSongIdsArray.length > 0
+          ? await tx
+              .select({ songId: schedules.songId })
+              .from(schedules)
+              .where(and(eq(schedules.isDraft, false), inArray(schedules.songId, newSongIdsArray)))
+          : []
+
+      const existingPublishedSongIds = new Set(globalExistingPublished.map((s) => s.songId))
+
+      const schedulesToDelete = await tx
+        .select({
+          songId: schedules.songId,
+          isDraft: schedules.isDraft,
+          replayRequestId: schedules.replayRequestId,
+          cardCodeId: songs.cardCodeId
+        })
+        .from(schedules)
+        .leftJoin(songs, eq(schedules.songId, songs.id))
+        .where(and(...whereConditions))
+
+      // 记录被删除的已发布排期的重播绑定，同歌重发时回写，避免重播标识丢失
+      const previousReplayBindings = new Map<number, number>()
+      for (const scheduleToDelete of schedulesToDelete) {
+        if (scheduleToDelete.replayRequestId) {
+          previousReplayBindings.set(scheduleToDelete.songId, scheduleToDelete.replayRequestId)
+        }
+      }
+
+      const resolvedItems = await resolveScheduleReplayBindings(tx, scheduleItems, previousReplayBindings)
+      await assertSchedulePlacement(
+        { playTimeId, items: resolvedItems },
+        await loadSongTitleMap(Array.from(new Set(songIds)), tx),
+        tx
+      )
+
+      // 3. 删除该时间段内的所有排期（包括草稿和已发布）
+      await tx.delete(schedules).where(and(...whereConditions))
+
+      // 记录本次删除了哪些歌的排期，如果新排期里没有它们，并且全局也没别的正式排期了，需要恢复 PENDING
+      const deletedSongIds = new Set(
+        schedulesToDelete.filter((s) => !s.isDraft).map((s) => s.songId)
+      )
+      const songsToRestore = Array.from(deletedSongIds).filter((id) => !newSongIds.has(id))
+
+      if (songsToRestore.length > 0) {
+        const otherPublished = await tx
+          .select({ songId: schedules.songId })
+          .from(schedules)
+          .where(and(eq(schedules.isDraft, false), inArray(schedules.songId, songsToRestore)))
+
+        const songsWithOtherSchedules = new Set(otherPublished.map((s) => s.songId))
+        const finalRestoreIds = songsToRestore.filter((id) => !songsWithOtherSchedules.has(id))
+
+        if (finalRestoreIds.length > 0) {
+          const finalRestoreIdSet = new Set(finalRestoreIds)
+          const restoreCardCodeMap = new Map<number, number>()
+          for (const deletedSchedule of schedulesToDelete) {
+            if (
+              !deletedSchedule.isDraft &&
+              deletedSchedule.cardCodeId &&
+              finalRestoreIdSet.has(deletedSchedule.songId)
+            ) {
+              restoreCardCodeMap.set(deletedSchedule.songId, deletedSchedule.cardCodeId)
+            }
+          }
+
+          for (const [songId, cardCodeId] of restoreCardCodeMap) {
+            const restoreResult = await restoreCardCodeAfterScheduleRemoval(tx, {
+              songId,
+              cardCodeId,
+              operatorId: user.id
+            })
+            if (
+              !restoreResult.changed &&
+              ['CONCURRENT_CHANGE', 'MISSING_CARD_CODE'].includes(
+                String(restoreResult.reason || '')
+              )
+            ) {
+              throw createError({ statusCode: 409, message: '点歌券返还失败，发布排期已终止' })
+            }
+          }
+
+          // 恢复重播申请（每人仅恢复最新一条，避免违反部分唯一索引）
+          await restoreReplayRequestsToPending({
+            tx,
+            songIds: finalRestoreIds,
+            at: getServerDate()
+          })
+        }
+      }
+
+      // 4. 插入新的排期并处理通知
+      const publishedAt = getServerDate()
+
+      for (const item of resolvedItems) {
+        const song = songMap.get(item.songId)!
+
+        // 插入排期
+        const insertedSchedules = await tx
+          .insert(schedules)
+          .values({
+            songId: item.songId,
+            playDate: playDate,
+            sequence: item.sequence,
+            playTimeId: playTimeId,
+            isDraft: false, // 直接发布
+            publishedAt: publishedAt,
+            updatedAt: publishedAt
+          })
+          .returning({ id: schedules.id })
+
+        const insertedSchedule = insertedSchedules[0]
+        if (!insertedSchedule) {
+          throw createError({ statusCode: 500, message: '创建排期失败' })
+        }
+
+        const replayBinding = await fulfillReplayRequestsForSchedule({
+          tx,
+          songId: song.id,
+          scheduleId: insertedSchedule.id,
+          at: publishedAt,
+          resolvedRequestId: item.replayRequestId
+        })
+
+        if (replayBinding) {
+          for (const replayUserId of replayBinding.replayRequesterIds) {
+            replayNotificationsToSend.push({
+              userId: replayUserId,
+              songId: song.id,
+              songInfo: { title: song.title, artist: song.artist, playDate: playDate },
+              scheduleId: insertedSchedule.id
+            })
+          }
+        }
+
+        // 如果该歌曲之前未在此时间段发布过，则发送通知
+        if (!existingPublishedSongIds.has(item.songId)) {
+          notificationsToSend.push({
+            userId: song.requesterId,
+            songId: song.id,
+            songInfo: {
+              title: song.title,
+              artist: song.artist,
+              playDate: playDate
+            }
+          })
+          existingPublishedSongIds.add(item.songId)
+        }
+
+        await redeemCardCodeForSchedule(tx, {
+          songId: song.id,
+          cardCodeId: song.cardCodeId,
+          operatorId: user.id,
+          at: publishedAt
+        })
+      }
+    })
+
+    // 发送重播安排通知（同一用户同一天多首歌曲合并为一条）
+    if (replayNotificationsToSend.length > 0) {
+      event.waitUntil(
+        createReplaySongSelectedNotifications(replayNotificationsToSend).then((created) => {
+          console.log(
+            `[Notification] 批量发布重播通知发送完成: ${created.length} 条（覆盖 ${replayNotificationsToSend.length} 首歌曲）`
+          )
+        })
+      )
+    }
+
+    // 由运行时托管后台通知，避免 Serverless 在响应结束后中止任务。
+    // 同一用户同一天多首歌曲合并为一条通知
+    if (notificationsToSend.length > 0) {
+      event.waitUntil(
+        createSongSelectedNotifications(notificationsToSend).then((created) => {
+          console.log(
+            `[Notification] 批量发布通知发送完成: ${created.length} 条（覆盖 ${notificationsToSend.length} 首歌曲）`
+          )
+        })
+      )
+    }
+
+    console.log(`[Performance] 批量发布排期耗时: ${Date.now() - startTime}ms`)
+
+    return {
+      success: true,
+      message: '排期发布成功'
+    }
+  } catch (error: any) {
+    console.error('批量发布排期失败:', {
+      error: error.message,
+      stack: error.stack,
+      userId: user.id,
+      ip: clientIP
+    })
+
+    if (error.statusCode) throw error
+    throw createError({
+      statusCode: error.statusCode || 500,
+      message: error.message || '发布排期失败'
+    })
+  }
+})

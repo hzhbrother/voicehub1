@@ -1,0 +1,3339 @@
+<template>
+  <div>
+    <Transition name="overlay-animation">
+      <!-- 自由拖拽模式不占用页面底部，底衬渐变一并隐藏 -->
+      <div v-show="visible && !isMobile && !isFloating" class="player-overlay" />
+    </Transition>
+
+    <Transition name="player-animation">
+      <div
+        v-show="visible"
+        ref="widgetRef"
+        class="music-widget"
+        :class="{
+          'mobile-player-bar': isMobile,
+          'player-floating': isFloating,
+          'player-positioned': isFloating && !!layoutPosition,
+          'player-dragging': isDragging
+        }"
+        :style="floatingStyle"
+        @click="handlePlayerClick"
+        @pointerdown="handleDragStart"
+        @pointermove="handleDragMove"
+        @pointerup="handleDragEnd"
+        @pointercancel="handleDragEnd"
+        @dragstart.prevent
+      >
+        <!-- 移动端顶部进度条 -->
+        <div
+          v-if="isMobile"
+          class="mobile-top-progress"
+          data-player-no-drag
+          @click.stop="handleSeekToPosition"
+          @touchstart.stop="handleStartTouchDrag"
+        >
+          <div :style="{ width: `${control.progress.value}%` }" class="progress-fill" />
+        </div>
+
+        <!-- 标题区域 -->
+        <div class="title">
+          <!-- 封面 -->
+          <div
+            class="cover-container clickable"
+            data-player-no-drag
+            @click.stop="isBilibiliSong(activeSong) ? openBilibiliVideo() : toggleLyrics()"
+          >
+            <template v-if="activeSong && activeSong.cover && !coverError">
+              <img
+                :src="getCoverThumbUrl(activeSong.cover)"
+                alt="封面"
+                class="player-cover"
+                referrerpolicy="no-referrer"
+                @error="handleImageError"
+              />
+            </template>
+            <div v-else class="text-cover">
+              {{ getFirstChar(activeSong?.title || '') }}
+            </div>
+
+            <!-- 悬浮展开提示遮罩 -->
+            <div class="cover-hover-overlay">
+              <Icon :name="isBilibiliSong(activeSong) ? 'video' : 'maximize-2'" size="18" />
+            </div>
+          </div>
+
+          <!-- 歌曲信息 -->
+          <div class="song-info">
+            <div v-if="isMobile" class="song-title">
+              <marquee-text :text="activeSong?.title || '未知歌曲'" />
+            </div>
+            <p v-else class="song-title">{{ activeSong?.title || '未知歌曲' }}</p>
+            <p class="song-artist">{{ activeSong?.artist || '未知艺术家' }}</p>
+          </div>
+
+          <!-- 移动端播放控制 -->
+          <div v-if="isMobile" class="mobile-controls" data-player-no-drag>
+            <button class="mobile-control-btn" @click.stop="handleTogglePlay">
+              <AppSpinner v-if="control.isLoadingTrack.value" :size="20" color="white" />
+              <Icon
+                v-else
+                :name="control.isPlaying.value || sync.globalAudioPlayer.scheduleWaiting.value ? 'pause' : 'play'"
+                :size="24"
+                color="white"
+              />
+            </button>
+            <button
+              class="mobile-control-btn"
+              :aria-label="playerLayoutToggleLabel"
+              :title="playerLayoutToggleLabel"
+              type="button"
+              data-player-no-drag
+              @click.stop="togglePlayerLayout"
+            >
+              <Pin v-if="isFloating" :size="18" color="var(--overlay-60)" />
+              <Move v-else :size="18" color="var(--overlay-60)" />
+            </button>
+            <button class="mobile-control-btn" @click.stop="stopPlaying">
+              <Icon name="close" :size="20" color="var(--overlay-60)" />
+            </button>
+          </div>
+
+          <!-- 播放器布局切换（固定底部 / 自由拖拽） -->
+          <button
+            v-if="!isMobile"
+            class="player-mode-button"
+            :aria-label="playerLayoutToggleLabel"
+            :title="playerLayoutToggleLabel"
+            type="button"
+            data-player-no-drag
+            @click.stop="togglePlayerLayout"
+          >
+            <Pin v-if="isFloating" :size="16" />
+            <Move v-else :size="16" />
+          </button>
+
+          <!-- PC端右上角关闭按钮 -->
+          <div
+            v-if="!isMobile"
+            class="close-button"
+            data-player-no-drag
+            title="关闭播放器"
+            @click="stopPlaying"
+          >
+            <span class="music-icon">×</span>
+          </div>
+        </div>
+
+        <!-- 媒体控制区域 (PC端显示) -->
+        <div v-if="!isMobile" class="media-controls" data-player-no-drag>
+          <!-- 进度条区域 -->
+          <div class="time">
+            <!-- 进度条 -->
+            <div
+              ref="progressBar"
+              class="progress-bar"
+              @click="handleSeekToPosition"
+              @mousedown="handleStartDrag"
+              @touchstart="handleStartTouchDrag"
+            >
+              <div :style="{ width: `${control.progress.value}%` }" class="progress-fill" />
+            </div>
+
+            <!-- 时间和音质显示 -->
+            <div class="time-details-and-audio-q">
+              <span class="current-time">{{ formatTime(control.currentTime.value) }}</span>
+              <div class="audio-quality" title="音质设置" @click="toggleQualitySettings">
+                <span>{{ currentQualityText }}</span>
+              </div>
+              <span
+                :title="timeDisplayMode === 'remaining' ? '点击显示总时长' : '点击显示剩余时长'"
+                class="remaining-time clickable-time"
+                @click="toggleTimeDisplayMode"
+              >
+                {{ rightTimeText }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 控制按钮区域 -->
+          <div class="controls-frame">
+            <!-- 左侧播放模式切换 -->
+            <div class="left-actions-group">
+              <span
+                class="lyrics-btn music-icon"
+                :class="{ active: control.playMode.value !== 'off' }"
+                :title="playModeTitle"
+                @click="cyclePlayMode"
+              >
+                <Icon :name="playModeIcon" size="20" />
+              </span>
+            </div>
+
+            <!-- 中央播放控制 -->
+            <div class="center-controls">
+              <!-- 上一首 -->
+              <span
+                :class="{ disabled: !sync.globalAudioPlayer.hasPrevious.value }"
+                class="control-btn music-icon"
+                title="上一首"
+                @click="handlePrevious"
+              >
+                <Icon name="skip-back" size="26" />
+              </span>
+
+              <!-- 播放/暂停 -->
+              <span
+                :class="{ disabled: control.hasError.value || control.isLoadingTrack.value }"
+                class="play-pause-btn music-icon"
+                :title="sync.globalAudioPlayer.scheduleWaiting.value ? audioPlayerLocale.scheduleWaiting : audioPlayerLocale.playPause"
+                @click="handleTogglePlay"
+              >
+                <AppSpinner v-if="control.isLoadingTrack.value" :size="18" color="white" />
+                <Icon v-else-if="control.isPlaying.value || sync.globalAudioPlayer.scheduleWaiting.value" name="pause" size="24" />
+                <Icon v-else name="play" size="24" />
+              </span>
+
+              <!-- 下一首 -->
+              <span
+                :class="{ disabled: !sync.globalAudioPlayer.hasNext.value }"
+                class="control-btn music-icon"
+                title="下一首"
+                @click="handleNext"
+              >
+                <Icon name="skip-forward" size="26" />
+              </span>
+            </div>
+
+            <!-- 右侧操作区域 -->
+            <div class="right-actions-group">
+              <!-- 音量控制 -->
+              <VolumeControl />
+            </div>
+          </div>
+        </div>
+
+        <!-- 音质选择下拉菜单 -->
+        <Transition name="quality-dropdown">
+          <div v-if="showQualitySettings" class="quality-dropdown" data-player-no-drag>
+            <div
+              v-for="option in currentPlatformOptions"
+              :key="option.value"
+              :class="{ active: isCurrentQuality(option.value) }"
+              class="quality-option"
+              @click="selectQuality(option.value)"
+            >
+              <span class="sf-pro">{{ option.label }}</span>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- 歌词显示区域 -->
+        <Transition name="lyrics-slide">
+          <div v-if="showLyrics" class="lyrics-panel" data-player-no-drag>
+            <AppleMusicLyrics
+              :allow-seek="true"
+              :current-lyric-index="control.lyrics.currentLyricIndex.value"
+              :current-lyrics="control.lyrics.currentLyrics.value"
+              :current-time="control.currentTime.value"
+              :error="control.lyrics.error.value"
+              :font-size="24"
+              :is-loading="control.lyrics.isLoading.value"
+              :line-height="1.4"
+              :show-translation="false"
+              :translation-lyrics="control.lyrics.translationLyrics.value"
+              :word-by-word-lyrics="control.lyrics.wordByWordLyrics.value"
+              active-line-color="var(--text-primary)"
+              height="120px"
+              :inactive-line-color="inactiveColor"
+              @seek="handleLyricSeek"
+            />
+          </div>
+        </Transition>
+
+        <!-- 音频元素 -->
+        <ClientOnly>
+          <AudioElement
+            ref="audioElementRef"
+            :song="song"
+            @canplay="handleCanPlay"
+            @ended="handleEnded"
+            @error="handleError"
+            @loadedmetadata="handleLoaded"
+            @durationchange="handleDurationChange"
+            @loadstart="handleLoadStart"
+            @pause="handlePause"
+            @play="handlePlay"
+            @stalled="handleNetworkStall"
+            @timeupdate="handleTimeUpdate"
+            @waiting="handleNetworkStall"
+          />
+        </ClientOnly>
+      </div>
+    </Transition>
+
+    <!-- 全屏歌词模态（仅客户端渲染） -->
+    <ClientOnly>
+      <LyricsModal :is-visible="showFullscreenLyrics" @close="showFullscreenLyrics = false" />
+    </ClientOnly>
+
+    <!-- 哔哩哔哩 iframe 预览模态 -->
+    <ClientOnly>
+      <BilibiliIframeModal
+        :show="sync.globalAudioPlayer.bilibiliIframeVisible.value"
+        :bvid="sync.globalAudioPlayer.bilibiliIframeBvid.value"
+        :page="sync.globalAudioPlayer.bilibiliIframePage.value"
+        @close="sync.globalAudioPlayer.closeBilibiliIframe()"
+      />
+    </ClientOnly>
+
+    <ConfirmDialog
+      :show="showFallbackOpenDialog"
+      title="打开投稿链接"
+      :message="fallbackOpenDialogMessage"
+      type="info"
+      confirm-text="立即打开"
+      cancel-text="稍后处理"
+      @confirm="handleFallbackDialogConfirm"
+      @cancel="handleFallbackDialogCancel"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Move, Pin } from '@lucide/vue'
+import AppleMusicLyrics from './AppleMusicLyrics.vue'
+import LyricsModal from './LyricsModal.vue'
+import AudioElement from './AudioPlayer/AudioElement.vue'
+import VolumeControl from './AudioPlayer/VolumeControl.vue'
+import BilibiliIframeModal from './BilibiliIframeModal.vue'
+import Icon from './Icon.vue'
+import MarqueeText from './MarqueeText.vue'
+import AppSpinner from './Common/AppSpinner.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
+import { useAudioPlayerControl } from '~/composables/useAudioPlayerControl'
+import { useAudioPlayerSync } from '~/composables/useAudioPlayerSync'
+import { useAudioQuality } from '~/composables/useAudioQuality'
+import { useAudioPlayerEnhanced } from '~/composables/useAudioPlayerEnhanced'
+import { usePlayerLayout } from '~/composables/usePlayerLayout'
+import { useMediaSession } from '~/composables/useMediaSession'
+import { useWakeLock } from '~/composables/useWakeLock'
+import {
+  PLAYER_LAYOUT_MARGIN,
+  PLAYER_LAYOUT_MARGIN_MOBILE,
+  clampPlayerPosition
+} from '~/utils/playerLayout'
+import { getBilibiliUrl, getCoverThumbUrl } from '~/utils/url'
+import { scrobbleSong } from '~/utils/neteaseApi'
+import { useLocale } from '~/utils/locale'
+import { isBilibiliSong } from '~/utils/bilibiliSource'
+import { markPlaybackUrlInvalid } from '~/utils/invalidPlaybackUrls'
+import { useTheme } from '~/composables/useTheme'
+import {
+  getCachedMusicUrlSource,
+  getCachedMusicUrlQuality,
+  getMusicUrlResult,
+  isKnownInvalidQqAudioUrl
+} from '~/utils/musicUrl'
+
+// 添加 router 导入
+const router = useRouter()
+const { audioPlayer: audioPlayerLocale } = useLocale()
+
+// 歌词非活跃行颜色 — 随主题切换
+const theme = useTheme()
+const inactiveColor = computed(() =>
+  theme.currentTheme.value === 'ClassicDark' ? 'var(--overlay-60)' : 'var(--mask-60)'
+)
+
+const props = defineProps({
+  song: {
+    type: Object,
+    default: null
+  },
+  playlist: {
+    type: Array,
+    default: () => []
+  },
+  isPlaylistMode: {
+    type: Boolean,
+    default: true
+  }
+})
+
+const emit = defineEmits(['close', 'ended', 'error', 'songChange'])
+
+// 使用 composables
+const control = useAudioPlayerControl()
+const sync = useAudioPlayerSync()
+const { getQualityLabel, getQuality, getQualityOptions, saveQuality, getNeteaseQualityLabel } = useAudioQuality()
+const enhanced = useAudioPlayerEnhanced()
+const mediaSession = useMediaSession()
+const wakeLock = useWakeLock()
+// 播放器布局：固定底部 / 自由拖拽（偏好存本浏览器）
+const {
+  position: layoutPosition,
+  isFloating,
+  load: loadPlayerLayout,
+  toggleMode: togglePlayerLayoutMode,
+  setPosition: setLayoutPosition,
+  savePosition: saveLayoutPosition
+} = usePlayerLayout()
+
+// 组件引用
+const audioElementRef = ref(null)
+const playerControlsRef = ref(null)
+const widgetRef = ref(null)
+
+// UI 状态
+const isClosing = ref(false)
+const isClosed = ref(false)
+const showLyrics = ref(false)
+const showFullscreenLyrics = ref(false)
+const showQualitySettings = ref(false)
+const coverError = ref(false)
+const useAppleMusicStyle = ref(true) // 默认使用Apple Music风格
+
+// 时长显示模式：'remaining' 显示剩余时长，'total' 显示总时长
+const timeDisplayMode = ref('remaining')
+
+// 同步标记，避免双向触发
+const isSyncingFromGlobal = ref(false)
+const isMounted = ref(false)
+const lastOpenedFallbackSongId = ref<string | number | null>(null)
+const showFallbackOpenDialog = ref(false)
+const fallbackOpenDialogUrl = ref('')
+const fallbackOpenDialogMessage = ref('播放地址不可直接播放，是否在新标签页打开原始链接？')
+const isFallbackHandling = ref(false) // 标记正在处理 fallback，阻止重试逻辑
+const consecutiveSkipCount = ref(0) // 连续跳过失败的歌曲数
+const MAX_CONSECUTIVE_SKIP = 3 // 最大连续跳过次数
+const MIN_VALID_QQ_AUDIO_DURATION = 10
+const NETEASE_SCROBBLE_MIN_SECONDS = 30
+const NETEASE_SCROBBLE_SHORT_AUDIO_RATIO = 0.8
+const MAX_NETEASE_SCROBBLE_RETRIES = 3
+const failedPlaybackSources = ref<string[]>([])
+const neteaseScrobbleReportedKey = ref<string | null>(null)
+const neteaseScrobblePendingKey = ref<string | null>(null)
+const neteaseScrobbleRetryCount = ref(0)
+const neteaseScrobbleWasPastThreshold = ref(false)
+const neteaseScrobblePlayEpoch = ref(0)
+
+// 获取音频播放器引用
+const audioPlayer = computed(() => audioElementRef.value?.audioPlayer)
+const progressBar = computed(() => playerControlsRef.value?.progressBar)
+
+// 记录最近一首歌曲，避免关闭过程中props.song为空导致渲染错误
+const lastSong = ref(null)
+watch(
+  () => props.song,
+  (newSong, oldSong) => {
+    if (newSong) {
+      // 检测是否为音质切换（同一首歌但URL不同）
+      if (oldSong && newSong.id === oldSong.id && newSong.musicUrl !== oldSong.musicUrl) {
+        // 保存当前播放状态和进度
+        const wasPlaying = control.isPlaying.value
+        const currentTime = control.currentTime.value
+
+        // 在音频加载完成后恢复状态
+        nextTick(() => {
+          if (audioPlayer.value) {
+            const restoreState = () => {
+              audioPlayer.value.currentTime = currentTime
+              if (wasPlaying) {
+                control.play()
+              }
+            }
+            // 监听元数据加载完成事件（此时duration已知，可以seek）
+            audioPlayer.value.addEventListener('loadedmetadata', restoreState, { once: true })
+          }
+        })
+      }
+
+      lastSong.value = newSong
+      // 新歌到来时视为重新打开，清除关闭标记
+      isClosed.value = false
+    }
+  }
+)
+
+// 渲染用的安全歌曲对象：优先使用当前歌曲，其次使用最后一首
+const activeSong = computed(() => props.song ?? lastSong.value)
+
+// 控制可见性：父级仍传入歌曲且未处于关闭或已关闭状态
+const visible = computed(() => !!props.song && !isClosing.value && !isClosed.value)
+
+const normalizeHttpUrl = (url: string | null | undefined) => {
+  if (!url || typeof url !== 'string') return null
+  const trimmed = url.trim()
+  if (!trimmed) return null
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+    return parsed.href
+  } catch {
+    return null
+  }
+}
+
+const resolveFallbackUrl = () => {
+  const song = activeSong.value
+  if (!song) return null
+
+  const playUrl = normalizeHttpUrl(song.playUrl)
+  if (playUrl) return playUrl
+
+  if (isBilibiliSong(song)) {
+    const bilibiliUrl = getBilibiliUrl(song)
+    if (bilibiliUrl && bilibiliUrl !== '#') {
+      return bilibiliUrl
+    }
+  }
+
+  return null
+}
+
+const openFallbackLinkForFailedSong = (): 'none' | 'dialog' | 'opened' => {
+  const song = activeSong.value
+  if (!song?.id) return 'none'
+  if (lastOpenedFallbackSongId.value === song.id) return 'none'
+  if (showFallbackOpenDialog.value) return 'dialog'
+
+  const fallbackUrl = resolveFallbackUrl()
+  if (!fallbackUrl) return 'none'
+
+  isFallbackHandling.value = true
+  fallbackOpenDialogUrl.value = fallbackUrl
+  fallbackOpenDialogMessage.value = `播放地址不可直接播放，是否在新标签页打开原始链接？\n\n即将跳转的网址：\n${fallbackUrl}`
+  showFallbackOpenDialog.value = true
+  return 'dialog'
+}
+
+const handleFallbackDialogConfirm = () => {
+  if (!fallbackOpenDialogUrl.value) {
+    showFallbackOpenDialog.value = false
+    isFallbackHandling.value = false
+    return
+  }
+
+  const openedWindow = window.open(fallbackOpenDialogUrl.value, '_blank', 'noopener,noreferrer')
+  if (!openedWindow) {
+    if (window.$showNotification) {
+      window.$showNotification(audioPlayerLocale.value.popupBlocked, 'warning')
+    }
+    return
+  }
+
+  const song = activeSong.value
+  if (song?.id) {
+    lastOpenedFallbackSongId.value = song.id
+  }
+
+  showFallbackOpenDialog.value = false
+  fallbackOpenDialogUrl.value = ''
+  isFallbackHandling.value = false
+  if (window.$showNotification) {
+    window.$showNotification(audioPlayerLocale.value.originalLinkOpened, 'success')
+  }
+}
+
+const handleFallbackDialogCancel = () => {
+  showFallbackOpenDialog.value = false
+  fallbackOpenDialogUrl.value = ''
+  isFallbackHandling.value = false
+}
+
+const resetNeteaseScrobbleState = () => {
+  neteaseScrobbleReportedKey.value = null
+  neteaseScrobblePendingKey.value = null
+  neteaseScrobbleRetryCount.value = 0
+  neteaseScrobbleWasPastThreshold.value = false
+  neteaseScrobblePlayEpoch.value++
+}
+
+const getScrobblePlaybackIdentity = (song) => {
+  if (!song) return null
+  return [song.musicPlatform || '', song.musicId || '', song.id || ''].join(':')
+}
+
+watch(
+  () => getScrobblePlaybackIdentity(activeSong.value),
+  (newIdentity, oldIdentity) => {
+    if (newIdentity !== oldIdentity) {
+      lastOpenedFallbackSongId.value = null
+      isFallbackHandling.value = false
+      failedPlaybackSources.value = []
+      resetNeteaseScrobbleState()
+      enhanced.resetRetryState()
+    }
+  }
+)
+
+const getCurrentFailedSource = () => {
+  const song = activeSong.value
+  const audioSrc = audioPlayer.value?.currentSrc || audioPlayer.value?.src || song?.musicUrl
+  return song?.sourceInfo?.playSource || getCachedMusicUrlSource(audioSrc) || null
+}
+
+const buildFallbackResolveOptions = (song, excludeSources) => {
+  const isPodcast =
+    song.musicPlatform === 'netease-podcast' ||
+    song.sourceInfo?.type === 'voice' ||
+    (song.sourceInfo?.source === 'netease-backup' && song.sourceInfo?.type === 'voice')
+
+  return {
+    unblock: isPodcast ? false : undefined,
+    quality: getQuality(song.musicPlatform),
+    mediaId: song.sourceInfo?.strMediaMid || song.sourceInfo?.mediaId || song.sourceInfo?.mediaMid,
+    excludeSources,
+    ignoreProvidedUrl: true,
+    musicInfo: {
+      name: song.title,
+      artist: song.artist,
+      album: song.album || undefined,
+      rawItem: song
+    }
+  }
+}
+
+// options.silent 为 true 时不弹内置换源提示，由调用方按场景自行提示
+const trySwitchPlaybackSource = async (options = { silent: false }) => {
+  const song = activeSong.value
+  if (!song?.musicPlatform || !song?.musicId || isBilibiliSong(song)) {
+    return false
+  }
+
+  const failedSource = getCurrentFailedSource()
+  const excludeSources = [...failedPlaybackSources.value]
+
+  if (failedSource && failedSource !== 'play-url' && !excludeSources.includes(failedSource)) {
+    excludeSources.push(failedSource)
+  }
+
+  // 旧播放对象可能没有记录来源；QQ 音乐按当前内置解析器重新取链。
+  if (song.musicPlatform === 'tencent' && !failedSource && !excludeSources.includes('vkeys')) {
+    excludeSources.push('vkeys')
+  }
+
+  // 无法判定失败来源（如直接使用库里存的 playUrl）时也要重试一次：
+  // buildFallbackResolveOptions 会带 ignoreProvidedUrl，解析链路同时会跳过已登记无效的地址
+  isFallbackHandling.value = true
+  control.isLoadingTrack.value = true
+  const playbackKey = `${song.id}:${song.musicPlatform}:${song.musicId}`
+  const resumePosition = audioPlayer.value?.currentTime || 0
+
+  try {
+    const result = await getMusicUrlResult(
+      song.musicPlatform,
+      song.musicId,
+      song.playUrl,
+      buildFallbackResolveOptions(song, excludeSources)
+    )
+
+    const current = activeSong.value
+    if (`${current?.id}:${current?.musicPlatform}:${current?.musicId}` !== playbackKey) return false
+
+    if (!result.url) {
+      return false
+    }
+
+    const currentSrc = audioPlayer.value?.currentSrc || audioPlayer.value?.src || ''
+    if (currentSrc && result.url === currentSrc) {
+      return false
+    }
+
+    failedPlaybackSources.value = excludeSources
+    const updatedSong = {
+      ...song,
+      musicUrl: result.url,
+      sourceInfo: {
+        ...(song.sourceInfo || {}),
+        playSource: result.source
+      }
+    }
+
+    sync.globalAudioPlayer.updateCurrentSong(updatedSong)
+    emit('songChange', updatedSong)
+
+    if (!options.silent && window.$showNotification) {
+      window.$showNotification(audioPlayerLocale.value.fallbackSource, 'warning')
+    }
+
+    await nextTick()
+    let started = false
+    if (audioPlayer.value) {
+      const element = audioPlayer.value
+      // 起播前清掉上一轮的错误态：control.play() 见到 hasError 会直接返回 false，表现为换源成功却停在暂停
+      control.hasError.value = false
+      element.addEventListener(
+        'loadedmetadata',
+        () => {
+          if (Number.isFinite(element.duration) && resumePosition < element.duration)
+            element.currentTime = resumePosition
+        },
+        { once: true }
+      )
+      // 不调用 load()：song.musicUrl 变化会通过 :src 绑定自动走加载算法，
+      // 额外一次 load() 会多排一轮 pause/emptied 事件，可能把刚起的播放又改回暂停
+      started = await control.play()
+      // 以元素真实状态为准纠正播放标记，避免排队的 pause 事件把界面留在暂停态
+      if (started && !element.paused) {
+        control.isPlaying.value = true
+        control.isLoadingTrack.value = false
+      }
+    }
+
+    if (!started) {
+      failedPlaybackSources.value = excludeSources
+      return false
+    }
+
+    return true
+  } catch (sourceError) {
+    console.warn('[AudioPlayer] 切换备用音源失败:', sourceError)
+    failedPlaybackSources.value = excludeSources
+    return false
+  } finally {
+    isFallbackHandling.value = false
+    control.isLoadingTrack.value = false
+  }
+}
+
+// CDN 偶发阶段限速时音频会无限停在 readyState 0/1，按超时换源而不是一直转圈
+const PLAYBACK_STALL_TIMEOUT_MS = 8000
+let stallTimer = null
+
+const clearStallWatch = () => {
+  if (stallTimer) {
+    clearTimeout(stallTimer)
+    stallTimer = null
+  }
+}
+
+const armStallWatch = () => {
+  clearStallWatch()
+  stallTimer = setTimeout(checkPlaybackStall, PLAYBACK_STALL_TIMEOUT_MS)
+}
+
+const checkPlaybackStall = async () => {
+  stallTimer = null
+  const element = audioPlayer.value
+  if (!element || isFallbackHandling.value) return
+  // 已缓冲到可播放或用户已暂停时不处理
+  if (element.readyState >= 3) return
+  if (element.paused && !control.isPlaying.value && !control.isLoadingTrack.value) return
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+
+  const switched = await trySwitchPlaybackSource({ silent: true })
+  if (switched) {
+    if (window.$showNotification) {
+      window.$showNotification(audioPlayerLocale.value.slowNetworkRetry, 'warning')
+    }
+    return
+  }
+  if (window.$showNotification) {
+    window.$showNotification(audioPlayerLocale.value.slowNetworkFailed, 'warning')
+  }
+}
+
+const normalizeSongDurationSeconds = (value) => {
+  const duration = Number(value || 0)
+  if (!Number.isFinite(duration) || duration <= 0) return 0
+  return duration > 10000 ? duration / 1000 : duration
+}
+
+const isInvalidTencentAudio = (duration, url) => {
+  if (activeSong.value?.musicPlatform !== 'tencent') return false
+
+  const numericDuration = Number(duration)
+  const expectedDuration = normalizeSongDurationSeconds(activeSong.value?.duration)
+  if (
+    expectedDuration >= MIN_VALID_QQ_AUDIO_DURATION &&
+    Number.isFinite(numericDuration) &&
+    numericDuration > 0 &&
+    numericDuration < MIN_VALID_QQ_AUDIO_DURATION
+  ) {
+    return true
+  }
+
+  return isKnownInvalidQqAudioUrl(url)
+}
+
+const getNeteaseScrobbleSongId = (song) => {
+  if (!song || song.musicPlatform !== 'netease') return null
+  if (song.sourceInfo?.type === 'voice') return null
+
+  const rawId = String(song.musicId || song.id || '').trim()
+  if (!/^\d+$/.test(rawId)) return null
+  return rawId
+}
+
+const getNeteaseScrobbleSourceId = (song, songId) => {
+  const sourceId =
+    song?.sourceInfo?.sourceId ||
+    song?.sourceInfo?.sourceid ||
+    song?.sourceInfo?.playlistId ||
+    song?.sourceInfo?.albumId ||
+    song?.albumId ||
+    songId
+
+  return String(sourceId || songId)
+}
+
+const getNeteaseScrobbleThreshold = (durationValue) => {
+  const normalizedDuration = normalizeSongDurationSeconds(durationValue)
+  if (!normalizedDuration) return NETEASE_SCROBBLE_MIN_SECONDS
+  return Math.min(
+    NETEASE_SCROBBLE_MIN_SECONDS,
+    Math.max(5, normalizedDuration * NETEASE_SCROBBLE_SHORT_AUDIO_RATIO)
+  )
+}
+
+const resetNeteaseScrobbleStateForReplay = () => {
+  resetNeteaseScrobbleState()
+}
+
+const tryScrobbleNeteaseSong = async (currentTimeValue, durationValue, isEnded = false) => {
+  if ((!control.isPlaying.value && !isEnded) || typeof window === 'undefined') return
+
+  const song = activeSong.value
+  const songId = getNeteaseScrobbleSongId(song)
+  if (!songId) return
+
+  const sourceId = getNeteaseScrobbleSourceId(song, songId)
+  const scrobbleKey = `${songId}:${sourceId}`
+  const threshold = getNeteaseScrobbleThreshold(durationValue)
+  if (currentTimeValue < threshold) {
+    if (neteaseScrobbleWasPastThreshold.value) {
+      resetNeteaseScrobbleStateForReplay()
+    }
+    return
+  }
+
+  neteaseScrobbleWasPastThreshold.value = true
+  if (
+    neteaseScrobbleReportedKey.value === scrobbleKey ||
+    neteaseScrobblePendingKey.value === scrobbleKey ||
+    neteaseScrobbleRetryCount.value >= MAX_NETEASE_SCROBBLE_RETRIES
+  ) {
+    return
+  }
+
+  const cookie = window.localStorage.getItem('netease_cookie')
+  // NCBL 上报以 MUSIC_U 作为鉴权令牌，缺失时上游直接拒绝
+  if (!cookie || !cookie.includes('MUSIC_U=')) return
+
+  neteaseScrobblePendingKey.value = scrobbleKey
+  neteaseScrobbleRetryCount.value++
+  const playEpoch = neteaseScrobblePlayEpoch.value
+  try {
+    const totalSec =
+      normalizeSongDurationSeconds(durationValue) || normalizeSongDurationSeconds(song.duration)
+    const playTime = Math.max(
+      1,
+      Math.round(Math.min(currentTimeValue, totalSec || currentTimeValue))
+    )
+
+    const result = await scrobbleSong(
+      {
+        id: songId,
+        sourceid: sourceId,
+        time: playTime,
+        total: totalSec || undefined
+      },
+      cookie
+    )
+
+    if (playEpoch !== neteaseScrobblePlayEpoch.value) {
+      return
+    }
+
+    if (result?.code === 200 || result?.body?.code === 200 || result?.body?.data === 'success') {
+      neteaseScrobbleReportedKey.value = scrobbleKey
+    } else {
+      console.warn('[AudioPlayer] 网易云听歌打卡未成功:', result?.message || result)
+    }
+  } catch (scrobbleError) {
+    console.warn('[AudioPlayer] 网易云听歌打卡失败:', scrobbleError)
+  } finally {
+    if (
+      playEpoch === neteaseScrobblePlayEpoch.value &&
+      neteaseScrobblePendingKey.value === scrobbleKey
+    ) {
+      neteaseScrobblePendingKey.value = null
+    }
+  }
+}
+
+// 音频事件处理器
+const handleTimeUpdate = () => {
+  if (!audioPlayer.value || isSyncingFromGlobal.value) return
+
+  const currentTime = audioPlayer.value.currentTime
+  const duration = audioPlayer.value.duration
+
+  control.onTimeUpdate(currentTime)
+
+  // 更新 Media Session 位置状态
+  if (mediaSession.isSupported.value && duration > 0) {
+    mediaSession.updatePosition(currentTime, duration, control.isPlaying.value ? 1 : 0)
+  }
+
+  // 只在播放状态下发送进度更新，避免暂停时发送位置为0的更新
+  // 不传递song参数，避免覆盖已设置的元数据
+  if (control.isPlaying.value) {
+    sync.throttledProgressUpdate(currentTime, duration, control.isPlaying.value)
+    void tryScrobbleNeteaseSong(currentTime, duration)
+  }
+}
+
+const handlePlay = () => {
+  control.onPlay()
+  consecutiveSkipCount.value = 0 // 播放成功，重置连续跳过计数
+
+  if (isSyncingFromGlobal.value) return
+
+  sync.syncPlayStateToGlobal(true, props.song)
+
+  // 更新 Media Session 播放状态
+  if (mediaSession.isSupported.value) {
+    mediaSession.updatePlaybackState(true)
+  }
+
+  // 直接调用鸿蒙侧播放状态更新，不传递歌曲信息避免覆盖元数据
+  if (
+    typeof window !== 'undefined' &&
+    window.voiceHubPlayer &&
+    window.voiceHubPlayer.onPlayStateChanged
+  ) {
+    window.voiceHubPlayer.onPlayStateChanged(true, {
+      position: control.currentTime.value,
+      duration: control.duration.value
+    })
+  }
+
+  sync.sendWebSocketUpdate({
+    songId: props.song?.id,
+    isPlaying: true,
+    position: control.currentTime.value,
+    duration: control.duration.value,
+    volume: 1,
+    playlistIndex: sync.globalAudioPlayer.getCurrentPlaylistIndex().value
+  })
+}
+
+const handlePause = () => {
+  clearStallWatch()
+  control.onPause()
+
+  if (isSyncingFromGlobal.value) return
+
+  sync.syncPlayStateToGlobal(false, props.song)
+
+  // 更新 Media Session 播放状态
+  if (mediaSession.isSupported.value) {
+    mediaSession.updatePlaybackState(false)
+  }
+
+  // 直接调用鸿蒙侧播放状态更新，不传递歌曲信息避免覆盖元数据
+  if (
+    typeof window !== 'undefined' &&
+    window.voiceHubPlayer &&
+    window.voiceHubPlayer.onPlayStateChanged
+  ) {
+    window.voiceHubPlayer.onPlayStateChanged(false, {
+      position: control.currentTime.value,
+      duration: control.duration.value
+    })
+  }
+
+  sync.sendWebSocketUpdate({
+    songId: props.song?.id,
+    isPlaying: false,
+    position: control.currentTime.value,
+    duration: control.duration.value,
+    volume: 1,
+    playlistIndex: sync.globalAudioPlayer.getCurrentPlaylistIndex().value
+  })
+}
+
+// 播放时申请屏幕常亮，暂停/停止/切歌结束时释放
+watch(
+  () => control.isPlaying.value,
+  (playing) => {
+    if (playing) void wakeLock.requestLock()
+    else void wakeLock.releaseLock()
+  }
+)
+
+const handleDurationChange = async () => {
+  if (!audioPlayer.value || isFallbackHandling.value) return
+
+  if (
+    isInvalidTencentAudio(
+      audioPlayer.value.duration,
+      audioPlayer.value.currentSrc || audioPlayer.value.src
+    )
+  ) {
+    const switchedSource = await trySwitchPlaybackSource()
+    if (switchedSource) return
+  }
+}
+
+const handleLoaded = async () => {
+  if (!audioPlayer.value) return
+
+  if (
+    !isFallbackHandling.value &&
+    isInvalidTencentAudio(
+      audioPlayer.value.duration,
+      audioPlayer.value.currentSrc || audioPlayer.value.src
+    )
+  ) {
+    const switchedSource = await trySwitchPlaybackSource()
+    if (switchedSource) {
+      return
+    }
+  }
+
+  control.onLoaded(audioPlayer.value.duration)
+
+  // 更新 Media Session 元数据
+  if (mediaSession.isSupported.value && props.song) {
+    mediaSession.updateSong({
+      id: props.song.id,
+      title: props.song.title || '未知歌曲',
+      artist: props.song.artist || '未知艺术家',
+      cover: props.song.cover || null,
+      musicUrl: props.song.musicUrl || null
+    })
+  }
+
+  // 先传递基本的歌曲元数据给鸿蒙侧（不包含歌词）
+  sync.notifyHarmonyOS(
+    'metadata',
+    {
+      title: props.song?.title || '',
+      artist: props.song?.artist || '',
+      album: props.song?.album || '',
+      artwork: props.song?.cover || '',
+      duration: audioPlayer.value.duration
+    },
+    props.song
+  )
+
+  // 如果歌曲有平台信息，主动获取并等待歌词加载完成后单独传递歌词
+  if (props.song?.musicPlatform && props.song?.musicId) {
+    // 主动触发歌词获取
+    await control.lyrics.fetchLyrics(props.song.musicPlatform, props.song.musicId, {
+      title: props.song.title,
+      artist: props.song.artist,
+      album: props.song.album
+    })
+
+    // 等待歌词数据实际加载完成，最多等待8秒
+    const maxWaitTime = 8000
+    const startTime = Date.now()
+
+    // 等待歌词加载状态变化：从未开始 -> 加载中 -> 完成/失败
+    while (Date.now() - startTime < maxWaitTime) {
+      // 检查是否有歌词数据
+      if (control.lyrics.currentLyrics.value.length > 0) {
+        break
+      }
+
+      // 检查是否加载失败（不在加载中且有错误）
+      if (!control.lyrics.isLoading.value && control.lyrics.error.value) {
+        break
+      }
+
+      // 检查是否加载完成但无歌词（不在加载中且无错误且无歌词）
+      if (
+        !control.lyrics.isLoading.value &&
+        !control.lyrics.error.value &&
+        control.lyrics.currentLyrics.value.length === 0
+      ) {
+        break
+      }
+
+      // 等待100ms后再次检查
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    // 检查歌词是否加载成功
+    const harmonyLyrics = control.lyrics.getFormattedLyricsForHarmonyOS()
+    const hasValidLyrics = harmonyLyrics && control.lyrics.currentLyrics.value.length > 0
+
+    if (hasValidLyrics) {
+      // 使用专门的歌词更新方法
+      control.lyrics.notifyHarmonyOSLyricsUpdate(harmonyLyrics)
+    } else {
+      // 清空歌词
+      control.lyrics.notifyHarmonyOSLyricsUpdate('')
+    }
+  }
+
+  // 延迟同步播放列表状态
+  setTimeout(() => {
+    sync.notifyPlaylistState()
+  }, 100)
+}
+
+const handleError = async (error) => {
+  clearStallWatch()
+  // 忽略主动清空 src 或关闭播放器导致的错误
+  const audioEl = audioPlayer.value
+  if (
+    !audioEl ||
+    !audioEl.src ||
+    audioEl.src === window.location.href ||
+    audioEl.src === window.location.origin + '/'
+  ) {
+    return
+  }
+
+  // 如果正在处理 fallback，直接返回，不走重试逻辑
+  if (isFallbackHandling.value) return
+
+  // 网络断开时停留当前歌曲：不登记坏链、不换源、不计连续失败，等待网络恢复后重试
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    control.hasError.value = true
+    control.isPlaying.value = false
+    control.isLoadingTrack.value = false
+    sync.syncPlayStateToGlobal(false, props.song)
+    if (window.$showNotification) {
+      window.$showNotification(audioPlayerLocale.value.networkOffline, 'error')
+    }
+    return
+  }
+
+  // 解码失败/来源不支持说明地址本身失效（如网易外链对无版权歌曲返回 403），
+  // 登记后换源重试时解析链路会跳过它，避免反复拿到同一条坏链
+  const failedSrc = audioEl.currentSrc || audioEl.src
+  const mediaErrorCode = audioEl.error?.code
+  if (
+    mediaErrorCode === MediaError.MEDIA_ERR_DECODE ||
+    mediaErrorCode === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+  ) {
+    markPlaybackUrlInvalid(failedSrc)
+  }
+
+  const switchedSource = await trySwitchPlaybackSource()
+  if (switchedSource) {
+    return
+  }
+
+  // 连续失败保护：对任意平台的歌曲在列表播放模式下都计入连续失败计数
+  if (props.isPlaylistMode && control.playMode.value !== 'off') {
+    consecutiveSkipCount.value++
+    if (consecutiveSkipCount.value >= MAX_CONSECUTIVE_SKIP) {
+      console.log('[AudioPlayer] 连续多次跳过，停止自动跳过')
+      if (window.$showNotification) {
+        window.$showNotification(audioPlayerLocale.value.consecutiveFailures, 'warning')
+      }
+      stopPlaying()
+      return
+    }
+  }
+
+  // 如果是哔哩哔哩视频播放失败，提供 iframe 预览选项
+  if (isBilibiliSong(activeSong.value)) {
+    // 如果是播放列表模式，且不是手动单曲播放模式，则自动跳过
+    if (props.isPlaylistMode && control.playMode.value !== 'off') {
+      console.log('[AudioPlayer] 哔哩哔哩视频播放失败，处于列表播放模式，自动跳过')
+      if (window.$showNotification) {
+        window.$showNotification(audioPlayerLocale.value.bilibiliSkipped, 'warning')
+      }
+      handleNext()
+      return
+    }
+
+    // 否则显示预览提示
+    // 手动设置错误状态，替代 control.onError(error) 以避免通用提示
+    control.hasError.value = true
+    control.isPlaying.value = false
+
+    // 同步全局播放状态，确保全局状态与本地状态一致
+    sync.syncPlayStateToGlobal(false, props.song)
+
+    if (window.$showNotification) {
+      window.$showNotification(
+        isMobile.value
+          ? '哔哩哔哩视频播放失败，点击封面以预览'
+          : '哔哩哔哩视频播放失败，点击视频图标以预览',
+        'warning'
+      )
+    }
+
+    // 不自动关闭播放器，让用户可以点击视频图标
+    // 但要停止加载状态
+    control.isLoadingTrack.value = false
+    return
+  }
+
+  const fallbackResult = openFallbackLinkForFailedSong()
+  if (fallbackResult !== 'none') {
+    control.hasError.value = true
+    control.isPlaying.value = false
+    control.isLoadingTrack.value = false
+    sync.syncPlayStateToGlobal(false, props.song)
+    return
+  }
+
+  control.onError(error)
+
+  // 使用增强的错误处理逻辑
+  const result = await enhanced.handlePlaybackError(
+    error,
+    props.song,
+    (newSong) => emit('songChange', newSong),
+    handleNext,
+    () => emit('close'),
+    props.isPlaylistMode
+  )
+
+  if (result.handled) {
+    if (result.shouldRetry) {
+      // 重试当前歌曲
+      setTimeout(() => {
+        if (audioPlayer.value) {
+          audioPlayer.value.load()
+          control.play()
+        }
+      }, 500)
+    } else if (result.newSong) {
+      // 已经切换到新歌曲，不需要额外处理
+      console.log('已切换到新歌曲或新音质')
+    } else if (result.shouldClose) {
+      // 已经关闭播放器，不需要额外处理
+      console.log('播放器已关闭')
+      // 同步关闭全屏歌词模态
+      showFullscreenLyrics.value = false
+    }
+  } else {
+    // 如果增强处理失败，使用原始错误处理
+    emit('error', error)
+  }
+}
+
+const handleEnded = () => {
+  clearStallWatch()
+  if (audioPlayer.value) {
+    void tryScrobbleNeteaseSong(
+      audioPlayer.value.duration || control.currentTime.value,
+      audioPlayer.value.duration,
+      true
+    )
+  }
+
+  // 在执行 onEnded（可能会切换到下一首）之前，记录当前是否还有下一首
+  const hasNextBeforeEnded = sync.globalAudioPlayer.hasNext.value
+
+  control.onEnded()
+
+  // 只有在播放模式为 'off'，或者在 'order' 模式且没有下一首歌时才关闭全屏歌词模态
+  const isOffMode = control.playMode.value === 'off'
+  const isOrderFinished = control.playMode.value === 'order' && !hasNextBeforeEnded
+
+  if (isOffMode || isOrderFinished) {
+    showFullscreenLyrics.value = false
+  }
+  emit('ended')
+}
+
+const handleLoadStart = () => {
+  control.onLoadStart()
+  armStallWatch()
+}
+
+const handleCanPlay = () => {
+  clearStallWatch()
+  control.onCanPlay()
+}
+
+// 长时缓冲不足（waiting/stalled）时重新计时，网络恢复后由 canplay 清除
+// 不依赖 isPlaying：播放器状态可能滞后，卡住判定统一由 checkPlaybackStall 决定
+const handleNetworkStall = () => {
+  armStallWatch()
+}
+
+// UI 事件处理器
+const handleTogglePlay = async () => {
+  if (!ensureAudioPlayerRef()) {
+    console.error('[AudioPlayer] 音频播放器引用验证失败，无法切换播放状态')
+    return
+  }
+
+  await control.togglePlay()
+}
+
+const handlePrevious = async () => {
+  const result = await sync.playPrevious(props.song)
+  if (result.success && result.newSong) {
+    emit('songChange', result.newSong)
+  }
+}
+
+const handleNext = async () => {
+  const result = await sync.playNext(props.song)
+  if (result.success && result.newSong) {
+    emit('songChange', result.newSong)
+  }
+}
+
+// 确保音频播放器引用的辅助函数
+const ensureAudioPlayerRef = () => {
+  // 首先检查计算属性是否有值
+  if (!audioPlayer.value) {
+    console.warn('[AudioPlayer] 音频播放器引用不存在，尝试重新获取...')
+    return false
+  }
+
+  // 确保 control 有正确的音频播放器引用
+  if (!control.audioPlayer.value || control.audioPlayer.value !== audioPlayer.value) {
+    control.setAudioPlayerRef(audioPlayer.value)
+  }
+
+  // 双重验证：确保引用确实可用
+  if (!control.audioPlayer.value) {
+    console.error('[AudioPlayer] 无法设置音频播放器引用到 control')
+    return false
+  }
+
+  return true
+}
+
+// 进度条拖拽事件处理器
+const handleStartDrag = (event) => {
+  if (!ensureAudioPlayerRef()) {
+    console.error('[AudioPlayer] 音频播放器引用验证失败，无法开始拖拽')
+    return
+  }
+
+  // 获取进度条元素引用
+  const progressBarElement = event.currentTarget
+  if (!progressBarElement) {
+    console.error('[AudioPlayer] 无法获取进度条元素引用')
+    return
+  }
+
+  control.startDrag(event, progressBarElement)
+}
+
+const handleStartTouchDrag = (event) => {
+  if (!ensureAudioPlayerRef()) {
+    console.error('[AudioPlayer] 音频播放器引用验证失败，无法开始触摸拖拽')
+    return
+  }
+
+  // 获取进度条元素引用
+  const progressBarElement = event.currentTarget
+  if (!progressBarElement) {
+    console.error('[AudioPlayer] 无法获取进度条元素引用')
+    return
+  }
+
+  // 阻止默认行为，防止页面滚动
+  event.preventDefault()
+  event.stopPropagation()
+
+  control.startTouchDrag(event, progressBarElement)
+}
+
+const handleSeekToPosition = (event) => {
+  if (!ensureAudioPlayerRef()) {
+    console.error('[AudioPlayer] 音频播放器引用验证失败，无法跳转位置')
+    return
+  }
+
+  control.seekToPosition(event)
+}
+
+// 获取当前歌曲平台的音质文本
+const reportedQuality = computed(() => control.isLoadingTrack.value ? undefined
+  : getCachedMusicUrlQuality(props.song?.musicUrl || audioPlayer.value?.currentSrc || audioPlayer.value?.src))
+// 返回音质仅在接口 level 可识别时覆盖显示；未知音质（含未登录走解锁链路）沿用请求音质
+const actualQualityLabel = computed(() =>
+  ['netease', 'netease-podcast'].includes(props.song?.musicPlatform)
+    ? getNeteaseQualityLabel(reportedQuality.value) : null)
+const currentQualityText = computed(() => {
+  if (!props.song || !props.song.musicPlatform) return '音质'
+
+  const platform = props.song.musicPlatform
+  const quality = getQuality(platform)
+  const label = actualQualityLabel.value || getQualityLabel(platform, quality)
+
+  // 简化显示文本
+  return label.replace(/音质|音乐/, '').trim() || '音质'
+})
+
+// 获取当前平台的音质选项
+const currentPlatformOptions = computed(() => {
+  if (!props.song || !props.song.musicPlatform) return []
+  return getQualityOptions(props.song.musicPlatform)
+})
+
+// 检查是否是当前音质
+const isCurrentQuality = (qualityValue) => {
+  if (!props.song || !props.song.musicPlatform) return false
+  if (actualQualityLabel.value) {
+    const matched = currentPlatformOptions.value.find(option => option.level === reportedQuality.value)?.value
+    if (matched !== undefined) return matched === qualityValue
+  }
+  return getQuality(props.song.musicPlatform) === qualityValue
+}
+
+// 切换时长显示模式
+const toggleTimeDisplayMode = () => {
+  timeDisplayMode.value = timeDisplayMode.value === 'remaining' ? 'total' : 'remaining'
+}
+
+// 计算右侧时间显示文本
+const rightTimeText = computed(() => {
+  if (timeDisplayMode.value === 'total') {
+    return formatTime(control.duration.value)
+  } else {
+    return `-${formatTime(control.duration.value - control.currentTime.value)}`
+  }
+})
+
+// 切换音质设置显示
+const toggleQualitySettings = () => {
+  showQualitySettings.value = !showQualitySettings.value
+}
+
+// 播放模式计算属性
+const playModeIcon = computed(() => {
+  switch (control.playMode.value) {
+    case 'loopOne':
+      return 'repeat-one'
+    case 'order':
+      return 'order'
+    case 'off':
+    default:
+      // 单曲播放（播放完退出）
+      return 'play-circle'
+  }
+})
+
+const playModeTitle = computed(() => {
+  switch (control.playMode.value) {
+    case 'loopOne':
+      return '单曲循环'
+    case 'order':
+      return '列表循环'
+    case 'off':
+    default:
+      return '单曲播放'
+  }
+})
+
+// 切换播放模式
+const cyclePlayMode = () => {
+  const current = control.playMode.value
+  if (current === 'order') {
+    control.setPlayMode('loopOne')
+    if (window.$showNotification)
+      window.$showNotification(audioPlayerLocale.value.loopOneEnabled, 'info')
+  } else if (current === 'loopOne') {
+    control.setPlayMode('off')
+    if (sync.globalAudioPlayer.scheduleWaiting.value) sync.globalAudioPlayer.pauseSong()
+    if (window.$showNotification)
+      window.$showNotification(audioPlayerLocale.value.singleEnabled, 'info')
+  } else {
+    control.setPlayMode('order')
+    if (window.$showNotification)
+      window.$showNotification(audioPlayerLocale.value.listLoopEnabled, 'info')
+  }
+}
+
+// 关闭音质设置
+const closeQualitySettings = () => {
+  showQualitySettings.value = false
+}
+
+// 处理点击外部区域关闭音质设置
+const handleClickOutside = (event) => {
+  if (!showQualitySettings.value) return
+
+  // 检查点击是否在音质设置区域内
+  const qualityDropdown = document.querySelector('.quality-dropdown')
+  const qualityButton = document.querySelector('.audio-quality')
+
+  if (qualityDropdown && qualityButton) {
+    const isClickInsideDropdown = qualityDropdown.contains(event.target)
+    const isClickOnButton = qualityButton.contains(event.target)
+
+    if (!isClickInsideDropdown && !isClickOnButton) {
+      closeQualitySettings()
+    }
+  }
+}
+
+// 选择音质
+const selectQuality = async (qualityValue) => {
+  if (!props.song || !props.song.musicPlatform) return
+
+  // 如果选择的是当前音质，直接返回
+  if (isCurrentQuality(qualityValue)) {
+    return
+  }
+
+  // 使用增强的音质切换功能
+  const result = await enhanced.enhancedQualitySwitch(props.song, qualityValue)
+
+  if (result.success) {
+    // 只有在切换成功后才保存音质设置
+    saveQuality(props.song.musicPlatform, qualityValue)
+
+    // 更新歌曲的音乐链接
+    const updatedSong = {
+      ...props.song,
+      musicUrl: result.url
+    }
+
+    // 通知父组件更新歌曲
+    emit('songChange', updatedSong)
+
+    // 重新加载音频
+    if (audioPlayer.value) {
+      const wasPlaying = control.isPlaying.value
+      const currentTime = control.currentTime.value
+
+      audioPlayer.value.load()
+
+      // 如果之前在播放，加载完成后继续播放
+      if (wasPlaying) {
+        audioPlayer.value.addEventListener(
+          'canplay',
+          () => {
+            audioPlayer.value.currentTime = currentTime
+            control.play()
+          },
+          { once: true }
+        )
+      }
+    }
+
+    // 同步状态到全局
+    sync.syncPlayStateToGlobal(control.isPlaying.value, updatedSong)
+
+    // 直接调用鸿蒙侧播放状态更新
+    if (
+      typeof window !== 'undefined' &&
+      window.voiceHubPlayer &&
+      window.voiceHubPlayer.onPlayStateChanged
+    ) {
+      window.voiceHubPlayer.onPlayStateChanged(control.isPlaying.value, {
+        position: control.currentTime.value,
+        duration: control.duration.value
+      })
+    }
+  }
+  // 如果失败，增强的composable已经显示了错误通知，不保存音质设置
+}
+
+// 歌词相关方法
+const toggleLyrics = () => {
+  // 显示全屏歌词模态而不是跳转页面
+  showFullscreenLyrics.value = true
+}
+
+const openBilibiliVideo = () => {
+  const song = activeSong.value
+  if (!song) return
+
+  // 优先弹出 iframe 浮窗预览
+  const parts = String(song.musicId || '').split(':')
+  const page = parts.length >= 3 ? parseInt(parts[2]) || 1 : 1
+  sync.globalAudioPlayer.openBilibiliIframe(parts[0], page)
+}
+
+const handleLyricSeek = async (time) => {
+  // 如果当前处于暂停状态，先开始播放
+  if (!control.isPlaying.value) {
+    await control.play()
+  }
+
+  // 跳转到指定时间 - seek 方法内部会处理歌词动画的中断
+  control.seek(time)
+  sync.updateGlobalPosition(time, control.duration.value)
+}
+
+// 停止播放并关闭播放器
+const stopPlaying = () => {
+  if (isClosing.value) return
+
+  lastOpenedFallbackSongId.value = null
+  isFallbackHandling.value = false
+  consecutiveSkipCount.value = 0
+  resetNeteaseScrobbleState()
+  enhanced.resetRetryState()
+
+  control.stop()
+  sync.syncStopToGlobal()
+
+  // 设置关闭状态
+  isClosing.value = true
+
+  // 同步关闭全屏歌词模态和音质设置
+  showFullscreenLyrics.value = false
+  showQualitySettings.value = false
+
+  // 等待关闭动画完成后再触发 close 事件
+  setTimeout(() => {
+    // 标记已关闭，防止父级延迟隐藏期间闪回
+    isClosed.value = true
+    emit('close')
+    isClosing.value = false
+  }, 500) // 匹配 leave-active 动画时长
+}
+
+// 监听器和生命周期钩子
+watch(
+  () => props.song,
+  async (newSong, oldSong) => {
+    if (!newSong) return
+
+    // 重置封面错误状态
+    coverError.value = false
+
+    // 避免双向触发 - 仅当是同一首歌时才跳过（防止playNext时block加载新歌）
+    if (isSyncingFromGlobal.value && oldSong && String(newSong.id) === String(oldSong.id) &&
+      newSong.schedulePlaybackKey === oldSong.schedulePlaybackKey) return
+
+    // 确保组件已经挂载
+    if (!isMounted.value) return
+
+    // 如果是新歌曲，加载并播放
+    if (!oldSong || newSong.id !== oldSong.id || newSong.schedulePlaybackKey !== oldSong.schedulePlaybackKey) {
+      const loadSuccess = await control.loadSong(newSong)
+      if (loadSuccess) {
+        sync.setGlobalPlaylist(newSong, props.playlist)
+        await control.play()
+      } else {
+        handleError(new Error('加载歌曲失败'))
+      }
+    }
+  },
+  { immediate: false }
+)
+
+// 监听全局播放状态变化，避免双向触发
+watch(
+  () => sync.globalAudioPlayer.getPlayingStatus().value,
+  (newPlayingStatus) => {
+    if (isSyncingFromGlobal.value) return
+
+    isSyncingFromGlobal.value = true
+
+    if (newPlayingStatus && (isClosing.value || isClosed.value)) {
+      // 从关闭状态唤醒
+      isClosed.value = false
+      isClosing.value = false
+
+      // 如果当前处于错误状态，尝试重新加载
+      if (control.hasError.value && props.song) {
+        control.loadSong(props.song).then((success) => {
+          if (success) {
+            control.play()
+          } else {
+            handleError(new Error('加载歌曲失败'))
+          }
+          nextTick(() => {
+            isSyncingFromGlobal.value = false
+          })
+        })
+      } else {
+        control.play()
+        nextTick(() => {
+          isSyncingFromGlobal.value = false
+        })
+      }
+      return
+    }
+
+    if (!newPlayingStatus && control.isPlaying.value) {
+      control.pause()
+    } else if (newPlayingStatus && !control.isPlaying.value) {
+      const currentGlobalSong = sync.globalAudioPlayer.getCurrentSong().value
+      if (currentGlobalSong && props.song && currentGlobalSong.id === props.song.id) {
+        if (control.hasError.value) {
+          control.loadSong(props.song).then((success) => {
+            if (success) {
+              control.play()
+            } else {
+              handleError(new Error('加载歌曲失败'))
+            }
+          })
+        } else {
+          control.play()
+        }
+      }
+    }
+
+    nextTick(() => {
+      isSyncingFromGlobal.value = false
+    })
+  },
+  { immediate: true }
+)
+
+// 监听全局歌曲变化
+watch(
+  () => sync.globalAudioPlayer.getCurrentSong().value,
+  (newGlobalSong) => {
+    if (newGlobalSong && (!props.song || newGlobalSong.id !== props.song.id)) {
+      emit('songChange', newGlobalSong)
+    }
+  },
+  { immediate: false }
+)
+
+// 监听播放列表状态变化
+watch(
+  [
+    () => sync.globalAudioPlayer.hasNext.value,
+    () => sync.globalAudioPlayer.hasPrevious.value,
+    () => sync.globalAudioPlayer.getCurrentPlaylistIndex().value,
+    () => sync.globalAudioPlayer.getCurrentPlaylist().value,
+    () => control.playMode.value
+  ],
+  () => {
+    sync.notifyPlaylistState()
+  },
+  { immediate: true }
+)
+
+// 监听音频播放器元素变化，确保 control 始终持有最新的引用
+watch(
+  audioPlayer,
+  (newPlayer) => {
+    control.setAudioPlayerRef(newPlayer || null)
+  },
+  { immediate: true }
+)
+
+const isMobile = ref(false)
+
+// 检查是否为移动端
+const checkMobile = () => {
+  if (import.meta.client) {
+    isMobile.value = window.innerWidth <= 768
+  }
+}
+
+// 自由拖拽：区分点击与拖拽的位移阈值
+const DRAG_MOVE_THRESHOLD = 4
+// 拖拽结束后浏览器仍会补发一次 click，用短窗口抑制，避免被当成点击
+const DRAG_CLICK_SUPPRESS_MS = 350
+const isDragging = ref(false)
+const suppressNextClick = ref(false)
+let suppressClickTimer = null
+let dragSession = null
+// 播放器自身尺寸变化（歌词面板/音质下拉展开、移动端与桌面端样式切换）后需要重新限位
+let widgetResizeObserver = null
+
+// 移动端点击播放条处理
+const handlePlayerClick = () => {
+  // 拖拽结束后的这次 click 不再当作点击
+  if (suppressNextClick.value) {
+    suppressNextClick.value = false
+    return
+  }
+  if (isMobile.value) {
+    if (activeSong.value?.musicPlatform === 'bilibili') {
+      openBilibiliVideo()
+    } else {
+      toggleLyrics()
+    }
+  }
+}
+
+// 拖拽限位边距：移动端播放条左右 10px，桌面端与固定模式的 bottom: 1rem 对齐
+const layoutMargin = computed(() =>
+  isMobile.value ? PLAYER_LAYOUT_MARGIN_MOBILE : PLAYER_LAYOUT_MARGIN
+)
+
+// 记录过坐标后改用内联定位；未记录时沿用固定模式的底部居中，切换瞬间不跳位
+const floatingStyle = computed(() => {
+  const point = layoutPosition.value
+  if (!isFloating.value || !point) return undefined
+  return { left: `${point.x}px`, top: `${point.y}px` }
+})
+
+// 文案与图标都表示即将执行的动作，而非当前状态
+const playerLayoutToggleLabel = computed(() =>
+  isFloating.value ? audioPlayerLocale.value.playerDock : audioPlayerLocale.value.playerFreeDrag
+)
+
+// 切换布局模式
+const togglePlayerLayout = () => {
+  togglePlayerLayoutMode()
+  if (isFloating.value && window.$showNotification) {
+    window.$showNotification(audioPlayerLocale.value.freeDragEnabled, 'info')
+  }
+}
+
+// 播放器当前渲染尺寸（未渲染时返回 null）
+const readWidgetSize = () => {
+  const rect = widgetRef.value?.getBoundingClientRect()
+  if (!rect || !rect.width || !rect.height) return null
+  return { width: rect.width, height: rect.height }
+}
+
+// 按视口与播放器尺寸夹回坐标；播放器未渲染时返回 null（无法限位）
+// size 由拖拽调用方缓存，避免拖拽过程中反复读取布局
+const clampLayoutPoint = (point, size) => {
+  const box = size || readWidgetSize()
+  if (!box) return null
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  return clampPlayerPosition(point, box, viewport, layoutMargin.value)
+}
+
+// 更新自由拖拽坐标（仅改内存，拖拽结束时才落盘）
+const applyLayoutPosition = (point, size) => {
+  const clamped = clampLayoutPoint(point, size)
+  if (clamped) setLayoutPosition(clamped)
+}
+
+// 视口或播放器尺寸变化后重新限位并落盘；播放器隐藏时先不写，等尺寸可读时再夹回
+const clampLayoutToViewport = () => {
+  if (!isFloating.value || !layoutPosition.value) return
+  saveLayoutPosition()
+}
+
+const handleResize = () => {
+  checkMobile()
+  // 等移动端/桌面端样式切换完成后再限位，避免按旧尺寸计算
+  nextTick(clampLayoutToViewport)
+}
+
+// 拖拽期间在 window 上兜底监听：指针离开播放器或捕获被回收时仍能继续拖动并正常收尾
+const attachDragListeners = () => {
+  window.addEventListener('pointermove', handleDragMove)
+  window.addEventListener('pointerup', handleDragEnd)
+  window.addEventListener('pointercancel', handleDragEnd)
+}
+
+const detachDragListeners = () => {
+  window.removeEventListener('pointermove', handleDragMove)
+  window.removeEventListener('pointerup', handleDragEnd)
+  window.removeEventListener('pointercancel', handleDragEnd)
+}
+
+// 命中即视为控件操作：原生可交互元素（含播放器内所有按钮）与显式标注区域都不启动拖拽
+const DRAG_IGNORE_SELECTOR =
+  'button, a, input, select, textarea, [role="button"], [data-player-no-drag]'
+
+// 按下阶段只登记候选拖拽，不拦截事件：一旦在此处调用 preventDefault 或 setPointerCapture，
+// 随后的 click 会被重定向到播放器容器（触屏下还会被直接吞掉），导致播放器内按钮全部失效
+const handleDragStart = (event) => {
+  if (!isFloating.value || !import.meta.client) return
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  if (event.target instanceof Element && event.target.closest(DRAG_IGNORE_SELECTOR)) return
+
+  const rect = widgetRef.value?.getBoundingClientRect()
+  if (!rect || !rect.width || !rect.height) return
+
+  dragSession = {
+    pointerId: event.pointerId,
+    size: { width: rect.width, height: rect.height },
+    offsetX: event.clientX - rect.left,
+    offsetY: event.clientY - rect.top,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false
+  }
+}
+
+// 位移超过阈值后正式进入拖拽：此时才接管指针与默认行为
+const beginDrag = (event) => {
+  dragSession.moved = true
+  isDragging.value = true
+
+  // 首次拖拽以当前渲染位置为起点
+  const rect = widgetRef.value?.getBoundingClientRect()
+  if (rect && !layoutPosition.value) setLayoutPosition({ x: rect.left, y: rect.top })
+
+  attachDragListeners()
+  try {
+    widgetRef.value?.setPointerCapture(event.pointerId)
+  } catch {
+    /* 指针已释放时忽略 */
+  }
+}
+
+const handleDragMove = (event) => {
+  if (!dragSession || event.pointerId !== dragSession.pointerId) return
+  if (!dragSession.moved) {
+    const distance =
+      Math.abs(event.clientX - dragSession.startX) + Math.abs(event.clientY - dragSession.startY)
+    if (distance < DRAG_MOVE_THRESHOLD) return
+    beginDrag(event)
+  }
+  // 拖动过程中阻止选中文字与原生拖拽（按下阶段不做，避免影响按钮点击）
+  event.preventDefault()
+  applyLayoutPosition(
+    { x: event.clientX - dragSession.offsetX, y: event.clientY - dragSession.offsetY },
+    dragSession.size
+  )
+}
+
+const handleDragEnd = (event) => {
+  if (!dragSession || event.pointerId !== dragSession.pointerId) return
+  const moved = dragSession.moved
+  dragSession = null
+  isDragging.value = false
+  detachDragListeners()
+  try {
+    widgetRef.value?.releasePointerCapture(event.pointerId)
+  } catch {
+    /* 指针已释放时忽略 */
+  }
+  if (!moved) return
+  saveLayoutPosition()
+  // 抑制拖拽收尾时补发的那次 click；窗口到期或首次 click 消费后解除
+  suppressNextClick.value = true
+  if (suppressClickTimer) clearTimeout(suppressClickTimer)
+  suppressClickTimer = setTimeout(() => {
+    suppressNextClick.value = false
+    suppressClickTimer = null
+  }, DRAG_CLICK_SUPPRESS_MS)
+}
+
+// 播放器显示状态变化后限位（此刻可能仍是 display:none，交给 ResizeObserver 重试）
+watch(visible, (shown) => {
+  if (shown) clampLayoutToViewport()
+})
+
+onMounted(async () => {
+  // 处理热重载清理
+  enhanced.handleHotReload()
+
+  // 设置挂载标记
+  isMounted.value = true
+
+  // 移动端检查
+  checkMobile()
+  window.addEventListener('resize', handleResize)
+
+  // 读取播放器布局偏好（仅客户端，避免 SSR 水合差异），越界坐标按当前视口夹回
+  loadPlayerLayout(clampLayoutPoint)
+
+  widgetResizeObserver = new ResizeObserver(clampLayoutToViewport)
+  widgetResizeObserver.observe(widgetRef.value)
+
+  // 尽早初始化鸿蒙系统控制事件
+  if (sync.isHarmonyOS()) {
+    sync.initializeHarmonyOSControls({
+      onPlay: () => {
+        isSyncingFromGlobal.value = true
+        if (control.audioPlayer.value) {
+          control.play()
+        } else {
+          console.warn('[AudioPlayer] Play command received before player ready')
+        }
+        nextTick(() => {
+          isSyncingFromGlobal.value = false
+        })
+      },
+      onPause: () => {
+        isSyncingFromGlobal.value = true
+        sync.globalAudioPlayer.pauseSong()
+        if (control.audioPlayer.value) {
+          control.pause()
+        }
+        nextTick(() => {
+          isSyncingFromGlobal.value = false
+        })
+      },
+      onStop: () => {
+        isSyncingFromGlobal.value = true
+        resetNeteaseScrobbleState()
+        control.stop()
+        sync.syncStopToGlobal()
+
+        sync.notifyHarmonyOS(
+          'metadata',
+          {},
+          {
+            title: '',
+            artist: '',
+            album: '',
+            cover: '',
+            duration: 0,
+            position: 0
+          },
+          ''
+        )
+
+        nextTick(() => {
+          isSyncingFromGlobal.value = false
+        })
+      },
+      onNext: handleNext,
+      onPrevious: handlePrevious,
+      onSeek: (time) => {
+        control.seek(time)
+        sync.updateGlobalPosition(time, control.duration.value)
+      },
+      onPositionUpdate: (time) => {
+        control.forceUpdatePosition(time)
+        sync.updateGlobalPosition(time, control.duration.value)
+      }
+    })
+  }
+
+  // 初始化 Media Session 控制 (Web SMTC)
+  if (mediaSession.isSupported.value) {
+    mediaSession.setActionHandlers({
+      onPlay: () => {
+        if (!control.isPlaying.value) {
+          handleTogglePlay()
+        }
+      },
+      onPause: () => {
+        if (control.isPlaying.value || sync.globalAudioPlayer.scheduleWaiting.value) {
+          handleTogglePlay()
+        }
+      },
+      onStop: stopPlaying,
+      onPreviousTrack: handlePrevious,
+      onNextTrack: handleNext,
+      onSeekBackward: (details) => {
+        const seekOffset = details.seekOffset || 10
+        const newTime = Math.max(control.currentTime.value - seekOffset, 0)
+        control.seek(newTime)
+        sync.updateGlobalPosition(newTime, control.duration.value)
+      },
+      onSeekForward: (details) => {
+        const seekOffset = details.seekOffset || 10
+        const newTime = Math.min(control.currentTime.value + seekOffset, control.duration.value)
+        control.seek(newTime)
+        sync.updateGlobalPosition(newTime, control.duration.value)
+      },
+      onSeekTo: (details) => {
+        if (details.seekTime !== undefined && details.seekTime !== null) {
+          control.seek(details.seekTime)
+          sync.updateGlobalPosition(details.seekTime, control.duration.value)
+        }
+      }
+    })
+  }
+
+  // 暴露播放器实例到全局（鸿蒙环境）
+  if (sync.isHarmonyOS()) {
+    window.voiceHubPlayerInstance = window.voiceHubPlayerInstance || {}
+
+    // 使用 Object.assign 避免覆盖可能已存在的方法，但要确保 setPlayMode 被添加
+    Object.assign(window.voiceHubPlayerInstance, {
+      play: () => control.play(),
+      pause: () => control.pause(),
+      stop: () => control.stop(),
+      seek: (time) => control.seek(time),
+      getCurrentTime: () => control.currentTime.value,
+      getDuration: () => control.duration.value,
+      isPlaying: () => control.isPlaying.value,
+      setPlayMode: (mode) => {
+        let targetMode = 'off'
+        if (typeof mode === 'number') {
+          // HarmonyOS: 0=SEQUENCE, 1=SINGLE, 2=LIST, 3=SHUFFLE
+          if (mode === 1) targetMode = 'loopOne'
+          else if (mode === 2)
+            targetMode = 'order' // LIST -> order
+          else if (mode === 3)
+            targetMode = 'order' // SHUFFLE -> order
+          else targetMode = 'off' // SEQUENCE -> off
+        } else if (typeof mode === 'string') {
+          // 假设传入的字符串模式已经是合法的内部模式
+          targetMode = mode
+        }
+        control.setPlayMode(targetMode)
+
+        // 立即通知状态更新
+        sync.notifyPlaylistState()
+      }
+    })
+  }
+
+  // 等待子组件挂载完成
+  await nextTick()
+
+  // 增强的音频播放器引用获取逻辑
+  let retryCount = 0
+  const maxRetries = 15 // 增加重试次数
+  const retryDelay = 50 // 减少重试间隔，提高响应速度
+
+  while (!audioPlayer.value && retryCount < maxRetries) {
+    await new Promise((resolve) => setTimeout(resolve, retryDelay))
+    retryCount++
+
+    // 强制触发响应式更新
+    await nextTick()
+  }
+
+  if (!audioPlayer.value) {
+    // 设置一个延迟重试机制，以防组件稍后才完全初始化
+    setTimeout(async () => {
+      if (audioPlayer.value && !control.audioPlayer.value) {
+        control.setAudioPlayerRef(audioPlayer.value)
+        control.setProgressBarRef(progressBar.value)
+      }
+    }, 1000)
+
+    return
+  }
+
+  // 设置音频播放器和进度条引用
+  control.setAudioPlayerRef(audioPlayer.value)
+  control.setProgressBarRef(progressBar.value)
+
+  // 验证引用是否正确设置
+  if (!control.audioPlayer.value) {
+    return
+  }
+
+  // 初始化 WebSocket 连接
+  sync.initializeWebSocket()
+
+  // 重置重试状态
+  enhanced.resetRetryState()
+
+  // 处理初始歌曲的播放
+  if (props.song) {
+    const loadSuccess = await control.loadSong(props.song)
+    if (loadSuccess) {
+      sync.setGlobalPlaylist(props.song, props.playlist)
+
+      // 传递加载状态到鸿蒙侧
+      sync.notifyHarmonyOS(
+        'load',
+        {
+          position: 0,
+          duration: control.duration.value
+        },
+        props.song
+      )
+
+      // loadSong方法已经包含了自动播放逻辑，这里不需要重复调用
+      // 如果自动播放失败，设置用户交互监听器
+      if (!control.isPlaying.value) {
+        // 通知鸿蒙侧播放失败（暂停状态）
+        sync.notifyHarmonyOS(
+          'pause',
+          {
+            position: 0,
+            duration: control.duration.value
+          },
+          props.song
+        )
+
+        // 监听用户交互，一旦用户交互就尝试播放
+        const handleUserInteraction = async () => {
+          if (!control.isPlaying.value && props.song) {
+            const retryPlaySuccess = await control.play()
+            if (retryPlaySuccess) {
+              // 移除事件监听器
+              document.removeEventListener('click', handleUserInteraction)
+              document.removeEventListener('touchstart', handleUserInteraction)
+              document.removeEventListener('keydown', handleUserInteraction)
+            }
+          }
+        }
+
+        document.addEventListener('click', handleUserInteraction, { once: true })
+        document.addEventListener('touchstart', handleUserInteraction, { once: true })
+        document.addEventListener('keydown', handleUserInteraction, { once: true })
+      }
+    }
+  }
+
+  // 添加点击外部区域关闭音质设置的事件监听器
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  clearStallWatch()
+  // 清理音频播放器
+  control.cleanup()
+
+  // 移除窗口尺寸监听
+  window.removeEventListener('resize', handleResize)
+
+  // 移除播放器尺寸监听
+  widgetResizeObserver?.disconnect()
+  widgetResizeObserver = null
+
+  // 移除拖拽兜底监听
+  detachDragListeners()
+  if (suppressClickTimer) {
+    clearTimeout(suppressClickTimer)
+    suppressClickTimer = null
+  }
+
+  // 清理 Media Session
+  if (mediaSession.isSupported.value) {
+    mediaSession.cleanup()
+  }
+
+  // 清理鸿蒙系统控制事件
+  sync.cleanupHarmonyOSControls()
+
+  // 清理全局实例
+  if (sync.isHarmonyOS() && window.voiceHubPlayerInstance) {
+    delete window.voiceHubPlayerInstance
+  }
+
+  // 重置重试状态
+  enhanced.resetRetryState()
+
+  // 移除点击外部区域的事件监听器
+  document.removeEventListener('click', handleClickOutside)
+})
+
+// 格式化时间
+const formatTime = (seconds) => {
+  if (!seconds || isNaN(seconds)) return '0:00'
+
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+// 处理图片错误
+const handleImageError = () => {
+  coverError.value = true
+}
+
+// 获取首字符
+const getFirstChar = (text) => {
+  if (!text) return '?'
+  return text.charAt(0).toUpperCase()
+}
+</script>
+
+<style scoped>
+/* 导入 SF Pro 字体 - 使用官方 CDN */
+@import url('https://cdn.jsdelivr.net/npm/sf-font@1.0.0/stylesheet.min.css');
+
+/* 全局字体平滑优化 */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 呼吸光效动画 */
+@keyframes breathing-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 8px 32px var(--mask-30),
+      0 4px 16px var(--mask-20),
+      inset 0 1px 0 var(--overlay-20),
+      inset 0 -1px 0 var(--mask-10),
+      0 0 0 1px var(--overlay-10);
+  }
+  50% {
+    box-shadow:
+      0 12px 48px var(--mask-40),
+      0 6px 24px var(--mask-30),
+      inset 0 1px 0 var(--overlay-30),
+      inset 0 -1px 0 var(--mask-15),
+      0 0 0 1px var(--overlay-15),
+      0 0 40px var(--overlay-8);
+  }
+}
+
+/* 微妙的光晕脉动 */
+@keyframes subtle-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* IOS Liquid Glass UI 风格 */
+.player-overlay {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20vh;
+  background: linear-gradient(to bottom, transparent, var(--mask-30));
+  z-index: var(--z-audio-player);
+  pointer-events: none;
+}
+
+/* 背景遮罩动画 */
+.overlay-animation-enter-active {
+  transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.overlay-animation-leave-active {
+  transition: opacity 0.5s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.overlay-animation-enter-from,
+.overlay-animation-leave-to {
+  opacity: 0;
+}
+
+/* 播放器进入/退出动画（基于 Transition 类） */
+.player-animation-enter-active,
+.player-animation-leave-active {
+  transition:
+    transform 0.5s cubic-bezier(0.4, 0, 0.6, 1),
+    opacity 0.5s cubic-bezier(0.4, 0, 0.6, 1);
+  will-change: transform, opacity;
+  transform-origin: center bottom;
+}
+
+.player-animation-enter-from {
+  transform: translateX(-50%) translateY(100%) scale(0.98);
+  opacity: 0;
+}
+
+.player-animation-enter-to {
+  transform: translateX(-50%) translateY(0) scale(1);
+  opacity: 1;
+}
+
+.player-animation-leave-from {
+  transform: translateX(-50%) translateY(0) scale(1);
+  opacity: 1;
+}
+
+.player-animation-leave-to {
+  transform: translateX(-50%) translateY(100%) scale(0.98);
+  opacity: 0;
+}
+
+/* 移动端播放器样式 */
+.music-widget.mobile-player-bar {
+  bottom: calc(
+    92px + env(safe-area-inset-bottom, 0px)
+  ); /* 放在悬浮 tab 上方 (16px bottom + 64px height + 12px gap) */
+  left: 10px;
+  right: 10px;
+  width: calc(100% - 20px);
+  height: 64px;
+  transform: none;
+  border-radius: 16px;
+  padding: 0 12px;
+  flex-direction: row;
+  align-items: center;
+  background: var(--audio-player-bar-bg);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid var(--overlay-8);
+  box-shadow: 0 8px 32px var(--mask-40);
+  animation: none;
+  overflow: hidden;
+}
+
+.music-widget.mobile-player-bar:hover {
+  transform: none;
+}
+
+/* 移动端顶部进度条 */
+.mobile-top-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--overlay-10);
+  cursor: pointer;
+  z-index: 10;
+}
+
+.mobile-top-progress .progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent-alpha-60);
+  border-radius: 0 1px 1px 0;
+}
+
+.music-widget.mobile-player-bar .title {
+  width: 100%;
+  margin-left: 0;
+  column-gap: 12px;
+}
+
+.music-widget.mobile-player-bar .cover-container {
+  width: 44px;
+  height: 44px;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px var(--mask-20);
+}
+
+.music-widget.mobile-player-bar .song-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.music-widget.mobile-player-bar .song-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  overflow: hidden;
+}
+
+.music-widget.mobile-player-bar .song-artist {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.mobile-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mobile-control-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mobile-control-btn:active {
+  transform: scale(0.9);
+  opacity: 0.7;
+}
+
+/* 移动端动画适配 */
+.player-animation-enter-from.mobile-player-bar,
+.player-animation-leave-to.mobile-player-bar {
+  transform: translateY(100px) scale(0.95);
+  opacity: 0;
+}
+
+/* 自由拖拽模式：可拖动区域光标与触摸行为 */
+.music-widget.player-floating {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+/* 记录过坐标后的自由定位：内联 left/top + 取消居中 transform */
+.music-widget.player-floating.player-positioned {
+  bottom: auto;
+  right: auto;
+  transform: none;
+  /* 拖拽逐帧写 left/top，必须从 .music-widget 的 all 过渡中排除，否则播放器跟不上指针 */
+  transition-property: transform, opacity, box-shadow, border-color;
+}
+
+.music-widget.player-floating.player-positioned:hover {
+  transform: translateY(-2px);
+}
+
+.music-widget.player-floating.player-dragging {
+  cursor: grabbing;
+  transition: none;
+  user-select: none;
+}
+
+/* 时间区域 */
+.time {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-items: flex-start;
+  align-self: stretch;
+  row-gap: 10px;
+  width: 376px;
+}
+
+/* 进度条样式 */
+.progress-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: 7px;
+  background: var(--audio-player-progress-track-bg);
+  height: 7px;
+  width: 100%;
+  max-width: 376px;
+  align-self: stretch;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  backdrop-filter: blur(30px) saturate(1.5) brightness(1.2);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5) brightness(1.2);
+}
+
+.progress-fill {
+  background: var(--overlay-70);
+  height: 100%;
+  transition: width 0.1s linear;
+  border-radius: 6px;
+  position: relative;
+}
+
+/* MusicWidget 主容器 - 增强 Liquid Glass 效果 + 呼吸光效 */
+.music-widget {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border-radius: 22px;
+  /* 不支持毛玻璃时使用深色背景，避免只剩低透明度底色 */
+  background: var(--audio-player-bar-bg);
+  padding: 10px 7px 10px 13px;
+  width: 400px;
+  height: 165px;
+  backdrop-filter: blur(60px) saturate(2) brightness(1.1);
+  -webkit-backdrop-filter: blur(60px) saturate(2) brightness(1.1);
+  border: 1px solid var(--overlay-20);
+  box-shadow:
+    0 16px 48px var(--mask-30),
+    0 8px 24px var(--mask-20),
+    0 4px 12px var(--mask-10),
+    inset 0 1px 0 var(--overlay-30),
+    inset 0 -1px 0 var(--mask-10),
+    0 0 0 1px var(--overlay-5);
+  z-index: var(--z-audio-player);
+  will-change: transform, opacity;
+  font-family:
+    'SF Pro Display', 'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial,
+    Helvetica, sans-serif;
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  animation: breathing-glow 4s ease-in-out infinite;
+}
+
+.music-widget:hover {
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow:
+    0 20px 60px var(--mask-40),
+    0 12px 32px var(--mask-25),
+    0 6px 16px var(--mask-15),
+    inset 0 1px 0 var(--overlay-40),
+    inset 0 -1px 0 var(--mask-10),
+    0 0 0 1px var(--overlay-10),
+    0 0 40px var(--overlay-10);
+  border-color: var(--overlay-25);
+}
+
+/* 标题区域 */
+.title {
+  display: flex;
+  align-items: center;
+  column-gap: 12px;
+  margin-left: 4px;
+  width: 376px;
+}
+
+/* 封面容器 */
+.cover-container {
+  width: 42px;
+  height: 42px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.cover-container.clickable {
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.cover-container.clickable:hover {
+  box-shadow: 0 4px 12px var(--mask-40);
+}
+
+.cover-container.clickable:hover .cover-hover-overlay {
+  opacity: 1;
+}
+
+.cover-container.clickable:hover .player-cover,
+.cover-container.clickable:hover .text-cover {
+  transform: scale(1.1);
+}
+
+.cover-container.clickable:active {
+  transform: scale(0.95);
+}
+
+.player-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.cover-hover-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--mask-30);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.text-cover {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-collab-hover) 100%);
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  font-family:
+    'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial, Helvetica,
+    sans-serif;
+  transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* 歌曲信息文本 */
+.song-info {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  align-items: flex-start;
+  justify-content: center;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.song-title {
+  display: -webkit-box;
+  flex-shrink: 0;
+  align-self: stretch;
+  overflow: hidden;
+  line-height: 22px;
+  padding-bottom: 2px;
+  letter-spacing: -0.4px;
+  color: var(--text-primary);
+  font-family:
+    'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial, Helvetica,
+    sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.song-artist {
+  display: -webkit-box;
+  flex-shrink: 0;
+  align-self: stretch;
+  overflow: hidden;
+  line-height: 20px;
+  letter-spacing: -0.4px;
+  color: var(--text-primary-60);
+  font-family:
+    'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial, Helvetica,
+    sans-serif;
+  font-size: 15px;
+  font-weight: 300;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 关闭按钮 */
+.close-button {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 100px;
+  background: var(--bg-primary-25);
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  backdrop-filter: blur(34px);
+  -webkit-backdrop-filter: blur(34px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.close-button:hover {
+  background: var(--mask-60);
+  transform: scale(1.05);
+}
+
+.close-icon {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 播放器布局切换按钮（固定底部 / 自由拖拽） */
+.player-mode-button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 100px;
+  background: var(--bg-primary-25);
+  width: 32px;
+  height: 32px;
+  color: var(--text-primary);
+  backdrop-filter: blur(34px);
+  -webkit-backdrop-filter: blur(34px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.player-mode-button:hover {
+  background: var(--mask-60);
+  transform: scale(1.05);
+}
+
+/* 媒体控制区域 */
+.media-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: stretch;
+  justify-content: center;
+  margin-right: 4px;
+  row-gap: 8px;
+  flex: 1;
+  margin-top: 16px;
+}
+
+/* 进度条和时间区域 */
+.progress-section {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-items: flex-start;
+  align-self: stretch;
+  row-gap: 10px;
+}
+
+/* 进度条 */
+.ios-progress-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  border: 1px solid var(--panel-bg-deep);
+  border-radius: 7px;
+  height: 8px;
+  width: 100%;
+  overflow: hidden;
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.ios-progress-bar:hover {
+  border-color: var(--text-primary);
+  box-shadow:
+    0 0 20px var(--overlay-10),
+    inset 0 1px 0 var(--overlay-10);
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, var(--text-primary-80), var(--text-primary));
+  height: 8px;
+  transition: width 0.1s linear;
+  border-radius: 7px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-shadow: 0 0 10px var(--overlay-30);
+}
+
+/* 时间和音质显示 */
+.time-quality-display {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+}
+
+.current-time,
+.remaining-time {
+  flex-shrink: 0;
+  width: 60px;
+  line-height: 18px;
+  letter-spacing: 0.42px;
+  color: var(--overlay-70);
+  font-family:
+    'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial, Helvetica,
+    sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.remaining-time {
+  text-align: right;
+}
+
+/* 可点击时间样式 */
+.clickable-time {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.clickable-time:hover {
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+.clickable-time:active {
+  transform: scale(0.95);
+}
+
+.audio-quality-badge {
+  flex-shrink: 0;
+  align-self: stretch;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--text-primary-10);
+  border-radius: 4px;
+  padding: 0 8px;
+  color: var(--text-primary-80);
+  font-size: 10px;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.audio-quality-badge:hover {
+  background: var(--text-primary-20);
+  color: var(--text-primary);
+}
+
+/* 控制按钮区域 */
+.control-buttons {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  min-width: 376px;
+}
+
+/* 控制按钮 - 增强光效交互 */
+.ios-control-btn {
+  background: none;
+  border: none;
+  color: var(--text-primary-60);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  width: 44px;
+  border-radius: 50%;
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  font-family:
+    'SF Pro Display', 'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial,
+    Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ios-control-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--overlay-10) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.ios-control-btn:hover {
+  color: var(--text-primary);
+  transform: scale(1.1);
+  box-shadow:
+    0 0 20px var(--overlay-20),
+    0 0 40px var(--overlay-10);
+}
+
+.ios-control-btn:hover::before {
+  opacity: 1;
+}
+
+.ios-control-btn:active {
+  transform: scale(0.95);
+  box-shadow:
+    0 0 15px var(--overlay-30),
+    inset 0 0 10px var(--overlay-10);
+}
+
+.ios-control-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ios-control-btn:disabled:hover {
+  transform: none;
+}
+
+/* 左右控制按钮 */
+.side-control {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 中央播放控制 */
+.center-controls {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  column-gap: 43px;
+}
+
+/* 播放控制按钮统一样式 */
+.play-pause-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 右侧操作区域 */
+.left-actions-group,
+.right-actions-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 39px;
+}
+
+.right-actions {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 歌词面板样式 */
+.lyrics-panel {
+  margin-top: 0.5rem;
+  background: var(--surface-card-bg-soft);
+  border-radius: 12px;
+  padding: 0.5rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--overlay-5);
+}
+
+/* 歌词滑动动画 */
+.lyrics-slide-enter-active,
+.lyrics-slide-leave-active {
+  transition: all 0.3s ease;
+  transform-origin: top;
+}
+
+.lyrics-slide-enter-from,
+.lyrics-slide-leave-to {
+  opacity: 0;
+  transform: scaleY(0);
+  max-height: 0;
+}
+
+.lyrics-slide-enter-to,
+.lyrics-slide-leave-from {
+  opacity: 1;
+  transform: scaleY(1);
+  max-height: 120px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .music-widget {
+    width: 95%;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+
+  .title {
+    width: calc(100% - 8px);
+  }
+
+  .time {
+    width: calc(100% - 8px);
+  }
+
+  .control-buttons {
+    min-width: auto;
+    width: calc(100% - 8px);
+  }
+
+  .controls-frame {
+    min-width: auto;
+    width: calc(100% - 8px);
+  }
+}
+
+@media (max-width: 480px) {
+  .music-widget {
+    width: calc(100% - 2rem);
+    padding: 8px 6px 8px 10px;
+  }
+
+  .time {
+    width: calc(100% - 4px);
+  }
+
+  .song-title {
+    font-size: 18px;
+  }
+
+  .song-artist {
+    font-size: 14px;
+  }
+
+  .center-controls {
+    column-gap: 30px;
+  }
+}
+
+/* 内部元素淡入动画 */
+.title-section {
+  animation: fade-slide-in 0.6s ease-out 0.1s both;
+}
+
+.media-controls {
+  animation: fade-slide-in 0.6s ease-out 0.2s both;
+}
+
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 时间和音质显示区域 */
+.time-details-and-audio-q {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  position: relative;
+}
+
+.current-time,
+.remaining-time {
+  flex-shrink: 0;
+  width: 60px;
+  line-height: 18px;
+  letter-spacing: 0.42px;
+  color: var(--text-primary-80);
+  font-family:
+    'SF Pro', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimHei, Arial, Helvetica,
+    sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.remaining-time {
+  text-align: right;
+}
+
+.audio-quality {
+  flex-shrink: 0;
+  align-self: stretch;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--text-primary-10);
+  border-radius: 4px;
+  padding: 0 8px;
+  color: var(--text-primary-80);
+  font-size: 10px;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.audio-quality:hover {
+  background: var(--text-primary-20);
+  color: var(--text-primary);
+}
+
+.audio-quality:active {
+  transform: scale(0.95);
+}
+
+/* 控制按钮框架 */
+.controls-frame {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  min-width: 329px;
+}
+
+/* 歌词按钮 */
+.lyrics-btn {
+  width: 39px;
+  font-size: 25px;
+  text-align: center;
+  color: var(--text-primary-60);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lyrics-btn:hover {
+  color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+/* 控制按钮 */
+.control-btn {
+  line-height: 1;
+  font-size: 24px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-btn:hover {
+  transform: scale(1.1);
+}
+
+.control-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.control-btn.disabled:hover {
+  transform: none;
+}
+
+/* 播放暂停按钮 */
+.play-pause-btn {
+  line-height: 44px;
+  font-size: 37px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.play-pause-btn:hover:not(.disabled) {
+  transform: scale(1.1);
+}
+
+.play-pause-btn:active:not(.disabled) {
+  transform: scale(0.95);
+}
+
+.play-pause-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.play-pause-btn.disabled:hover {
+  transform: none;
+}
+
+/* 右侧占位 */
+.right-placeholder {
+  width: 39px;
+  height: 29px;
+}
+
+/* 音质下拉菜单 - 增强光效 */
+.quality-dropdown {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  background:
+    linear-gradient(135deg, var(--overlay-25), var(--overlay-15)),
+    var(--audio-player-dropdown-bg-fallback);
+  border-radius: 12px;
+  padding: 8px 0;
+  backdrop-filter: blur(60px) saturate(2) brightness(1.1);
+  -webkit-backdrop-filter: blur(60px) saturate(2) brightness(1.1);
+  border: 1px solid var(--overlay-40);
+  z-index: 9999;
+  min-width: 120px;
+  box-shadow:
+    0 20px 60px var(--mask-40),
+    0 12px 32px var(--mask-30),
+    0 6px 16px var(--mask-20),
+    inset 0 1px 0 var(--overlay-40),
+    inset 0 -1px 0 var(--mask-10),
+    0 0 0 1px var(--overlay-10),
+    0 0 30px var(--overlay-10);
+}
+
+.quality-option {
+  padding: 8px 16px;
+  color: var(--overlay-70);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  margin: 2px 6px;
+  position: relative;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.quality-option::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--overlay-10), var(--overlay-5));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.quality-option:hover {
+  color: var(--overlay-95);
+  transform: translateY(-1px);
+  background: var(--overlay-8);
+  box-shadow:
+    0 4px 16px var(--overlay-10),
+    inset 0 1px 0 var(--overlay-20);
+}
+
+.quality-option:hover::before {
+  opacity: 1;
+}
+
+.quality-option.active {
+  color: var(--color-accent);
+  background:
+    linear-gradient(
+      135deg,
+      var(--audio-player-quality-active-bg-start),
+      var(--audio-player-quality-active-bg-mid)
+    ),
+    var(--audio-player-quality-active-bg-end);
+  border: 1px solid var(--audio-player-quality-active-border);
+  font-weight: 600;
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 20px var(--audio-player-quality-active-shadow-lg),
+    0 2px 8px var(--audio-player-quality-active-shadow),
+    inset 0 1px 0 var(--overlay-30),
+    0 0 0 1px var(--audio-player-quality-active-ring);
+}
+
+/* 音质下拉动画 - 向上弹出优化 */
+.quality-dropdown-enter-active {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.quality-dropdown-leave-active {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.quality-dropdown-enter-from,
+.quality-dropdown-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px) scale(0.9);
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+}
+
+.quality-dropdown-enter-to,
+.quality-dropdown-leave-from {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  backdrop-filter: blur(50px);
+  -webkit-backdrop-filter: blur(50px);
+}
+
+/* 浏览器支持标准或 WebKit 毛玻璃属性时启用 Liquid Glass 背景 */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .music-widget {
+    background:
+      linear-gradient(135deg, var(--overlay-10), var(--overlay-5)),
+      var(--audio-player-liquid-glass-bg-fallback);
+  }
+}
+</style>

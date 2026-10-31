@@ -1,0 +1,7591 @@
+<template>
+  <div class="request-form">
+    <div class="rules-section desktop-only-rules">
+      <h2 class="rules-title">
+        <Icon :size="16" class="rules-icon" name="bell" />
+        {{ locale.guidelinesTitle }}
+      </h2>
+      <div class="rules-content-desktop">
+        <div
+          v-if="submissionGuidelines"
+          class="guidelines-content markdown-body"
+          v-html="renderedGuidelines"
+        />
+        <div v-else class="default-guidelines">
+          <p v-for="(rule, index) in locale.defaultGuidelines" :key="`desktop-rule-${index}`">
+            {{ index + 1 }}. {{ rule }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 移动端投稿须知 -->
+    <div class="rules-section mobile-only-rules">
+      <h3 class="rules-title">
+        <Icon :size="16" class="rules-icon" name="bell" />
+        {{ locale.guidelinesTitle }}
+      </h3>
+      <div class="rules-content">
+        <div
+          v-if="submissionGuidelines"
+          class="guidelines-content markdown-body"
+          v-html="renderedGuidelines"
+        />
+        <div v-else class="default-guidelines">
+          <div
+            v-for="(rule, index) in locale.mobileDefaultGuidelines"
+            :key="`mobile-rule-${index}`"
+            class="rule-item"
+          >
+            <span>{{ index + 1 }}.</span> {{ rule }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-container">
+      <form class="song-request-form" @submit.prevent="handleSearch">
+        <!-- 顶部行：搜索和联合投稿 -->
+        <div class="form-header-row">
+          <!-- 歌曲搜索区域 -->
+          <div class="search-section">
+            <div class="search-label">{{ locale.searchLabel }}</div>
+            <div class="search-input-group">
+              <input
+                id="title"
+                v-model="title"
+                class="search-input"
+                :placeholder="locale.searchPlaceholder"
+                enterkeyhint="search"
+                required
+                type="text"
+                @keydown.enter.prevent="handleSearch"
+              >
+              <button
+                :disabled="loading || searching || !title.trim()"
+                class="search-button"
+                type="submit"
+              >
+                {{ loading || searching ? locale.processing : locale.search }}
+              </button>
+              <button
+                :disabled="loading || searching"
+                :aria-label="locale.audioMatch"
+                class="audio-match-btn"
+                :title="locale.audioMatch"
+                type="button"
+                @click="openAudioMatchModal"
+              >
+                <Icon :size="16" name="mic" />
+                <span class="btn-text">{{ locale.audioMatchShort }}</span>
+              </button>
+            </div>
+            <button
+              v-if="showImportSemesterBtn"
+              class="import-semester-btn"
+              type="button"
+              :title="locale.importFromPast"
+              @click="showImportSongsModal = true"
+            >
+              <Icon :size="16" name="history" />
+              <span class="btn-text">{{ locale.importFromPast }}</span>
+            </button>
+          </div>
+
+          <!-- 联合投稿人区域 -->
+          <div v-if="user && enableCollaborativeSubmission && !submissionAnonymous" class="collaborators-section">
+            <div class="section-label">{{ locale.collaborators }}</div>
+            <div class="collaborators-list">
+              <div v-for="user in collaborators" :key="user.id" class="collaborator-tag">
+                <span class="collaborator-name">{{ user.name }}</span>
+                <button
+                  class="remove-collaborator"
+                  type="button"
+                  @click="removeCollaborator(user.id)"
+                >
+                  <Icon :size="12" name="close" />
+                </button>
+              </div>
+              <button
+                class="add-collaborator-btn"
+                type="button"
+                @click="showUserSearchModal = true"
+              >
+                <Icon :size="14" name="plus" />
+                {{ locale.add }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 管理员代他人投稿 -->
+        <div v-if="isAdminUser" class="on-behalf-section">
+          <div class="on-behalf-head">
+            <div class="section-label">{{ locale.onBehalfTitle }}</div>
+            <button
+              v-if="onBehalfUser"
+              class="on-behalf-change"
+              type="button"
+              @click="showOnBehalfSearch = true"
+            >
+              {{ locale.onBehalfChange }}
+            </button>
+            <button
+              v-if="onBehalfUser"
+              class="on-behalf-clear"
+              type="button"
+              @click="clearOnBehalfUser"
+            >
+              <Icon :size="12" name="close" />
+            </button>
+            <span v-if="!onBehalfUser" class="on-behalf-hint">{{ locale.onBehalfHint }}</span>
+          </div>
+
+          <div v-if="!onBehalfUser" class="on-behalf-picker">
+            <button
+              class="add-collaborator-btn"
+              type="button"
+              @click="showOnBehalfSearch = true"
+            >
+              <Icon :size="14" name="user" />
+              {{ locale.onBehalfPick }}
+            </button>
+          </div>
+
+          <div v-else class="on-behalf-detail">
+            <div class="on-behalf-identity">
+              <div class="on-behalf-avatar">
+                {{ (onBehalfUser.name || onBehalfUser.username || '?').slice(0, 1) }}
+              </div>
+              <div class="on-behalf-name-block">
+                <span class="on-behalf-name">{{ onBehalfUser.name || onBehalfUser.username }}</span>
+                <div class="on-behalf-badges">
+                  <span class="on-behalf-badge">{{ roleLabel(onBehalfUser.role) }}</span>
+                  <span
+                    :class="[
+                      'on-behalf-badge',
+                      onBehalfUser.status === 'active' ? 'is-active' : 'is-disabled'
+                    ]"
+                  >
+                    {{
+                      onBehalfUser.status === 'active'
+                        ? locale.onBehalfStatusActive
+                        : locale.onBehalfStatusDisabled
+                    }}
+                  </span>
+                </div>
+              </div>
+              <span v-if="onBehalfLoading" class="on-behalf-loading">{{ locale.processing }}</span>
+            </div>
+
+            <div class="on-behalf-grid">
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfUsername }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.username || '-' }}</span>
+              </div>
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfId }}</span>
+                <span class="on-behalf-value">#{{ onBehalfUser.id }}</span>
+              </div>
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfGrade }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.grade || '-' }}</span>
+              </div>
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfClass }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.class || '-' }}</span>
+              </div>
+              <div v-if="onBehalfUser.email" class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfEmail }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.email }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 搜索结果容器 -->
+        <div class="search-results-container">
+          <div v-if="!user" class="submission-status-horizontal login-required-notice">
+            <Lock class="notice-icon" :size="14" />
+            <span class="notice-text">{{ locale.loginRequiredNotice }}</span>
+            <button class="login-link-btn" type="button" @click="handleLoginRedirect">
+              {{ locale.loginNow }}
+            </button>
+          </div>
+          <!-- 投稿状态显示 - 横向布局，只在设置了限额时显示 -->
+          <div
+            v-if="
+              user &&
+              submissionStatus &&
+              (submissionStatus.limitEnabled ||
+                submissionStatus.timeLimitationEnabled ||
+                submissionStatus.globalLimitReached ||
+                submissionStatus.submissionClosed)
+            "
+            class="submission-status-horizontal"
+          >
+            <!-- 超级管理员提示 -->
+            <div
+              v-if="user && (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN')"
+              class="admin-notice-horizontal"
+            >
+              <span class="admin-icon">👑</span>
+              <span class="admin-text">{{ locale.adminUnlimited }}</span>
+            </div>
+
+            <!-- 投稿关闭提示 -->
+            <div v-else-if="submissionStatus.submissionClosed" class="submission-closed-notice">
+              <span class="closed-icon">🚫</span>
+              <span class="closed-text">
+                {{
+                  submissionStatus.timeLimitationEnabled && !submissionStatus.currentTimePeriod
+                    ? locale.outsideRequestTime
+                    : locale.submissionClosed
+                }}
+              </span>
+            </div>
+
+            <!-- 全站投稿总量已满提示 -->
+            <div v-else-if="submissionStatus.globalLimitReached" class="submission-closed-notice">
+              <span class="closed-text">{{ locale.globalLimitReached }}</span>
+            </div>
+
+            <!-- 投稿状态内容 -->
+            <div v-else class="status-content-horizontal">
+              <!-- 当前时段信息 -->
+              <div
+                v-if="submissionStatus.timeLimitationEnabled && submissionStatus.currentTimePeriod"
+                class="status-item-horizontal"
+              >
+                <span class="status-label">{{ locale.currentPeriod }}</span>
+                <span class="status-value">{{ submissionStatus.currentTimePeriod.name }}</span>
+                <span
+                  v-if="submissionStatus.currentTimePeriod.expected > 0"
+                  class="status-remaining"
+                >
+                  ({{ locale.accepted }} {{ submissionStatus.currentTimePeriod.accepted }} /
+                  {{ submissionStatus.currentTimePeriod.expected }})
+                </span>
+              </div>
+
+              <div v-if="submissionStatus.dailyLimit" class="status-item-horizontal">
+                <span class="status-label">{{ locale.todayRequests }}</span>
+                <span class="status-value"
+                  >{{ submissionStatus.dailyUsed }} / {{ submissionStatus.dailyLimit }}</span
+                >
+                <span class="status-remaining"
+                  >{{ locale.remaining }}
+                  {{ Math.max(0, submissionStatus.dailyLimit - submissionStatus.dailyUsed) }}</span
+                >
+              </div>
+
+              <div v-if="submissionStatus.weeklyLimit" class="status-item-horizontal">
+                <span class="status-label">{{ locale.weeklyRequests }}</span>
+                <span class="status-value"
+                  >{{ submissionStatus.weeklyUsed }} / {{ submissionStatus.weeklyLimit }}</span
+                >
+                <span class="status-remaining"
+                  >{{ locale.remaining }}
+                  {{
+                    Math.max(0, submissionStatus.weeklyLimit - submissionStatus.weeklyUsed)
+                  }}</span
+                >
+              </div>
+
+              <div v-if="submissionStatus.monthlyLimit" class="status-item-horizontal">
+                <span class="status-label">{{ locale.monthlyRequests }}</span>
+                <span class="status-value"
+                  >{{ submissionStatus.monthlyUsed }} / {{ submissionStatus.monthlyLimit }}</span
+                >
+                <span class="status-remaining"
+                  >{{ locale.remaining }}
+                  {{
+                    Math.max(0, submissionStatus.monthlyLimit - submissionStatus.monthlyUsed)
+                  }}</span
+                >
+              </div>
+              <div v-if="cardCodeLimitBypassActive" class="status-item-horizontal">
+                <span class="status-label">{{ locale.cardCodeLabel }}</span>
+                <span class="status-value">{{ locale.cardCodeBypassesLimit }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 音乐平台选择按钮 -->
+          <div v-if="platformConfigLoaded" class="platform-selection-container">
+            <div class="platform-selection">
+              <button
+                v-for="pKey in availablePlatforms"
+                :key="pKey"
+                :class="['platform-btn', { active: platform === pKey }]"
+                type="button"
+                @click="switchPlatform(pKey)"
+              >
+                {{ getPlatformButtonLabel(pKey) }}
+              </button>
+            </div>
+
+            <!-- 网易云音乐登录状态和选项 -->
+            <div v-if="platform === 'netease'" class="netease-options">
+              <!-- 加载中状态 -->
+              <div v-if="checkingNeteaseLogin" class="netease-loading-state">
+                <div class="loading-content">
+                  <div class="loading-spinner" />
+                  <span class="loading-text">{{ locale.refreshing }}</span>
+                </div>
+              </div>
+
+              <!-- 未登录状态 -->
+              <div v-else-if="!isNeteaseLoggedIn" class="login-entry">
+                <div class="login-desc">
+                  <p class="login-title">{{ locale.neteaseLoginTitle }}</p>
+                </div>
+                <div class="login-actions">
+                  <button class="login-btn" type="button" @click="showLoginModal = true">
+                    {{ locale.loginNow }}
+                  </button>
+                  <button class="import-btn" type="button" @click="handleImportClick">
+                    <Icon :size="14" name="upload" />
+                    {{ locale.importData }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 已登录状态 -->
+              <div v-else class="user-status">
+                <div class="user-compact-row">
+                  <div class="user-profile">
+                    <img
+                      v-if="neteaseUser?.avatarUrl"
+                      :src="convertToHttps(neteaseUser.avatarUrl)"
+                      alt="avatar"
+                      class="user-avatar"
+                    >
+                    <span class="user-name">{{ neteaseUser?.nickname || locale.loggedIn }}</span>
+                  </div>
+
+                  <div class="search-type-switch">
+                    <label :class="['radio-label', { active: searchType === 1 }]">
+                      <input v-model="searchType" :value="1" type="radio" > {{ locale.single }}
+                    </label>
+                    <label :class="['radio-label', { active: searchType === 1009 }]">
+                      <input v-model="searchType" :value="1009" type="radio" > {{ locale.podcast }}
+                    </label>
+                  </div>
+
+                  <div class="user-actions-row">
+                    <button
+                      class="action-btn-compact"
+                      :title="locale.recent"
+                      type="button"
+                      @click="showRecentSongsModal = true"
+                    >
+                      <Icon :size="14" name="history" />
+                      <span>{{ locale.recent }}</span>
+                    </button>
+                    <button
+                      class="action-btn-compact"
+                      :title="locale.playlist"
+                      type="button"
+                      @click="openPlaylistModal('netease')"
+                    >
+                      <Icon :size="14" name="playlist" />
+                      <span>{{ locale.playlist }}</span>
+                    </button>
+                    <button
+                      class="action-btn-compact"
+                      :aria-label="locale.exportCookie"
+                      :title="locale.exportCookie"
+                      type="button"
+                      @click="handleExportData"
+                    >
+                      <Icon :size="14" name="download" />
+                    </button>
+                    <button
+                      class="action-btn-compact text-error hover:text-error hover:bg-error-10"
+                      :aria-label="locale.logout"
+                      :title="locale.logout"
+                      type="button"
+                      @click="handleLogoutNetease"
+                    >
+                      <Icon :size="14" name="logout" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- QQ音乐登录状态和选项 -->
+            <div v-if="platform === 'tencent'" class="netease-options">
+              <!-- 检查中状态 -->
+              <div v-if="checkingQQLogin" class="netease-loading-state">
+                <div class="loading-content">
+                  <div class="loading-spinner" />
+                  <span class="loading-text">{{ locale.refreshing }}</span>
+                </div>
+              </div>
+
+              <!-- 未登录状态 -->
+              <div v-else-if="!isQQMusicLoggedIn" class="login-entry">
+                <div class="login-desc">
+                  <p class="login-title">{{ locale.qqLoginTitle }}</p>
+                </div>
+                <div class="login-actions">
+                  <button
+                    class="login-btn qq-login-btn"
+                    type="button"
+                    @click="showQQLoginModal = true"
+                  >
+                    {{ locale.loginNow }}
+                  </button>
+                  <button class="import-btn" type="button" @click="handleImportClickQQ">
+                    <Icon :size="14" name="upload" />
+                    {{ locale.importData }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 已登录状态 -->
+              <div v-else class="user-status">
+                <div class="user-compact-row">
+                  <div class="user-profile">
+                    <img
+                      v-if="qqMusicUser?.avatarUrl"
+                      :src="convertToHttps(qqMusicUser.avatarUrl)"
+                      alt="avatar"
+                      class="user-avatar"
+                    >
+                    <div v-else class="qq-user-avatar">
+                      <Icon :size="14" name="music" />
+                    </div>
+                    <span class="user-name">{{ qqMusicUser?.nickname || locale.qqLoggedIn }}</span>
+                  </div>
+
+                  <div class="user-actions-row">
+                    <button
+                      class="action-btn-compact"
+                      :title="locale.playlist"
+                      type="button"
+                      @click="openPlaylistModal('tencent')"
+                    >
+                      <Icon :size="14" name="playlist" />
+                      <span>{{ locale.playlist }}</span>
+                    </button>
+                    <button
+                      class="action-btn-compact"
+                      :aria-label="locale.exportCookie"
+                      :title="locale.exportCookie"
+                      type="button"
+                      @click="handleExportDataQQ"
+                    >
+                      <Icon :size="14" name="download" />
+                    </button>
+                    <button
+                      class="action-btn-compact text-error hover:bg-error-10 hover:text-error"
+                      :aria-label="locale.logoutQQ"
+                      :title="locale.logoutQQ"
+                      type="button"
+                      @click="handleLogoutQQMusic"
+                    >
+                      <Icon :size="14" name="logout" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="results-content">
+            <!-- 加载状态 -->
+            <div v-if="searching" class="loading-state">
+              <AppSpinner :size="40" />
+              <p class="loading-text">{{ locale.processing }}</p>
+            </div>
+
+            <!-- 搜索结果列表 -->
+            <Transition mode="out-in" name="results-fade">
+              <div v-if="searchResults.length > 0 && !searching" key="results" class="results-list">
+                <TransitionGroup class="results-grid" name="result-item" tag="div">
+                  <div
+                    v-for="(result, index) in searchResults"
+                    :key="`${platform}-${result.id || index}`"
+                    class="result-item group"
+                  >
+                    <div
+                      class="result-cover"
+                      @click.stop="isBilibiliMultiP(result) ? submitSong(result) : playSong(result)"
+                    >
+                      <img
+                        :src="getCoverThumbUrl(result.cover)"
+                        :alt="locale.coverAlt"
+                        class="cover-img"
+                        referrerpolicy="no-referrer"
+                      >
+                      <div v-if="!isBilibiliMultiP(result)" class="play-overlay-container">
+                        <div class="play-button-wrapper">
+                          <Icon name="play" :size="20" class="play-icon" />
+                        </div>
+                      </div>
+                    </div>
+                    <div class="result-info">
+                      <h4 class="result-title">{{ result.song || result.title }}</h4>
+                      <p class="result-artist">{{ result.singer || result.artist }}</p>
+                      <p
+                        v-if="result.album"
+                        :class="['result-album', { 'clickable-album': isNeteaseAlbum(result) }]"
+                        :title="isNeteaseAlbum(result) ? locale.albumDetailsTitle : result.album"
+                        @click.stop="isNeteaseAlbum(result) ? openAlbumDetails(result) : null"
+                      >
+                        <span class="album-label">{{ locale.album }}</span>
+                        <span class="album-name">{{ result.album }}</span>
+                        <Icon
+                          v-if="isNeteaseAlbum(result)"
+                          name="external-link"
+                          :size="12"
+                          class="album-link-icon"
+                        />
+                      </p>
+                    </div>
+                    <div class="result-actions">
+                      <!-- QQ音乐上传到网易云按钮（仅当结果确实来自QQ音乐时显示） -->
+                      <button
+                        v-if="isTencentSource(result)"
+                        class="cloud-disk-btn"
+                        :title="locale.uploadToNeteaseCloud"
+                        @click.stop.prevent="openUploadDialog(result)"
+                      >
+                        <Icon name="cloud-upload" :size="18" />
+                      </button>
+
+                      <!-- 多P视频的特殊处理 -->
+                      <div
+                        v-if="
+                          isBilibiliMultiP(result) && getBilibiliEpisodeStatus(result)?.allSubmitted
+                        "
+                        class="similar-song-info"
+                      >
+                        <span class="similar-text">{{ locale.allEpisodesSubmitted }}</span>
+                        <button
+                          v-if="canResubmitBilibiliEpisodes(result)"
+                          :disabled="
+                            !canSubmitFromSearch ||
+                            isSongBlockedByRestriction(result) ||
+                            isResultSubmitting(result)
+                          "
+                          class="select-btn"
+                          @click.stop.prevent="submitSong(result, { replayRequest: true })"
+                        >
+                          {{ locale.chooseEpisodes }}
+                        </button>
+                      </div>
+                      <div
+                        v-else-if="
+                          isBilibiliMultiP(result) &&
+                          getBilibiliEpisodeStatus(result)?.partialSubmitted
+                        "
+                        class="similar-song-info"
+                      >
+                        <span class="similar-text">{{ locale.partialEpisodesSubmitted }}</span>
+                        <button
+                          :disabled="
+                            !canSubmitFromSearch ||
+                            isSongBlockedByRestriction(result) ||
+                            isResultSubmitting(result)
+                          "
+                          class="select-btn"
+                          @click.stop.prevent="submitSong(result)"
+                        >
+                          {{ locale.chooseEpisodes }}
+                        </button>
+                      </div>
+                      <div v-else-if="getSimilarSong(result)" class="similar-song-info">
+                        <!-- 根据歌曲状态显示不同的文本 -->
+                        <span
+                          v-if="getSimilarSong(result)?.played"
+                          class="similar-text status-played"
+                        >
+                          {{ locale.songPlayed }}
+                        </span>
+                        <span
+                          v-else-if="getSimilarSong(result)?.scheduled"
+                          class="similar-text status-scheduled"
+                          >{{ locale.songScheduled }}</span
+                        >
+                        <span v-else class="similar-text">{{ locale.songExists }}</span>
+
+                        <!-- 管理员或未开启重复投稿限制时可直接重复投稿；否则普通用户仅可申请重播已播放歌曲。 -->
+                        <button
+                          v-if="auth.isAdmin.value || (siteConfigLoaded && !enableSubmissionRestriction)"
+                          :disabled="
+                            !canSubmitFromSearch ||
+                            isSongBlockedByRestriction(result) ||
+                            isResultSubmitting(result)
+                          "
+                          class="select-btn"
+                          @click.stop.prevent="submitSong(result)"
+                        >
+                          {{ isResultSubmitting(result) ? locale.processing : locale.chooseSubmit }}
+                        </button>
+                        <button
+                          v-else-if="getSimilarSong(result)?.played && enableReplayRequests"
+                          :disabled="
+                            !canSubmitFromSearch ||
+                            isSongBlockedByRestriction(result) ||
+                            isResultSubmitting(result)
+                          "
+                          class="select-btn"
+                          @click.stop.prevent="submitSong(result, { replayRequest: true })"
+                        >
+                          {{ locale.requestReplay }}
+                        </button>
+
+                        <!-- 其他用户：显示点赞按钮，根据状态设置不同样式 -->
+                        <button
+                          v-else
+                          :class="{
+                            disabled:
+                              getSimilarSong(result)?.played ||
+                              getSimilarSong(result)?.scheduled ||
+                              getSimilarSong(result)?.voted ||
+                              submitting
+                          }"
+                          :disabled="
+                            getSimilarSong(result)?.played ||
+                            getSimilarSong(result)?.scheduled ||
+                            getSimilarSong(result)?.voted ||
+                            submitting
+                          "
+                          :title="
+                            getSimilarSong(result)?.played
+                              ? locale.playedCannotLike
+                              : getSimilarSong(result)?.scheduled
+                                ? locale.scheduledCannotLike
+                                : getSimilarSong(result)?.voted
+                                  ? locale.liked
+                                  : locale.like
+                          "
+                          class="like-btn"
+                          @click.stop.prevent="
+                            getSimilarSong(result)?.played || getSimilarSong(result)?.scheduled
+                              ? null
+                              : handleLikeFromSearch(getSimilarSong(result), result)
+                          "
+                        >
+                          <svg
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+                            />
+                          </svg>
+                          {{
+                            getSimilarSong(result)?.played
+                              ? locale.played
+                              : getSimilarSong(result)?.scheduled
+                                ? locale.scheduled
+                                : getSimilarSong(result)?.voted
+                                  ? locale.liked
+                                  : locale.like
+                          }}
+                        </button>
+                      </div>
+                      <button
+                        v-else-if="!user"
+                        class="select-btn login-btn"
+                        @click.stop.prevent="handleLoginRedirect"
+                      >
+                        {{ locale.loginRequiredToSubmit }}
+                      </button>
+                      <button
+                        v-else
+                        :disabled="
+                          !canSubmitFromSearch ||
+                          isSongBlockedByRestriction(result) ||
+                          isResultSubmitting(result)
+                        "
+                        :title="
+                          isSongBlockedByRestriction(result)
+                            ? getRestrictionMessage(getRestrictionReason(result))
+                            : ''
+                        "
+                        class="select-btn"
+                        @click.stop.prevent="submitSong(result)"
+                      >
+                        {{
+                          isResultSubmitting(result)
+                            ? locale.processing
+                            : platform === 'netease' && searchType === 1009
+                              ? locale.chooseProgram
+                              : isBilibiliMultiP(result)
+                                ? locale.chooseEpisodes
+                                : locale.chooseSubmit
+                        }}
+                      </button>
+                    </div>
+                  </div>
+                </TransitionGroup>
+
+                <!-- 手动输入按钮 -->
+                <div class="no-results-action">
+                  <button
+                    v-if="!user"
+                    class="manual-submit-btn"
+                    type="button"
+                    @click="handleLoginRedirect"
+                  >
+                    {{ locale.loginRequiredToSubmit }}
+                  </button>
+                  <button
+                    v-else
+                    :disabled="!canSubmitFromSearch"
+                    class="manual-submit-btn"
+                    type="button"
+                    @click="showManualModal = true"
+                  >
+                    {{ locale.manualSubmitLong }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 空状态 -->
+              <div v-else-if="!searching && hasSearched" key="empty" class="empty-state">
+                <div class="empty-icon">🔍</div>
+                <p class="empty-text">{{ locale.noResults }}</p>
+                <p class="empty-hint">{{ locale.noResultsHint }}</p>
+                <button
+                  v-if="!user"
+                  class="manual-submit-btn"
+                  type="button"
+                  @click="handleLoginRedirect"
+                >
+                  {{ locale.loginRequiredToSubmit }}
+                </button>
+                <button
+                  v-else
+                  :disabled="!canSubmitFromSearch"
+                  class="manual-submit-btn"
+                  type="button"
+                  @click="showManualModal = true"
+                >
+                  {{ locale.manualSubmit }}
+                </button>
+              </div>
+
+              <!-- 初始状态 -->
+              <div v-else-if="!searching" key="initial" class="initial-state">
+                <div class="search-illustration">
+                  <img :alt="locale.searchSongsAlt" class="search-svg" :src="getSearchIcon()" >
+                </div>
+              </div>
+            </Transition>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- 历史学期导入弹窗 -->
+    <ImportSongsModal
+      :show="showImportSongsModal"
+      @close="showImportSongsModal = false"
+      @import-success="handleImportSuccess"
+    />
+
+    <!-- 网易云音乐登录弹窗 -->
+    <NeteaseLoginModal
+      :show="showLoginModal"
+      @close="showLoginModal = false"
+      @login-success="handleLoginSuccess"
+    />
+
+    <!-- QQ音乐登录弹窗 -->
+    <QQMusicLoginModal
+      :show="showQQLoginModal"
+      @close="showQQLoginModal = false"
+      @login-success="handleQQLoginSuccess"
+    />
+
+    <!-- 播客节目列表弹窗 -->
+    <PodcastEpisodesModal
+      ref="podcastModalRef"
+      :cookie="podcastCookie"
+      :radio-id="selectedPodcastId"
+      :radio-name="selectedPodcastName"
+      :show="showPodcastModal"
+      @close="showPodcastModal = false"
+      @play="handlePodcastPlay"
+      @submit="handlePodcastSubmit"
+    />
+
+    <!-- Bilibili 剧集选择弹窗 -->
+    <BilibiliEpisodesModal
+      ref="bilibiliModalRef"
+      :show="showBilibiliEpisodesModal"
+      :video="selectedBilibiliVideo"
+      :episodes="bilibiliEpisodes"
+      :submitted-episodes="getBilibiliEpisodeStatus(selectedBilibiliVideo)?.submittedEpisodes || []"
+      :current-user-id="user?.id"
+      :allow-played-resubmit="enableReplayRequests"
+      @close="showBilibiliEpisodesModal = false"
+      @play="handleBilibiliEpisodePlay"
+      @submit="handleBilibiliEpisodeSelect"
+      @vote="handleEpisodeVote"
+    />
+
+    <!-- 专辑详情弹窗 -->
+    <AlbumDetailsModal
+      ref="albumModalRef"
+      :show="showAlbumDetailsModal"
+      :album-id="selectedAlbumId"
+      :album-name="selectedAlbumName"
+      :platform="selectedAlbumPlatform"
+      :submitted-songs="songService.songs.value || []"
+      :current-user-id="user?.id"
+      @close="showAlbumDetailsModal = false"
+      @play="handleAlbumSongPlay"
+      @submit="handleAlbumSongSubmit"
+      @vote="handleAlbumSongVote"
+    />
+
+    <!-- 上传到网易云音乐弹窗 -->
+    <NeteaseUploadDialog
+      :show="showUploadDialog"
+      :song="selectedUploadSong"
+      @close="showUploadDialog = false"
+      @show-login="handleShowLogin"
+    />
+
+    <!-- 最近播放歌曲弹窗 -->
+    <RecentSongsModal
+      ref="recentSongsModalRef"
+      :cookie="neteaseCookie"
+      :show="showRecentSongsModal"
+      @close="showRecentSongsModal = false"
+      @play="handleRecentSongPlay"
+      @submit="handleRecentSongSubmit"
+    />
+
+    <!-- 歌单选择弹窗 -->
+    <PlaylistSelectionModal
+      ref="playlistModalRef"
+      :cookie="playlistModalPlatform === 'tencent' ? qqMusicCookie : neteaseCookie"
+      :platform="playlistModalPlatform"
+      :show="showPlaylistModal"
+      :uid="neteaseUser?.userId || neteaseUser?.id"
+      @close="showPlaylistModal = false"
+      @play="handlePlaylistPlay"
+      @submit="handlePlaylistSubmit"
+    />
+
+    <!-- 用户搜索弹窗 -->
+    <UserSearchModal
+      v-if="enableCollaborativeSubmission && !submissionAnonymous"
+      v-model:show="showUserSearchModal"
+      :exclude-ids="[user?.id, ...collaborators.map((u) => u.id)]"
+      :multiple="true"
+      :title="locale.addCollaboratorTitle"
+      @select="handleUserSelect"
+    />
+
+    <!-- 管理员代他人投稿：选择投稿人 -->
+    <UserSearchModal
+      v-if="isAdminUser"
+      v-model:show="showOnBehalfSearch"
+      :exclude-ids="[]"
+      :multiple="false"
+      :title="locale.onBehalfTitle"
+      @select="handleOnBehalfSelect"
+    />
+
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition duration-300 ease-out"
+        enter-from-class="opacity-0 scale-95"
+        enter-to-class="opacity-100 scale-100"
+        leave-active-class="transition duration-200 ease-in"
+        leave-from-class="opacity-100 scale-100"
+        leave-to-class="opacity-0 scale-95"
+      >
+        <div
+          v-if="showAudioMatchModal"
+          class="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-bg-primary-85 backdrop-blur-sm"
+        >
+          <div
+            class="relative w-full max-w-md bg-bg-secondary border border-border-secondary rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+            @click.stop
+          >
+            <div class="px-8 py-7 flex flex-col items-center text-center">
+              <div class="relative">
+                <div
+                  class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-500"
+                  :class="
+                    audioMatchRecording
+                      ? 'bg-error-20 text-error scale-110'
+                      : audioMatchError
+                        ? 'bg-bg-tertiary-50 text-text-tertiary'
+                        : 'bg-primary-10 text-primary'
+                  "
+                >
+                  <Icon :size="32" name="mic" />
+                </div>
+                <div
+                  v-if="audioMatchRecording"
+                  class="absolute inset-0 rounded-full border-2 border-error animate-ping opacity-30"
+                />
+              </div>
+
+              <h3 class="mt-6 text-xl font-bold text-text-primary tracking-tight">
+                {{ locale.audioMatch }}
+              </h3>
+
+              <p class="mt-2 text-sm text-text-tertiary max-w-[260px]">
+                {{
+                  audioMatchStatus || (audioMatchError ? audioMatchError : locale.audioMatchHint)
+                }}
+              </p>
+
+              <div class="mt-8 flex items-center gap-4">
+                <button
+                  v-if="!audioMatchRecording"
+                  :disabled="audioMatchPreparing || audioMatchProcessing"
+                  class="audio-match-primary-btn"
+                  type="button"
+                  @click="startAudioMatchRecording"
+                >
+                  {{
+                    audioMatchPreparing
+                      ? locale.preparing
+                      : audioMatchProcessing
+                        ? locale.recognizing
+                        : locale.startAudioMatch
+                  }}
+                </button>
+                <button
+                  v-else
+                  :disabled="!audioMatchRecording"
+                  class="audio-match-record-btn"
+                  type="button"
+                  @click="stopAudioMatchRecording"
+                >
+                  <span class="recording-dot" />
+                  {{ locale.recording }}
+                </button>
+                <button class="audio-match-cancel-btn" type="button" @click="closeAudioMatchModal">
+                  {{ locale.cancel }}
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="audioMatchResults.length"
+              class="flex-1 overflow-y-auto px-6 pb-6 custom-scrollbar"
+            >
+              <div class="border-t border-border-secondary-60 pt-5">
+                <h4 class="text-sm font-semibold text-text-secondary mb-4">
+                  {{ locale.audioMatchResults }}
+                </h4>
+                <div class="space-y-2">
+                  <button
+                    v-for="match in audioMatchResults"
+                    :key="match.key"
+                    class="audio-match-result-item group/item w-full"
+                    type="button"
+                    @click="useAudioMatchResult(match)"
+                  >
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                      <div
+                        class="relative shrink-0 w-11 h-11 rounded-xl overflow-hidden group/cover bg-bg-tertiary-50 flex items-center justify-center"
+                        @click.stop="playAudioMatchResult(match)"
+                      >
+                        <img
+                          v-if="match.cover"
+                          :src="match.cover"
+                          class="w-full h-full object-cover"
+                        >
+                        <Music v-else class="w-5 h-5 text-text-tertiary" />
+                        <div
+                          class="absolute inset-0 bg-bg-primary-50 opacity-0 group-hover/cover:opacity-100 flex items-center justify-center transition-all"
+                        >
+                          <Play class="w-4 h-4 text-text-primary fill-white" />
+                        </div>
+                      </div>
+                      <div class="min-w-0 text-left flex-1">
+                        <p class="truncate text-sm font-medium text-text-primary">
+                          {{ match.name }}
+                        </p>
+                        <p class="truncate text-xs text-text-tertiary mt-0.5">{{ match.artist }}</p>
+                      </div>
+                      <div class="shrink-0 text-right">
+                        <span class="text-[11px] font-mono text-primary">
+                          {{ (match.startTime / 1000).toFixed(1) }}s
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 手动输入弹窗 -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition duration-300 ease-out"
+        enter-from-class="opacity-0 scale-95"
+        enter-to-class="opacity-100 scale-100"
+        leave-active-class="transition duration-200 ease-in"
+        leave-from-class="opacity-100 scale-100"
+        leave-to-class="opacity-0 scale-95"
+      >
+        <div
+          v-if="showManualModal"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-bg-primary-80 backdrop-blur-sm"
+          @click.self="showManualModal = false"
+        >
+          <div
+            class="relative w-full max-w-2xl bg-bg-secondary border border-border-secondary rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            @click.stop
+          >
+            <!-- Header -->
+            <div
+              class="px-8 py-6 border-b border-border-secondary-50 flex items-center justify-between shrink-0"
+            >
+              <div class="flex items-center gap-4">
+                <div
+                  class="w-12 h-12 rounded-2xl bg-primary-hover-10 flex items-center justify-center text-primary"
+                >
+                  <Edit3 :size="24" />
+                </div>
+                <h3 class="text-xl font-black text-text-primary tracking-tight">
+                  {{ locale.manualTitle }}
+                </h3>
+              </div>
+              <button
+                class="w-10 h-10 flex items-center justify-center rounded-xl bg-bg-tertiary-50 text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary transition-all"
+                @click="showManualModal = false"
+              >
+                <X class="w-5 h-5" />
+              </button>
+            </div>
+
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              <div class="grid grid-cols-1 gap-6">
+                <!-- 歌曲名称 -->
+                <div class="space-y-2">
+                  <label
+                    class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+                    >{{ locale.songName }}</label
+                  >
+                  <div class="relative group">
+                    <input
+                      :value="title"
+                      class="w-full bg-bg-primary border border-border-secondary rounded-xl px-4 py-3 text-sm text-text-tertiary font-bold focus:outline-none cursor-not-allowed transition-all"
+                      readonly
+                      type="text"
+                    >
+                    <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                      <Lock class="w-4 h-4 text-text-disabled" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 歌手名称 -->
+                <div class="space-y-2">
+                  <label
+                    for="modal-artist"
+                    class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+                    >{{ locale.artistName }}</label
+                  >
+                  <input
+                    id="modal-artist"
+                    v-model="manualArtist"
+                    class="w-full bg-bg-primary border border-border-secondary rounded-xl px-4 py-3 text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:border-primary-30 transition-all"
+                    :placeholder="locale.artistPlaceholder"
+                    required
+                    type="text"
+                  >
+                </div>
+
+                <!-- 歌曲封面地址 -->
+                <div class="space-y-2">
+                  <label
+                    for="modal-cover"
+                    class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+                    >{{ locale.coverUrl }}</label
+                  >
+                  <div class="relative group">
+                    <input
+                      id="modal-cover"
+                      v-model="manualCover"
+                      :class="[
+                        'w-full bg-bg-primary border rounded-xl px-4 py-3 text-sm text-text-primary placeholder-text-disabled focus:outline-none transition-all',
+                        manualCover && !coverValidation.valid
+                          ? 'border-error-50 focus:border-error-50'
+                          : 'border-border-secondary focus:border-primary-30'
+                      ]"
+                      :placeholder="locale.coverPlaceholder"
+                      type="url"
+                    >
+                    <div
+                      v-if="coverValidation.validating"
+                      class="absolute inset-y-0 right-4 flex items-center"
+                    >
+                      <Loader2 class="w-4 h-4 text-text-tertiary animate-spin" />
+                    </div>
+                  </div>
+                  <Transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="opacity-0 -translate-y-1"
+                    enter-to-class="opacity-100 translate-y-0"
+                  >
+                    <div v-if="manualCover && !coverValidation.validating" class="px-1 pt-1">
+                      <p
+                        v-if="!coverValidation.valid"
+                        class="text-[10px] font-bold text-error-80 flex items-center gap-1"
+                      >
+                        <X class="w-3 h-3" /> {{ coverValidation.error }}
+                      </p>
+                      <p
+                        v-else
+                        class="text-[10px] font-bold text-success-80 flex items-center gap-1"
+                      >
+                        <Check class="w-3 h-3" /> {{ locale.validUrl }}
+                      </p>
+                    </div>
+                  </Transition>
+                </div>
+
+                <!-- 播放地址 -->
+                <div class="space-y-2">
+                  <label
+                    for="modal-play-url"
+                    class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+                    >{{ locale.playUrl }}</label
+                  >
+                  <div class="relative group">
+                    <input
+                      id="modal-play-url"
+                      v-model="manualPlayUrl"
+                      :class="[
+                        'w-full bg-bg-primary border rounded-xl px-4 py-3 text-sm text-text-primary placeholder-text-disabled focus:outline-none transition-all',
+                        manualPlayUrl && !playUrlValidation.valid
+                          ? 'border-error-50 focus:border-error-50'
+                          : 'border-border-secondary focus:border-primary-30'
+                      ]"
+                      :placeholder="locale.playUrlPlaceholder"
+                      type="url"
+                    >
+                    <div
+                      v-if="playUrlValidation.validating"
+                      class="absolute inset-y-0 right-4 flex items-center"
+                    >
+                      <Loader2 class="w-4 h-4 text-text-tertiary animate-spin" />
+                    </div>
+                  </div>
+                  <Transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="opacity-0 -translate-y-1"
+                    enter-to-class="opacity-100 translate-y-0"
+                  >
+                    <div v-if="manualPlayUrl && !playUrlValidation.validating" class="px-1 pt-1">
+                      <p
+                        v-if="!playUrlValidation.valid"
+                        class="text-[10px] font-bold text-error-80 flex items-center gap-1"
+                      >
+                        <X class="w-3 h-3" /> {{ playUrlValidation.error }}
+                      </p>
+                      <p
+                        v-else
+                        class="text-[10px] font-bold text-success-80 flex items-center gap-1"
+                      >
+                        <Check class="w-3 h-3" /> {{ locale.validUrl }}
+                      </p>
+                    </div>
+                  </Transition>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div
+              class="px-8 py-6 bg-bg-secondary-50 border-t border-border-secondary-50 flex gap-3 justify-end shrink-0"
+            >
+              <button
+                class="px-6 py-2.5 text-xs font-bold text-text-tertiary hover:text-text-secondary transition-all"
+                type="button"
+                @click="showManualModal = false"
+              >
+                {{ locale.cancel }}
+              </button>
+              <button
+                :disabled="!canSubmitFromSearch || !canSubmitManualForm || submitting"
+                class="px-8 py-2.5 bg-primary-hover hover:bg-primary text-text-primary text-xs font-black rounded-lg transition-all disabled:opacity-50"
+                type="button"
+                @click="handleManualSubmit"
+              >
+                {{ submitting ? locale.submitting : locale.confirmSubmit }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+    <!-- 隐藏的文件输入框 -->
+    <input
+      ref="fileInput"
+      accept=".json"
+      style="display: none"
+      type="file"
+      @change="handleImportData"
+    >
+    <input
+      ref="qqFileInput"
+      accept=".json"
+      style="display: none"
+      type="file"
+      @change="handleImportDataQQ"
+    >
+
+    <!-- 投稿选项弹窗 -->
+    <SubmissionOptionsModal
+      v-model:show="showSubmissionOptions"
+      v-model:note="submissionNote"
+      v-model:note-public="submissionNotePublic"
+      v-model:note-anonymous="submissionAnonymous"
+      v-model:card-code-draft="cardCodeDraft"
+      :mode="submissionOptionsMode"
+      :slot-enabled="playTimeSelectionEnabled"
+      :slot-required="playSlotRequired"
+      :play-times="enabledPlayTimes"
+      :initial-date="preferredPlayDate"
+      :initial-time-id="preferredPlayTimeId || defaultPlayTimeId"
+      :today="todayPlayDate"
+      :format-label="formatPlayTimeOptionLabel"
+      :show-note="enableSubmissionRemarks"
+      :show-anonymous="allowAnonymousSubmission && !!user"
+      :note-approval-required="submissionNoteRequiresApproval"
+      :show-card-code="cardCodeEnabled"
+      :card-code="cardCode"
+      :card-code-required="requireCardCodeForRequests"
+      :my-card-codes="myCardCodes"
+      :card-code-status="cardCodeStatusText"
+      :card-code-status-tone="cardCodeStatusTone"
+      :card-code-checking="cardCodeValidation.checking"
+      :text="submissionOptionsText"
+      @save-card-code="saveCardCode"
+      @clear-card-code="clearCardCode"
+      @select-my-card-code="selectMyCardCode"
+      @confirm="handlePlaySlotConfirm"
+      @cancel="handlePlaySlotCancel"
+    />
+  </div>
+</template>
+
+<script setup>
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { X, Lock, Loader2, Check, Edit3, Music, Play } from '@lucide/vue'
+import { useSongs } from '~/composables/useSongs'
+import { useThemeImage } from '~/composables/useThemeImage'
+import { useAudioPlayer } from '~/composables/useAudioPlayer'
+import { useAudioPlayerControl } from '~/composables/useAudioPlayerControl'
+import { useSiteConfig } from '~/composables/useSiteConfig'
+import { useAuth } from '~/composables/useAuth'
+import { useSemesters } from '~/composables/useSemesters'
+import { useMusicSources } from '~/composables/useMusicSources'
+import { useAudioQuality } from '~/composables/useAudioQuality'
+import { usePlatformConfig } from '~/composables/usePlatformConfig'
+import { useLocale } from '~/utils/locale'
+import { getBeijingDateString, getBeijingWeekday } from '~/utils/timeUtils'
+import SubmissionOptionsModal from '~/components/Songs/SubmissionOptionsModal.vue'
+import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
+import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
+import Icon from '../UI/Icon.vue'
+import { convertToHttps, getCoverThumbUrl, validateUrl } from '~/utils/url'
+import { isBilibiliSong } from '~/utils/bilibiliSource'
+import { getLoginStatus } from '~/utils/neteaseApi'
+import { getMusicUrl as resolveMusicUrl } from '~/utils/musicUrl'
+import { onQqMusicCookieUpdated, onQqMusicLoginInvalidated, persistQqMusicCookie } from '~/utils/qqCookie'
+import { renderMarkdown } from '~/utils/markdown'
+import { normalizeForMatch as normalizeString } from '~/utils/song-name-normalize'
+import { getPluginId, isPluginPlatform } from '~/utils/pluginPlatform'
+import ImportSongsModal from './ImportSongsModal.vue'
+import NeteaseLoginModal from './NeteaseLoginModal.vue'
+import QQMusicLoginModal from './QQMusicLoginModal.vue'
+import PodcastEpisodesModal from './PodcastEpisodesModal.vue'
+import BilibiliEpisodesModal from './BilibiliEpisodesModal.vue'
+import AlbumDetailsModal from './AlbumDetailsModal.vue'
+import RecentSongsModal from './RecentSongsModal.vue'
+import PlaylistSelectionModal from './PlaylistSelectionModal.vue'
+import UserSearchModal from '../Common/UserSearchModal.vue'
+import NeteaseUploadDialog from './NeteaseUploadDialog.vue'
+
+const props = defineProps({
+  loading: {
+    type: Boolean,
+    default: false
+  }
+})
+
+const emit = defineEmits(['request', 'vote'])
+const { songs: songsLocale } = useLocale()
+const locale = computed(() => useSafeLocale(songsLocale.value?.requestForm || {}))
+const { t: callLocale } = useLocaleText(locale)
+const { localize: localizeServerError } = useServerErrors()
+const { getSearchIcon } = useThemeImage()
+
+// 站点配置
+const {
+  guidelines: submissionGuidelines,
+  initSiteConfig,
+  enableReplayRequests,
+  enableSubmissionRestriction,
+  enableCollaborativeSubmission,
+  enableSubmissionRemarks,
+  allowAnonymousSubmission,
+  enableSubmissionLimit,
+  enableCardCodeRequests,
+  requireCardCodeForRequests,
+  enableCardCodeLimitBypass,
+  submissionNoteRequiresApproval,
+  isLoaded: siteConfigLoaded
+} = useSiteConfig()
+
+// 将投稿须知 Markdown 渲染为安全 HTML
+const renderedGuidelines = computed(() => renderMarkdown(submissionGuidelines.value))
+
+// 用户认证
+const auth = useAuth()
+const user = computed(() => auth.user.value)
+
+// 学期管理
+const { fetchCurrentSemester, currentSemester, fetchSemesterOptions, semesters } = useSemesters()
+
+// 是否显示“从往期导入”按钮：只有在有多个学期的情况下才显示
+const showImportSemesterBtn = computed(() => semesters.value && semesters.value.length > 1)
+const AUDIO_MATCH_DURATION = 3
+
+const title = ref('')
+const artist = ref('')
+const platform = ref('netease') // 占位值，平台配置加载后跟随后台排序的首选平台
+const platformTouched = ref(false) // 用户是否手动切换过平台，切换后不再覆盖其选择
+const preferredPlayTimeId = ref('')
+const submissionNote = ref('')
+const submissionNotePublic = ref(true)
+const submissionAnonymous = ref(false)
+const cardCode = ref('')
+const cardCodeDraft = ref('')
+// 派发到当前用户名下的点歌券（用于投稿选项弹窗的下拉选择）
+const myCardCodes = ref([])
+const cardCodeValidation = ref({
+  checking: false,
+  valid: null,
+  message: ''
+})
+const error = ref('')
+const success = ref('')
+const submitting = ref(false)
+const voting = ref(false)
+// 正在投稿的搜索结果标识：投稿被播出时段弹窗拦下时 submitting 尚未置位，
+// 用它让卡片按钮从点击起就保持「处理中」
+const submittingSongKey = ref('')
+
+const {
+  getAvailablePlatforms,
+  loadPlatformConfig,
+  loaded: platformConfigLoaded,
+  pluginPlatforms
+} = usePlatformConfig()
+const availablePlatforms = computed(() => getAvailablePlatforms())
+
+// 平台按钮显示名：内置音源用词典，插件音源用其 displayName
+const getPlatformButtonLabel = (key) => {
+  if (isPluginPlatform(key)) {
+    const plugin = pluginPlatforms.value.find((p) => p.platform === key)
+    return plugin?.displayName ?? getPluginId(key)
+  }
+  return ((locale.value.platforms) || {})[key] ?? key
+}
+
+// 监听平台可用性与排序变化：
+// - 当前平台被禁用时，强制切换到第一个可用平台并提示
+// - 用户未手动选择过平台时，默认选中跟随后台排序的第一位
+watch(availablePlatforms, (available) => {
+  if (available.length === 0) return
+  if (!available.includes(platform.value)) {
+    platform.value = available[0]
+    if (window.$showNotification) {
+      const switchedName = getPlatformButtonLabel(platform.value) || ''
+      const msg = callLocale('notifications.platformAutoSwitched', '', switchedName)
+      window.$showNotification(msg, 'info')
+    }
+    return
+  }
+  if (!platformTouched.value && platform.value !== available[0]) {
+    platform.value = available[0]
+  }
+})
+
+const showImportSongsModal = ref(false)
+const showLoginModal = ref(false)
+const showQQLoginModal = ref(false)
+const isNeteaseLoggedIn = ref(false)
+const neteaseUser = ref(null)
+const neteaseCookie = ref('')
+const isQQMusicLoggedIn = ref(false)
+const qqMusicUser = ref(null)
+const qqMusicCookie = ref('')
+const checkingQQLogin = ref(false)
+// QQ Cookie 续期/失效广播的取消订阅函数
+let unsubscribeQqCookie = null
+let unsubscribeQqInvalidated = null
+const searchType = ref(1) // 1: 单曲, 1009: 播客/电台
+
+// 播客弹窗相关
+const showPodcastModal = ref(false)
+const selectedPodcastId = ref('')
+const selectedPodcastName = ref('')
+const podcastCookie = ref('')
+
+const showRecentSongsModal = ref(false)
+const showPlaylistModal = ref(false)
+// 当前打开歌单弹窗对应的音源平台，决定弹窗内数据获取分支
+const playlistModalPlatform = ref('netease')
+
+const openPlaylistModal = (platform) => {
+  playlistModalPlatform.value = platform
+  showPlaylistModal.value = true
+}
+const showUserSearchModal = ref(false)
+const collaborators = ref([])
+// 管理员代他人投稿：选择稿件归属的普通用户
+const showOnBehalfSearch = ref(false)
+const onBehalfUser = ref(null)
+const onBehalfLoading = ref(false)
+const isAdminUser = computed(
+  () => !!user.value && ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.value.role)
+)
+const roleLabel = (role) => locale.value.roleLabels?.[role] || role || '-'
+const handleOnBehalfSelect = async (selected) => {
+  const target = Array.isArray(selected) ? selected[0] : selected
+  showOnBehalfSearch.value = false
+  if (!target) {
+    onBehalfUser.value = null
+    return
+  }
+  onBehalfUser.value = target
+  onBehalfLoading.value = true
+  try {
+    const data = await $fetch(`/api/users/submit-target/${target.id}`)
+    if (data?.user) onBehalfUser.value = data.user
+  } catch (error) {
+    console.error('获取代投稿用户信息失败:', error)
+  } finally {
+    onBehalfLoading.value = false
+  }
+}
+const clearOnBehalfUser = () => {
+  onBehalfUser.value = null
+}
+
+const songService = useSongs({ compact: true })
+const playTimes = ref([])
+const playTimeSelectionEnabled = ref(false)
+// 默认播出时段是否已处理：只在首次加载时预选一次，避免用户主动清空后被刷新填回
+const defaultSlotApplied = ref(false)
+// 后台配置的默认播出时段 id：必选模式下用于预填「选时段」弹窗（不直接写入选中值）
+const defaultPlayTimeId = ref('')
+const loadingPlayTimes = ref(false)
+// 播出日期 + 时段选择：日期可选，时段在后台上开启「时段必选」时必选
+const preferredPlayDate = ref('')
+// 后台「时段必选」总开关：仅约束网页投稿，日期始终可留空
+const playSlotRequired = ref(false)
+const playSlotError = ref('')
+// 投稿选项弹窗（留言 / 点歌券 / 播出时段）
+const showSubmissionOptions = ref(false)
+// 弹窗模式：options = 用户主动打开仅保存选项；required = 强制选择时段，确认后继续投稿
+const submissionOptionsMode = ref('options')
+// 弹窗确认后待真正提交的歌曲与上下文
+const pendingPlaySlotSubmit = ref(null)
+
+const cardCodeEnabled = computed(
+  () => enableCardCodeRequests.value || requireCardCodeForRequests.value
+)
+const cardCodeLimitBypassActive = computed(
+  () => enableSubmissionLimit.value && cardCodeEnabled.value && enableCardCodeLimitBypass.value
+)
+
+const cardCodeFieldMeta = computed(() => ({
+  required: requireCardCodeForRequests.value,
+  helper: requireCardCodeForRequests.value
+    ? cardCodeLimitBypassActive.value
+      ? locale.value.cardCodeRequiredBypassHelper
+      : locale.value.cardCodeRequiredHelper
+    : cardCodeLimitBypassActive.value
+      ? locale.value.cardCodeOptionalBypassHelper
+      : locale.value.cardCodeOptionalHelper,
+  placeholder: locale.value.cardCodePlaceholder
+}))
+
+const trimmedCardCode = computed(() => cardCode.value.trim())
+const cardCodeStatusText = computed(() => {
+  if (cardCodeValidation.value.checking) return locale.value.validatingCardCode
+  if (trimmedCardCode.value) {
+    if (cardCodeValidation.value.valid && cardCodeLimitBypassActive.value) {
+      return locale.value.cardCodeAvailableBypass
+    }
+    return cardCodeValidation.value.message || locale.value.cardCodeWillValidate
+  }
+  return cardCodeFieldMeta.value.required
+    ? locale.value.cardCodeRequiredStatus
+    : locale.value.cardCodeOptionalStatus
+})
+/** 点歌券状态语义色：验证中 / 可用 / 无效 / 必填未填 */
+const cardCodeStatusTone = computed(() => {
+  if (cardCodeValidation.value.checking) return 'idle'
+  if (cardCodeValidation.value.valid === true) return 'ok'
+  if (cardCodeValidation.value.valid === false) return 'error'
+  if (trimmedCardCode.value) return 'idle'
+  return cardCodeFieldMeta.value.required ? 'warn' : 'idle'
+})
+
+const resetCardCodeValidation = () => {
+  cardCodeValidation.value = {
+    checking: false,
+    valid: null,
+    message: ''
+  }
+}
+
+const validateCardCode = async (code) => {
+  const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : ''
+  if (!normalizedCode) {
+    resetCardCodeValidation()
+    return !requireCardCodeForRequests.value
+  }
+
+  cardCodeValidation.value = {
+    checking: true,
+    valid: null,
+    message: locale.value.validatingCardCode
+  }
+
+  try {
+    const response = await $fetch('/api/card-codes/validate', {
+      method: 'POST',
+      body: { cardCode: normalizedCode },
+      ...auth.getAuthConfig()
+    })
+
+    cardCodeValidation.value = {
+      checking: false,
+      valid: true,
+      message: locale.value.cardCodeAvailable
+    }
+    return true
+  } catch (err) {
+    const message = localizeServerError(err, locale.value.cardCodeValidateFailed)
+    cardCodeValidation.value = {
+      checking: false,
+      valid: false,
+      message
+    }
+    if (window.$showNotification) {
+      window.$showNotification(message, 'error')
+    }
+    return false
+  }
+}
+
+const saveCardCode = async () => {
+  const draft = cardCodeDraft.value.trim().toUpperCase()
+  if (requireCardCodeForRequests.value && !draft) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.cardCodeRequiredWarning, 'warning')
+    }
+    return
+  }
+
+  if (!draft) {
+    clearCardCode()
+    return
+  }
+
+  if (!(await validateCardCode(draft))) {
+    return
+  }
+
+  cardCode.value = draft
+  cardCodeDraft.value = draft
+}
+
+const clearCardCode = () => {
+  cardCode.value = ''
+  cardCodeDraft.value = ''
+  resetCardCodeValidation()
+}
+
+/** 拉取当前用户的派发券。 */
+const fetchMyCardCodes = async () => {
+  if (!user.value || !cardCodeEnabled.value) {
+    myCardCodes.value = []
+    return
+  }
+  try {
+    const response = await $fetch('/api/card-codes/mine', {
+      ...auth.getAuthConfig()
+    })
+    myCardCodes.value = Array.isArray(response?.data) ? response.data : []
+  } catch (error) {
+    console.error('获取我的点歌券失败', error)
+    myCardCodes.value = []
+  }
+}
+
+/** 从下拉中选取已派发的点歌券：走与手动输入相同的校验链路 */
+const selectMyCardCode = async (code) => {
+  const normalized = String(code || '').trim().toUpperCase()
+  if (!normalized) {
+    clearCardCode()
+    return
+  }
+  if (!(await validateCardCode(normalized))) {
+    return
+  }
+  cardCode.value = normalized
+  cardCodeDraft.value = normalized
+}
+
+const ensureCardCodeForSubmit = async () => {
+  if (!cardCodeEnabled.value) {
+    return true
+  }
+
+  if (!trimmedCardCode.value) {
+    if (!requireCardCodeForRequests.value) {
+      return true
+    }
+
+    // 必填点歌券未填写：打开投稿选项弹窗，让用户就地补填
+    openSubmissionOptions()
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.cardCodeRequiredWarning, 'warning')
+    }
+    return false
+  }
+
+  // 已验证过且未变动则跳过重复验证
+  if (cardCodeValidation.value.valid === true) {
+    return true
+  }
+
+  return await validateCardCode(trimmedCardCode.value)
+}
+
+// 投稿状态
+const submissionStatus = ref(null)
+const loadingSubmissionStatus = ref(false)
+
+// 搜索相关
+const searching = ref(false)
+const searchResults = ref([])
+const restrictionCheckMap = ref(new Map())
+const restrictionChecking = ref(false)
+let restrictionCheckRequestId = 0
+const restrictionAbortController = ref(null)
+const selectedCover = ref('')
+const selectedUrl = ref('')
+const audioPlayer = useAudioPlayer() // 使用全局音频播放器
+
+// 搜索请求控制器
+const searchAbortController = ref(null)
+const showAudioMatchModal = ref(false)
+const audioMatchPreparing = ref(false)
+const audioMatchRecording = ref(false)
+const audioMatchProcessing = ref(false)
+const audioMatchStatus = ref('')
+const audioMatchError = ref('')
+const audioMatchResults = ref([])
+let audioMatchScriptsPromise = null
+let audioMatchContext = null
+let audioMatchRecorderNode = null
+let audioMatchMicStream = null
+let audioMatchMicSourceNode = null
+let audioMatchSilentNode = null
+
+// 音源管理器
+const musicSources = useMusicSources()
+const { currentSource, sourceStatus, sourceStatusSummary, currentSourceInfo } = musicSources
+const { checkNeteaseLoginStatus: updateGlobalNeteaseStatus, persistNeteaseVipFlag, clearNeteaseVipFlag } = useAudioQuality()
+const searchError = ref('')
+
+// 手动输入相关
+const showManualModal = ref(false)
+
+const showBilibiliEpisodesModal = ref(false)
+const selectedBilibiliVideo = ref(null)
+const bilibiliEpisodes = ref([])
+const bilibiliEpisodeSubmitOptions = ref({})
+
+// 专辑详情相关
+const showAlbumDetailsModal = ref(false)
+const selectedAlbumId = ref(null)
+const selectedAlbumName = ref(null)
+const selectedAlbumPlatform = ref('netease')
+
+const manualArtist = ref('')
+const manualCover = ref('')
+const manualPlayUrl = ref('')
+const hasSearched = ref(false)
+
+// 上传到网易云相关
+const showUploadDialog = ref(false)
+const selectedUploadSong = ref(null)
+
+// URL验证相关
+const coverValidation = ref({ valid: true, error: '', validating: false })
+const playUrlValidation = ref({ valid: true, error: '', validating: false })
+
+// 网易云音乐登录检查状态
+const checkingNeteaseLogin = ref(false)
+
+const resetAudioMatchState = () => {
+  audioMatchPreparing.value = false
+  audioMatchRecording.value = false
+  audioMatchProcessing.value = false
+  audioMatchStatus.value = ''
+  audioMatchError.value = ''
+  audioMatchResults.value = []
+}
+
+const stopAudioMatchSession = async () => {
+  audioMatchRecording.value = false
+  audioMatchProcessing.value = false
+
+  if (audioMatchMicStream) {
+    audioMatchMicStream.getTracks().forEach((track) => track.stop())
+    audioMatchMicStream = null
+  }
+
+  audioMatchMicSourceNode?.disconnect()
+  audioMatchRecorderNode?.disconnect()
+  audioMatchSilentNode?.disconnect()
+
+  audioMatchMicSourceNode = null
+  audioMatchRecorderNode = null
+  audioMatchSilentNode = null
+
+  if (audioMatchContext) {
+    try {
+      await audioMatchContext.close()
+    } catch {
+      // ignore close failures
+    }
+    audioMatchContext = null
+  }
+}
+
+const loadAudioMatchScript = (src) =>
+  new Promise((resolve, reject) => {
+    if (document.querySelector(`script[data-audio-match="${src}"]`)) {
+      resolve()
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = src
+    script.async = true
+    script.dataset.audioMatch = src
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error(callLocale('audioMatchScriptLoadFailed', '', src)))
+    document.head.appendChild(script)
+  })
+
+const ensureAudioMatchScripts = async () => {
+  if (!import.meta.client) return
+
+  if (typeof window.GenerateFP === 'function') {
+    return
+  }
+
+  if (!audioMatchScriptsPromise) {
+    audioMatchScriptsPromise = loadAudioMatchScript('/audio-match/afp.wasm.js')
+      .then(() => loadAudioMatchScript('/audio-match/afp.js'))
+      .then(() => {
+        if (typeof window.GenerateFP !== 'function') {
+          throw new Error(locale.value.audioMatchEngineFailed)
+        }
+      })
+      .catch((err) => {
+        audioMatchScriptsPromise = null
+        throw err
+      })
+  }
+
+  await audioMatchScriptsPromise
+}
+
+const parseAudioMatchResults = (response) => {
+  const resultList =
+    response?.data?.result ||
+    response?.result ||
+    response?.body?.data?.result ||
+    response?.body?.result ||
+    []
+
+  return resultList.map((item, index) => {
+    const song = item?.song || {}
+    const artists = Array.isArray(song.artists)
+      ? song.artists.map((artistItem) => artistItem?.name).filter(Boolean)
+      : []
+
+    return {
+      key: `${song.id || 'unknown'}-${index}`,
+      id: song.id,
+      name: song.name || locale.value.unknownSong,
+      artist: artists.join(' / ') || locale.value.unknownArtist,
+      album: song.album?.name || '',
+      cover: song.album?.picUrl || song.al?.picUrl || '',
+      startTime: typeof item?.startTime === 'number' ? item.startTime : 0
+    }
+  })
+}
+
+const handleAudioMatchFingerprint = async (recording) => {
+  try {
+    audioMatchProcessing.value = true
+    audioMatchStatus.value = locale.value.audioMatchGenerating
+
+    const fingerprint = await window.GenerateFP(recording)
+    const response = await $fetch('/api/api-enhanced/netease/audio/match', {
+      method: 'POST',
+      body: {
+        duration: AUDIO_MATCH_DURATION,
+        audioFP: fingerprint
+      }
+    })
+
+    const matches = parseAudioMatchResults(response)
+    if (!matches.length) {
+      throw new Error(locale.value.audioMatchNoMatch)
+    }
+
+    audioMatchResults.value = matches
+    audioMatchStatus.value = callLocale('audioMatchDone', '', matches.length)
+  } catch (err) {
+    console.error('听歌识曲失败:', err)
+    audioMatchError.value = err?.message || locale.value.audioMatchFailed
+    audioMatchStatus.value = ''
+    audioMatchResults.value = []
+  } finally {
+    audioMatchProcessing.value = false
+  }
+}
+
+const initializeAudioMatch = async () => {
+  await ensureAudioMatchScripts()
+  await stopAudioMatchSession()
+
+  audioMatchPreparing.value = true
+  audioMatchStatus.value = locale.value.microphoneRequesting
+
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext
+    audioMatchContext = new AudioContextClass({ sampleRate: 8000 })
+    if (audioMatchContext.state === 'suspended') {
+      await audioMatchContext.resume()
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error(locale.value.microphoneUnsupported)
+    }
+
+    if (audioMatchContext.audioWorklet) {
+      await audioMatchContext.audioWorklet.addModule('/audio-match/rec.js')
+      audioMatchRecorderNode = new AudioWorkletNode(audioMatchContext, 'timed-recorder')
+
+      audioMatchRecorderNode.port.onmessage = async (event) => {
+        switch (event.data.message) {
+          case 'bufferhealth': {
+            const progress = Math.min(1, Number(event.data.health) || 0)
+            const currentSeconds = (AUDIO_MATCH_DURATION * progress).toFixed(1)
+            audioMatchStatus.value = callLocale(
+              'audioMatchRecordingProgress',
+              '',
+              currentSeconds,
+              AUDIO_MATCH_DURATION
+            )
+            break
+          }
+          case 'finished':
+            audioMatchRecording.value = false
+            await handleAudioMatchFingerprint(event.data.recording)
+            break
+          default:
+            break
+        }
+      }
+    } else {
+      // 兼容不支持 AudioWorklet 的浏览器 (如旧版 Safari)
+      const bufferSize = 4096
+      const scriptNode = audioMatchContext.createScriptProcessor(bufferSize, 1, 1)
+
+      let maxLength = 0
+      let recbuffer = new Float32Array()
+      let recording = false
+      let bufIndex = 0
+
+      scriptNode.onaudioprocess = (e) => {
+        if (!recording) return
+
+        const channelL = e.inputBuffer.getChannelData(0)
+        const progress = bufIndex / maxLength
+        const currentSeconds = (AUDIO_MATCH_DURATION * progress).toFixed(1)
+
+        // 提高更新频率以改善用户体验
+        if (bufIndex % bufferSize === 0) {
+          audioMatchStatus.value = callLocale(
+            'audioMatchRecordingProgress',
+            '',
+            currentSeconds,
+            AUDIO_MATCH_DURATION
+          )
+        }
+
+        if (bufIndex + channelL.length > maxLength) {
+          recording = false
+          audioMatchRecording.value = false
+
+          // 确保包含最后一块数据
+          const remaining = maxLength - bufIndex
+          if (remaining > 0) {
+            recbuffer.set(channelL.subarray(0, remaining), bufIndex)
+          }
+
+          bufIndex = 0
+          handleAudioMatchFingerprint(recbuffer)
+        } else {
+          recbuffer.set(channelL, bufIndex)
+          bufIndex += channelL.length
+        }
+      }
+
+      // 模拟 AudioWorkletNode 接口
+      audioMatchRecorderNode = scriptNode
+      audioMatchRecorderNode.port = {
+        postMessage: (msg) => {
+          if (msg.message === 'start') {
+            maxLength = msg.duration * 8000
+            recbuffer = new Float32Array(maxLength)
+            bufIndex = 0
+            recording = true
+          }
+        }
+      }
+    }
+
+    audioMatchSilentNode = audioMatchContext.createGain()
+    audioMatchSilentNode.gain.value = 0
+    audioMatchRecorderNode.connect(audioMatchSilentNode)
+    audioMatchSilentNode.connect(audioMatchContext.destination)
+
+    const GET_USER_MEDIA_TIMEOUT_MS = 15000
+
+    audioMatchMicStream = await Promise.race([
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          autoGainControl: false,
+          noiseSuppression: false,
+          latency: 0
+        }
+      }),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(locale.value.microphoneTimeout)),
+          GET_USER_MEDIA_TIMEOUT_MS
+        )
+      )
+    ])
+
+    audioMatchMicSourceNode = audioMatchContext.createMediaStreamSource(audioMatchMicStream)
+    audioMatchMicSourceNode.connect(audioMatchRecorderNode)
+    audioMatchStatus.value = locale.value.microphoneReady
+  } catch (err) {
+    await stopAudioMatchSession()
+    throw err
+  } finally {
+    audioMatchPreparing.value = false
+  }
+}
+
+const openAudioMatchModal = async () => {
+  showAudioMatchModal.value = true
+  resetAudioMatchState()
+
+  try {
+    await initializeAudioMatch()
+  } catch (err) {
+    console.error('初始化听歌识曲失败:', err)
+    audioMatchError.value = err?.message || locale.value.audioMatchInitFailed
+  }
+}
+
+const closeAudioMatchModal = async () => {
+  showAudioMatchModal.value = false
+  resetAudioMatchState()
+  await stopAudioMatchSession()
+}
+
+const playAudioMatchResult = async (match) => {
+  try {
+    const result = {
+      id: match.id,
+      musicId: match.id,
+      song: match.name,
+      singer: match.artist,
+      cover: match.cover || null,
+      musicPlatform: 'netease',
+      hasUrl: false
+    }
+
+    await playSong(result)
+
+    if (match.startTime > 0) {
+      const audioPlayerControl = useAudioPlayerControl()
+      audioPlayerControl.seekAndPlay(match.startTime / 1000)
+    }
+  } catch (err) {
+    console.error('播放听歌识曲片段失败:', err)
+  }
+}
+
+const startAudioMatchRecording = async () => {
+  if (audioMatchPreparing.value || audioMatchRecording.value || audioMatchProcessing.value) return
+
+  audioMatchError.value = ''
+  audioMatchResults.value = []
+
+  if (!audioMatchRecorderNode) {
+    try {
+      await initializeAudioMatch()
+    } catch (err) {
+      console.error('重新初始化听歌识曲失败:', err)
+      audioMatchError.value = err?.message || locale.value.microphoneAccessFailed
+      return
+    }
+  }
+
+  audioMatchStatus.value = callLocale(
+    'audioMatchRecordingProgress',
+    '',
+    '0.0',
+    AUDIO_MATCH_DURATION
+  )
+  audioMatchRecording.value = true
+  audioMatchRecorderNode.port.postMessage({
+    message: 'start',
+    duration: AUDIO_MATCH_DURATION
+  })
+}
+
+const stopAudioMatchRecording = () => {
+  if (audioMatchRecorderNode?.port) {
+    audioMatchRecorderNode.port.postMessage({ message: 'stop' })
+  }
+}
+
+const useAudioMatchResult = async (match) => {
+  platform.value = 'netease'
+  searchType.value = 1
+  title.value = `${match.name} ${match.artist}`.trim()
+  error.value = ''
+  success.value = ''
+
+  await closeAudioMatchModal()
+  await nextTick()
+  await handleSearch()
+}
+
+onBeforeUnmount(() => {
+  stopAudioMatchSession()
+  if (unsubscribeQqCookie) {
+    unsubscribeQqCookie()
+    unsubscribeQqCookie = null
+  }
+  if (unsubscribeQqInvalidated) {
+    unsubscribeQqInvalidated()
+    unsubscribeQqInvalidated = null
+  }
+})
+
+const handleImportSuccess = async () => {
+  // 不自动关闭弹窗，等待用户在结果页点击完成
+  // showImportSongsModal.value = false
+  // 刷新歌曲列表以便检查相似歌曲
+  try {
+    await songService.fetchSongs({ silent: true, semester: currentSemester.value?.name, forceRefresh: true })
+  } catch (error) {
+    console.error('刷新歌曲列表失败:', error)
+  }
+}
+
+const handleUserSelect = (users) => {
+  if (Array.isArray(users)) {
+    // 过滤掉已存在的
+    const newUsers = users.filter((u) => !collaborators.value.some((c) => c.id === u.id))
+    collaborators.value.push(...newUsers)
+  } else if (users) {
+    if (!collaborators.value.some((c) => c.id === users.id)) {
+      collaborators.value.push(users)
+    }
+  }
+}
+
+const removeCollaborator = (userId) => {
+  collaborators.value = collaborators.value.filter((c) => c.id !== userId)
+}
+
+// 获取播出时段
+const fetchPlayTimes = async () => {
+  loadingPlayTimes.value = true
+  try {
+    const response = await fetch('/api/play-times')
+    if (response.ok) {
+      const data = await response.json()
+      playTimes.value = data.playTimes || []
+      playTimeSelectionEnabled.value = data.enabled || false
+      playSlotRequired.value = data.required || false
+
+      // 记录默认时段 id，供「必选」弹窗预填
+      defaultPlayTimeId.value = data.defaultPlayTimeId ? String(data.defaultPlayTimeId) : ''
+
+      // 默认播出时段仅在时段为「可选」时自动预选一次（写入 preferredPlayTimeId）。
+      // 开启「必选」时不预选，留给强制弹窗预填，保证用户仍需主动确认时段。
+      // 不覆盖用户已有的选择，也不在用户主动清空后重新填回。
+      if (!defaultSlotApplied.value) {
+        defaultSlotApplied.value = true
+        if (data.enabled && !data.required && data.defaultPlayTimeId && !preferredPlayTimeId.value) {
+          const defaultId = String(data.defaultPlayTimeId)
+          const exists = (data.playTimes || []).some((pt) => String(pt.id) === defaultId)
+          if (exists) preferredPlayTimeId.value = defaultId
+        }
+      }
+    }
+  } catch (err) {
+    console.error('获取播出时段失败:', err)
+  } finally {
+    loadingPlayTimes.value = false
+  }
+}
+
+const fileInput = ref(null)
+
+const checkNeteaseLoginStatus = async () => {
+  if (import.meta.client) {
+    const cookie = localStorage.getItem('netease_cookie')
+    // const userStr = localStorage.getItem('netease_user')
+    if (cookie) {
+      checkingNeteaseLogin.value = true
+      try {
+        const res = await getLoginStatus(cookie)
+        const dataObj = res.body?.data || res.body
+        if (dataObj && dataObj.account) {
+          neteaseCookie.value = cookie
+          isNeteaseLoggedIn.value = true
+          neteaseUser.value = dataObj.profile || dataObj.account
+          localStorage.setItem('netease_user', JSON.stringify(neteaseUser.value))
+          // 同步 VIP 标志（vipType 非 0 即 VIP）
+          persistNeteaseVipFlag(dataObj.profile)
+          // 同步全局网易云登录状态
+          updateGlobalNeteaseStatus()
+        } else {
+          // 登录失效
+          handleLogoutNetease()
+        }
+      } catch (e) {
+        console.error('检查登录状态失败', e)
+        // 如果网络请求失败，暂时保留本地状态，或者根据需求清除
+        // 这里选择保守策略，只有明确失效才清除，除非是401等错误
+        // 但鉴于用户要求“失效了就清除”，如果API通了但返回无效则清除。
+        // 如果API不通，可能不清除。这里假设getLoginStatus返回正常结构。
+      } finally {
+        checkingNeteaseLogin.value = false
+      }
+    } else {
+      // 同步全局网易云登录状态
+      updateGlobalNeteaseStatus()
+    }
+  }
+}
+
+const handleExportData = () => {
+  if (!neteaseCookie.value) return
+  const data = {
+    cookie: neteaseCookie.value,
+    timestamp: Date.now()
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `netease_cookie_${Date.now()}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  if (window.$showNotification) {
+    window.$showNotification(locale.value.notifications.exportSuccess, 'success')
+  }
+}
+
+const handleImportClick = () => {
+  fileInput.value.click()
+}
+
+const handleImportData = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    if (data.cookie) {
+      checkingNeteaseLogin.value = true
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.notifications.validatingCookie, 'info')
+      }
+
+      const res = await getLoginStatus(data.cookie)
+      const dataObj = res.body?.data || res.body
+      if (dataObj && dataObj.account) {
+        handleLoginSuccess({
+          cookie: data.cookie,
+          user: dataObj.profile || dataObj.account
+        })
+        if (window.$showNotification) {
+          window.$showNotification(locale.value.notifications.importSuccess, 'success')
+        }
+      } else {
+        if (window.$showNotification) {
+          window.$showNotification(locale.value.notifications.cookieInvalid, 'error')
+        }
+      }
+    } else {
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.notifications.fileFormatError, 'error')
+      }
+    }
+  } catch (e) {
+    console.error('导入失败', e)
+    if (window.$showNotification) {
+      window.$showNotification(
+        callLocale('notifications.importFailed', '', getErrorMessage(e)),
+        'error'
+      )
+    }
+  } finally {
+    checkingNeteaseLogin.value = false
+  }
+  // 重置input
+  event.target.value = ''
+}
+
+const handleLoginSuccess = (data) => {
+  neteaseCookie.value = data.cookie
+  neteaseUser.value = data.user
+  isNeteaseLoggedIn.value = true
+
+  if (import.meta.client) {
+    localStorage.setItem('netease_cookie', data.cookie)
+    localStorage.setItem('netease_user', JSON.stringify(data.user))
+    persistNeteaseVipFlag(data.user)
+    updateGlobalNeteaseStatus()
+  }
+}
+
+const handleLogoutNetease = () => {
+  neteaseCookie.value = ''
+  neteaseUser.value = null
+  isNeteaseLoggedIn.value = false
+  searchType.value = 1
+
+  if (import.meta.client) {
+    localStorage.removeItem('netease_cookie')
+    localStorage.removeItem('netease_user')
+    clearNeteaseVipFlag()
+    updateGlobalNeteaseStatus()
+  }
+}
+
+const applyQqMusicUser = (user) => {
+  qqMusicUser.value = user || { nickname: locale.value.qqLoggedIn }
+}
+
+const validateQqCookie = async (cookie) => {
+  const res = await $fetch('/api/native-api/qq/check-cookie', {
+    method: 'POST',
+    body: { cookie }
+  })
+  const data = res?.data || {}
+  // 校验失败时服务端会用 refresh_token 续期，成功则替换本地登录态
+  if (data.cookie) {
+    persistQqMusicCookie(data.cookie)
+    qqMusicCookie.value = data.cookie
+  }
+  return data
+}
+
+// 持久化服务端返回的 VIP 状态，供取链优先级判断（仅 VIP 时优先官方链路）
+const persistQqVipFlag = (data) => {
+  if (typeof data?.isVip !== 'boolean' || !import.meta.client) return
+  localStorage.setItem('qq_music_vip', data.isVip ? '1' : '0')
+}
+
+// 用服务端校验结果补全真实昵称与头像，仅在有增量时更新
+const refreshQqProfileFromServer = async (cookie) => {
+  // 校验过程可能触发续期，优先使用已替换的最新登录态
+  const activeCookie = qqMusicCookie.value || cookie
+  if (!activeCookie) return
+  try {
+    const data = await validateQqCookie(activeCookie)
+    if (!data.valid) return
+    persistQqVipFlag(data)
+    if (!(data.user?.nickname || data.user?.avatarUrl)) return
+
+    const mergedUser = { ...(qqMusicUser.value || {}), ...data.user }
+    applyQqMusicUser(mergedUser)
+    localStorage.setItem('qq_music_user', JSON.stringify(mergedUser))
+  } catch (e) {
+    console.warn('刷新 QQ 用户资料失败:', e)
+  }
+}
+
+// 启动时静默校验本地保存的 QQ 登录态，失效则清理并提示
+const checkQQMusicLoginStatus = async () => {
+  if (!import.meta.client) return
+
+  const cookie = localStorage.getItem('qq_music_cookie')
+  if (!cookie) {
+    handleLogoutQQMusic()
+    return
+  }
+
+  // 先按本地缓存呈现，再异步校验，避免界面闪烁
+  qqMusicCookie.value = cookie
+  isQQMusicLoggedIn.value = true
+  try {
+    const userStr = localStorage.getItem('qq_music_user')
+    qqMusicUser.value = userStr ? JSON.parse(userStr) : { nickname: locale.value.qqLoggedIn }
+  } catch {
+    applyQqMusicUser(null)
+  }
+
+  checkingQQLogin.value = true
+  try {
+    const data = await validateQqCookie(cookie)
+    if (data.valid) {
+      persistQqVipFlag(data)
+      await refreshQqProfileFromServer(cookie)
+    } else {
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.qqLoginExpired, 'warning')
+      }
+      handleLogoutQQMusic()
+    }
+  } catch (e) {
+    console.warn('校验 QQ 登录状态失败，保留本地状态:', e)
+  } finally {
+    checkingQQLogin.value = false
+  }
+}
+
+const handleQQLoginSuccess = (data) => {
+  qqMusicCookie.value = data.cookie
+  applyQqMusicUser(data.user)
+  isQQMusicLoggedIn.value = true
+
+  if (import.meta.client) {
+    localStorage.setItem('qq_music_cookie', data.cookie)
+    localStorage.setItem('qq_music_user', JSON.stringify(qqMusicUser.value))
+  }
+
+  // 立即拉取真实昵称与头像，替换扫码占位信息
+  refreshQqProfileFromServer(data.cookie)
+}
+
+const handleLogoutQQMusic = () => {
+  qqMusicCookie.value = ''
+  qqMusicUser.value = null
+  isQQMusicLoggedIn.value = false
+
+  if (import.meta.client) {
+    localStorage.removeItem('qq_music_cookie')
+    localStorage.removeItem('qq_music_user')
+    localStorage.removeItem('qq_music_vip')
+  }
+}
+
+const handleExportDataQQ = () => {
+  if (!qqMusicCookie.value) return
+  const data = {
+    cookie: qqMusicCookie.value,
+    user: qqMusicUser.value,
+    timestamp: Date.now()
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `qq_music_cookie_${Date.now()}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  if (window.$showNotification) {
+    window.$showNotification(locale.value.notifications.exportSuccess, 'success')
+  }
+}
+
+const qqFileInput = ref(null)
+
+const handleImportClickQQ = () => {
+  qqFileInput.value.click()
+}
+
+const handleImportDataQQ = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    if (data.cookie) {
+      checkingQQLogin.value = true
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.notifications.validatingCookie, 'info')
+      }
+
+      const result = await validateQqCookie(data.cookie)
+      if (result.valid) {
+        const user =
+          result.user?.nickname || result.user?.avatarUrl
+            ? result.user
+            : { nickname: locale.value.qqLoggedIn }
+        handleQQLoginSuccess({ cookie: data.cookie, user })
+        if (window.$showNotification) {
+          window.$showNotification(locale.value.notifications.importSuccess, 'success')
+        }
+      } else {
+        if (window.$showNotification) {
+          window.$showNotification(locale.value.notifications.cookieInvalid, 'error')
+        }
+      }
+    } else {
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.notifications.fileFormatError, 'error')
+      }
+    }
+  } catch (e) {
+    console.error('导入失败', e)
+    if (window.$showNotification) {
+      window.$showNotification(
+        callLocale('notifications.importFailed', '', getErrorMessage(e)),
+        'error'
+      )
+    }
+  } finally {
+    checkingQQLogin.value = false
+  }
+  event.target.value = ''
+}
+
+watch(
+  () => searchType.value,
+  () => {
+    if (platform.value !== 'netease') return
+
+    // 记录当前状态，判断是否需要重新搜索
+    // 如果已经有搜索结果(hasSearched)或正在搜索中(searching)，且有关键词，则应该重新搜索
+    const shouldResearch = title.value.trim() && (hasSearched.value || searching.value)
+
+    // 如果有正在进行的搜索请求，立即取消
+    if (searchAbortController.value) {
+      searchAbortController.value.abort()
+      searchAbortController.value = null
+      searching.value = false
+    }
+
+    // 清空之前的搜索结果，避免显示错误的类型结果
+    searchResults.value = []
+
+    // 自动重新搜索
+    if (shouldResearch) {
+      handleSearch()
+    }
+  }
+)
+
+onMounted(async () => {
+  // 后台加载平台配置（不阻塞其他初始化）；平台可用性变化由 watch 自动处理
+  loadPlatformConfig()
+  // 播放链路触发续期后同步内存登录态，避免歌单等后续请求仍用旧凭据
+  unsubscribeQqCookie = onQqMusicCookieUpdated((cookie) => {
+    qqMusicCookie.value = cookie
+  })
+  // 播放链路复验确认登录态失效后同步登出并提示重新登录
+  unsubscribeQqInvalidated = onQqMusicLoginInvalidated(() => {
+    if (!isQQMusicLoggedIn.value) return
+    handleLogoutQQMusic()
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.qqLoginExpired, 'warning')
+    }
+  })
+  checkNeteaseLoginStatus()
+  checkQQMusicLoginStatus()
+  fetchPlayTimes()
+  initSiteConfig()
+  fetchSubmissionStatus()
+  // 获取当前学期和所有学期选项
+  await Promise.all([fetchCurrentSemester(), fetchSemesterOptions()])
+  // 只有在用户已登录时才加载歌曲列表以便检查相似歌曲
+  if (auth.isAuthenticated.value) {
+    try {
+      const currentSemesterName = currentSemester.value?.name
+      await songService.fetchSongs({ semester: currentSemesterName })
+    } catch (error) {
+      console.error('加载歌曲列表失败:', error)
+    }
+
+    try {
+      const pendingSearch = sessionStorage.getItem('pending_search')
+      if (pendingSearch) {
+        const saved = JSON.parse(pendingSearch)
+        sessionStorage.removeItem('pending_search')
+        if (saved.title) {
+          title.value = saved.title
+          if (saved.platform) platform.value = saved.platform
+          await checkNeteaseLoginStatus()
+          await handleSearch()
+        }
+      }
+    } catch {
+      // 浏览器禁用会话存储时不影响页面初始化。
+    }
+  }
+  // 音源健康检查功能已移除
+})
+
+// 过滤出启用的播出时段
+const enabledPlayTimes = computed(() => {
+  return playTimes.value.filter((pt) => pt.enabled)
+})
+
+// 日期串（YYYY-MM-DD）→ 星期（0=周日…6=周六），由 timeUtils 统一按北京时间计算
+const getWeekdayFromDateString = (dateString) => getBeijingWeekday(dateString)
+
+// 北京日期作为日期选择下限，打开弹窗时刷新
+const todayPlayDate = ref(getBeijingDateString())
+
+// 格式化播出时段时间范围
+const formatPlayTimeRange = (playTime) => {
+  if (!playTime) return ''
+
+  if (playTime.startTime && playTime.endTime) {
+    return `${playTime.startTime} - ${playTime.endTime}`
+  } else if (playTime.startTime) {
+    return `${playTime.startTime}`
+  } else if (playTime.endTime) {
+    return `${playTime.endTime}`
+  }
+
+  return locale.value.choosePlayTime
+}
+
+// 播出时段下拉选项文案：名称 + 时间范围
+const formatPlayTimeOptionLabel = (playTime) => {
+  const range = formatPlayTimeRange(playTime)
+  if (!playTime?.name) return range
+  if (!range || range === locale.value.choosePlayTime) return playTime.name
+  return `${playTime.name} (${range})`
+}
+
+// 校验日期与时段。
+const validatePlaySlotSelection = (enforceRequired = true) => {
+  if (!playTimeSelectionEnabled.value) return true
+
+  if (enforceRequired && playSlotRequired.value && !preferredPlayTimeId.value) {
+    playSlotError.value = locale.value.playSlotTimeRequiredError || '请选择期望播出时段'
+    error.value = playSlotError.value
+    if (window.$showNotification) {
+      window.$showNotification(playSlotError.value, 'error')
+    }
+    return false
+  }
+
+  // 时段为可选项且未选择时，无需继续校验
+  if (!preferredPlayTimeId.value) {
+    playSlotError.value = ''
+    return true
+  }
+
+  // 指定日期时校验时段在该日期星期是否开放（与弹窗内的即时过滤保持一致）
+  if (preferredPlayDate.value && preferredPlayTimeId.value) {
+    const slot = enabledPlayTimes.value.find(
+      (pt) => String(pt.id) === String(preferredPlayTimeId.value)
+    )
+    if (slot) {
+      const weekday = getWeekdayFromDateString(preferredPlayDate.value)
+      if (weekday !== null) {
+        const days = Array.isArray(slot.weekdays) && slot.weekdays.length > 0 ? slot.weekdays : null
+        const applies = days === null || days.includes(weekday)
+        if (!applies) {
+          playSlotError.value =
+            locale.value.playSlotNotOpenOnDate || '所选播出时段在该日期不开放，请重新选择'
+          error.value = playSlotError.value
+          if (window.$showNotification) {
+            window.$showNotification(playSlotError.value, 'error')
+          }
+          return false
+        }
+      }
+    }
+  }
+
+  playSlotError.value = ''
+  return true
+}
+
+/** 弹窗内是否有可配置的内容（决定「更多选项」按钮是否出现） */
+const submissionOptionsAvailable = computed(
+  () =>
+    playTimeSelectionEnabled.value ||
+    enableSubmissionRemarks.value ||
+    (allowAnonymousSubmission.value && !!user.value) ||
+    cardCodeEnabled.value
+)
+
+/** 每次投稿前是否弹出投稿选项弹窗（有可配置项时） */
+const submissionDialogNeeded = computed(() => submissionOptionsAvailable.value)
+
+/** 生成投稿设置可配置项列表（用于入口卡片的说明行）。 */
+const submissionOptionsSummary = computed(() => {
+  const items = []
+  if (playTimeSelectionEnabled.value) {
+    items.push(locale.value?.submissionOptionItemSlot || '播出安排')
+  }
+  if (enableSubmissionRemarks.value) {
+    items.push(locale.value?.submissionOptionItemNote || '投稿留言')
+  }
+  if (allowAnonymousSubmission.value && !!user.value) {
+    items.push(locale.value?.submissionOptionItemAnonymous || '匿名投稿')
+  }
+  if (cardCodeEnabled.value) {
+    items.push(locale.value?.submissionOptionItemCardCode || '点歌券')
+  }
+  return items.join(' · ')
+})
+
+/** 用户主动打开投稿选项弹窗：只保存选项，不触发投稿 */
+const openSubmissionOptions = () => {
+  todayPlayDate.value = getBeijingDateString()
+  submissionOptionsMode.value = 'options'
+  showSubmissionOptions.value = true
+  // 打开弹窗时刷新已派发券，保证下拉列表是最新的
+  fetchMyCardCodes()
+}
+
+/** 后台开启「时段必选」但尚未选择时段 → 投稿时弹窗收集，确认后继续提交 */
+const requiresSlotSelection = computed(
+  () =>
+    playTimeSelectionEnabled.value &&
+    playSlotRequired.value &&
+    !preferredPlayTimeId.value
+)
+
+const openRequiredSlotOptions = (pending) => {
+  todayPlayDate.value = getBeijingDateString()
+  pendingPlaySlotSubmit.value = pending
+  submissionOptionsMode.value = 'required'
+  showSubmissionOptions.value = true
+}
+
+// 投稿选项弹窗的界面文案
+const submissionOptionsText = computed(() => {
+  const requiredMode = submissionOptionsMode.value === 'required'
+  const needSlot = requiresSlotSelection.value
+  return {
+    // 标题随模式切换：强制选时段时强调时段，其余为投稿确认
+    title: requiredMode
+      ? (needSlot
+          ? locale.value.playSlotModalTitle || '选择播出时段'
+          : locale.value.submissionOptionsTitle || '投稿选项')
+      : locale.value.submissionOptionsTitle || '投稿选项',
+    subtitle: requiredMode && needSlot
+      ? locale.value.playSlotModalSubtitle ||
+        '时段必选；播出日期可选，留空则由后台排期安排播出日'
+      : locale.value.submissionOptionsSubtitle || '投稿选项均为选填，展开后按需设置',
+    // 播出时段
+    slotSectionTitle: locale.value.playSlotSectionTitle || '播出安排',
+    clearSlot: locale.value.clear || '清除',
+    dateLabel: locale.value.preferredPlayDate || '期望播出日期',
+    timeLabel: locale.value.preferredPlayTime || '期望播出时段',
+    optional: locale.value.optional || '可选',
+    required: locale.value.required || '必选',
+    timePlaceholder: locale.value.choosePlayTime || '请选择播出时段',
+    timeFreeHint: locale.value.playSlotTimeFreeHint || '可选择任一启用的播出时段',
+    timeRestrictedHint: locale.value.playSlotTimeRestrictedHint || '仅显示该日期开放的播出时段',
+    dateOptionalHint:
+      locale.value.playSlotDateOptionalHint || '未指定播出日期，具体播出日由后台排期决定',
+    noSlotsForDate: locale.value.noSlotsForDate || '该日期没有开放的播出时段，请更换日期',
+    timeRequiredError: locale.value.playSlotTimeRequiredError || '请选择期望播出时段',
+    // 投稿留言
+    noteLabel: locale.value.submissionNote || '投稿留言',
+    anonymousLabel: locale.value.anonymousSubmission || '匿名投稿',
+    publicToUsers: locale.value.publicToUsers || '备注留言公开给已登录用户',
+    anonymous: locale.value.anonymousSubmission || '匿名投稿',
+    approvalHint: locale.value.submissionNoteApprovalHint || '公开留言需管理员审核通过后展示',
+    notePlaceholder:
+      locale.value.submissionNotePlaceholder || '想说点什么？（选填，最多 300 字）',
+    // 点歌券
+    cardCodeLabel: locale.value.cardCode || '点歌券',
+    cardCodePlaceholder: locale.value.cardCodePlaceholder || '请输入点歌券',
+    cardCodeHelper: cardCodeFieldMeta.value.helper,
+    // 已派发券下拉选择
+    cardCodeMyCodes: locale.value.cardCodeMyCodes || '我的点歌券',
+    cardCodeSelectLabel: locale.value.cardCodeSelectLabel || '选择点歌券',
+    cardCodeSelectPlaceholder:
+      locale.value.cardCodeSelectPlaceholder || '从我的点歌券中选择，或手动输入券码',
+    cardCodeNoCodes: locale.value.cardCodeNoCodes || '暂无可用的点歌券',
+    cardCodeNoCodesHint:
+      locale.value.cardCodeNoCodesHint ||
+      '暂无可用的点歌券，可在列表中选择「手动输入券码」录入。',
+    cardCodeMyCodesCount: (count) =>
+      typeof locale.value.cardCodeMyCodesCount === 'function'
+        ? locale.value.cardCodeMyCodesCount(count)
+        : `我有 ${count} 张点歌券`,
+    // 手动添加
+    cardCodeAddManually: locale.value.cardCodeAddManually || '添加点歌券',
+    cardCodeManualInput: locale.value.cardCodeManualInput || '手动输入券码',
+    cardCodeManualOption: locale.value.cardCodeManualOption || '手动输入券码',
+    cardCodeManualPlaceholder: locale.value.cardCodeManualPlaceholder || '输入收到的点歌券码',
+    // 分组标题
+    settingsGroupTitle: locale.value.submissionOptions || '投稿设置',
+    settingsGroupDesc: submissionOptionsSummary.value,
+    // 操作
+    clear: locale.value.clear || '清除',
+    save: locale.value.save || '保存',
+    validatingShort: locale.value.validatingShort || '验证中',
+    cancel: locale.value.cancel || '取消',
+    confirm: requiredMode ? locale.value.confirmSubmit || '确认投稿' : locale.value.save || '保存',
+    emptyHint: locale.value.submissionOptionsEmptyHint || '当前站点未开放可配置的投稿选项'
+  }
+})
+
+/** 保存弹窗选项并按模式继续投稿。 */
+const handlePlaySlotConfirm = async ({ date, timeId }) => {
+  preferredPlayTimeId.value = timeId ? String(timeId) : ''
+  preferredPlayDate.value = date || ''
+  playSlotError.value = ''
+
+  const pending = pendingPlaySlotSubmit.value
+  pendingPlaySlotSubmit.value = null
+  if (!pending) return
+
+  if (pending.manualForm) {
+    await handleManualSubmit(true)
+    return
+  }
+
+  if (pending.manual) {
+    await handleSubmit(true)
+    return
+  }
+
+  await submitSong(pending.result, { ...(pending.options || {}), fromSlotModal: true })
+}
+
+/** 取消投稿选项弹窗。 */
+const handlePlaySlotCancel = () => {
+  pendingPlaySlotSubmit.value = null
+  submittingSongKey.value = ''
+  playSlotError.value = ''
+}
+
+// 监听用户状态变化，当用户登录后重新获取投稿状态
+watch(
+  () => user.value,
+  (newUser) => {
+    if (newUser) {
+      fetchSubmissionStatus()
+    } else {
+      submissionStatus.value = null
+    }
+  }
+)
+
+watch(enableCollaborativeSubmission, (enabled) => {
+  if (!enabled) {
+    showUserSearchModal.value = false
+    collaborators.value = []
+  }
+})
+
+watch(enableSubmissionRemarks, (enabled) => {
+  if (!enabled) {
+    submissionNote.value = ''
+    submissionNotePublic.value = true
+  }
+})
+
+watch(allowAnonymousSubmission, (enabled) => {
+  if (!enabled) {
+    submissionAnonymous.value = false
+  }
+})
+
+// 匿名投稿不允许联合投稿：勾选即清空并隐藏协作者选择
+watch(submissionAnonymous, (anonymous) => {
+  if (anonymous) {
+    collaborators.value = []
+    showUserSearchModal.value = false
+  }
+})
+
+watch([enableCardCodeRequests, requireCardCodeForRequests], ([enabled, required]) => {
+  if (!enabled && !required) {
+    clearCardCode()
+  }
+})
+
+watch(cardCodeDraft, (value) => {
+  if (value.trim() !== cardCode.value.trim()) {
+    resetCardCodeValidation()
+  }
+})
+
+// 处理剧集投票
+const handleEpisodeVote = async (episode) => {
+  if (!episode.songId) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.missingSongId, 'error')
+    }
+    return
+  }
+
+  if (episode.voted) {
+    return
+  }
+
+  voting.value = true
+
+  try {
+    await songService.voteSong(episode.songId)
+
+    // 只有在后端成功返回后才更新前端状态
+    episode.voted = true
+    episode.voteCount = (episode.voteCount || 0) + 1
+
+    // 刷新歌曲列表
+    await songService.refreshSongsSilent().catch((err) => {
+      console.error('刷新歌曲列表失败', err)
+    })
+  } catch (err) {
+    if (window.$showNotification) {
+      window.$showNotification(
+        getErrorMessage(err) || locale.value.notifications.likeFailed,
+        'error'
+      )
+    }
+  } finally {
+    voting.value = false
+  }
+}
+
+// 检查搜索结果是否已存在完全匹配的歌曲
+const getSimilarSong = (result) => {
+  // 多P视频不在这里检查相似性，使用专门的 getBilibiliEpisodeStatus
+  if (isBilibiliMultiP(result)) {
+    return null
+  }
+
+  const title = result.song || result.title
+  const artist = result.singer || result.artist
+
+  if (!title || !artist) return null
+
+  const normalizedTitle = normalizeString(title)
+  const normalizedArtist = normalizeString(artist)
+
+  // 获取当前学期名称
+  const currentSemesterName = currentSemester.value?.name
+
+  // 检查完全匹配的歌曲（标准化后），只检查当前学期的歌曲
+  return songService.songs.value.find((song) => {
+    const songTitle = normalizeString(song.title)
+    const songArtist = normalizeString(song.artist)
+    const titleMatch = songTitle === normalizedTitle && songArtist === normalizedArtist
+
+    // 如果有当前学期信息，只检查当前学期的歌曲
+    if (currentSemesterName) {
+      return titleMatch && song.semester === currentSemesterName
+    }
+
+    // 如果没有学期信息，检查所有歌曲（向后兼容）
+    return titleMatch
+  })
+}
+
+// 搜索结果投稿按钮的标识：平台 + 曲目 ID，用于定位正在投稿的那一张卡片
+const getSearchResultKey = (result) => {
+  if (!result) return ''
+  const id = result.musicId || result.id
+  if (id) return `${platform.value}:${id}`
+  return `title:${normalizeString(result.song || result.title || '')}`
+}
+
+// 该卡片是否处于投稿中（含播出时段弹窗确认前的等待阶段）
+const isResultSubmitting = (result) => {
+  if (pendingPlaySlotSubmit.value && getSearchResultKey(pendingPlaySlotSubmit.value.result) === getSearchResultKey(result)) {
+    return true
+  }
+  return submitting.value && !!submittingSongKey.value && submittingSongKey.value === getSearchResultKey(result)
+}
+
+// 从搜索结果中点赞已存在的歌曲
+const handleLikeFromSearch = async (song, originalResult = null) => {
+  if (!song || song.voted) {
+    return
+  }
+
+  if (song.played || song.scheduled) {
+    if (window.$showNotification) {
+      const message = song.played ? locale.value.playedCannotLike : locale.value.scheduledCannotLike
+      window.$showNotification(message, 'warning')
+    }
+    return
+  }
+
+  // 如果原始结果是多P视频，打开剧集选择弹窗
+  if (originalResult && isBilibiliMultiP(originalResult)) {
+    selectedBilibiliVideo.value = originalResult
+    bilibiliEpisodes.value = originalResult.pages
+    bilibiliEpisodeSubmitOptions.value = {}
+    showBilibiliEpisodesModal.value = true
+    return
+  }
+
+  try {
+    await songService.voteSong(song.id)
+  } catch (error) {
+    console.error('点赞失败:', error)
+  }
+}
+
+// 平台切换函数
+const switchPlatform = (newPlatform) => {
+  if (platform.value === newPlatform) return
+
+  platformTouched.value = true
+
+  // 如果有正在进行的搜索请求，立即取消
+  if (searchAbortController.value) {
+    searchAbortController.value.abort()
+    searchAbortController.value = null
+    searching.value = false
+  }
+
+  platform.value = newPlatform
+
+  // 清空之前的搜索结果，避免显示错误的平台来源
+  searchResults.value = []
+
+  // 如果已经有搜索结果，自动重新搜索
+  if (title.value.trim() && hasSearched.value) {
+    handleSearch()
+  }
+}
+
+// 搜索歌曲
+const handleSearch = async () => {
+  error.value = ''
+  success.value = ''
+  searchError.value = ''
+
+  if (!title.value.trim()) {
+    error.value = locale.value.notifications.songNameRequired
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.songNameRequired, 'error')
+    }
+    return
+  }
+
+  // 如果有正在进行的搜索请求，先取消
+  if (searchAbortController.value) {
+    searchAbortController.value.abort()
+    searchAbortController.value = null
+  }
+
+  // 创建新的AbortController
+  searchAbortController.value = new AbortController()
+  const signal = searchAbortController.value.signal
+
+  // 记录请求时的上下文，用于结果校验
+  const requestPlatform = platform.value
+  const requestSearchType = searchType.value
+
+  searching.value = true
+  try {
+    // 使用多音源搜索
+    const searchParams = {
+      keywords: title.value.trim(),
+      platform: requestPlatform,
+      limit: 20,
+      signal: signal, // 传递AbortSignal
+      type: requestPlatform === 'netease' ? requestSearchType : 1,
+      cookie:
+        requestPlatform === 'netease'
+          ? neteaseCookie.value
+          : requestPlatform === 'tencent'
+            ? qqMusicCookie.value
+            : undefined
+    }
+
+    console.log('开始多音源搜索:', searchParams)
+    // 平台可用性检查已由 searchSongs 内部统一处理
+    const results = await musicSources.searchSongs(searchParams)
+
+    // 再次检查是否被中断，防止竞态条件
+    if (signal.aborted) return
+
+    // 额外的安全检查：如果用户已经切换了平台或类型，丢弃结果
+    if (platform.value !== requestPlatform) {
+      console.log('平台已切换，丢弃旧结果', requestPlatform, '->', platform.value)
+      return
+    }
+    if (requestPlatform === 'netease' && searchType.value !== requestSearchType) {
+      console.log('搜索类型已切换，丢弃旧结果', requestSearchType, '->', searchType.value)
+      return
+    }
+
+    if (results && results.success && results.data && results.data.length > 0) {
+      // 转换搜索结果格式以兼容现有UI
+      searchResults.value = results.data.map((item) => ({
+        ...item,
+        musicId: item.id,
+        hasUrl: false,
+        // 统一字段名称
+        song: item.title || item.song,
+        singer: item.artist || item.singer,
+        // 保存实际的平台来源信息
+        actualSource: results.source,
+        musicPlatform:
+          item.musicPlatform || (results.source === 'netease-backup' ? 'netease' : results.source),
+        actualMusicPlatform:
+          item.musicPlatform || (results.source === 'netease-backup' ? 'netease' : results.source)
+      }))
+
+      // 如果QQ音乐搜索降级到网易云，自动切换选项卡
+      if (platform.value === 'tencent' && searchResults.value.length > 0) {
+        const firstPlatform =
+          searchResults.value[0].actualMusicPlatform || searchResults.value[0].musicPlatform || ''
+        if (firstPlatform.includes('netease')) {
+          platform.value = 'netease'
+        }
+      }
+
+      console.log('搜索成功，找到', results.data.length, '首歌曲')
+      // 异步预检服务端投稿限制（same-song / same-artist）
+      fetchRestrictionChecks()
+    } else {
+      searchResults.value = []
+      const errorMsg = results && results.error ? results.error : locale.value.noMatchingSongs
+      error.value = errorMsg
+      if (window.$showNotification) {
+        window.$showNotification(errorMsg, 'info')
+      }
+    }
+  } catch (err) {
+    // 如果请求被取消，不显示错误信息
+    if (err.name === 'AbortError' || signal.aborted) {
+      console.log('搜索请求已被取消')
+      return
+    }
+
+    console.error('搜索错误:', err)
+    searchError.value = getErrorMessage(err) || locale.value.searchRequestFailed
+    error.value = searchError.value
+
+    if (window.$showNotification) {
+      window.$showNotification(error.value, 'error')
+    }
+  } finally {
+    // 只有在请求没有被取消的情况下才更新状态
+    if (!signal.aborted) {
+      searching.value = false
+      hasSearched.value = true
+      // 清理AbortController
+      searchAbortController.value = null
+    }
+  }
+}
+
+// 获取音乐播放URL
+const getAudioUrl = async (result) => {
+  if (result.hasUrl || result.url) return result
+
+  try {
+    // 根据搜索结果的sourceInfo.source字段判断音源类型
+    const sourceType = result.sourceInfo?.source || result.actualSource || ''
+
+    // 哔哩哔哩
+    if (sourceType === 'bilibili' || isBilibiliSong(result)) {
+      try {
+        const songId = result.musicId || result.id
+        if (!songId) throw new Error(locale.value.notifications.missingSongId)
+
+        const options = result.bilibiliCid ? { bilibiliCid: String(result.bilibiliCid) } : undefined
+        const urlResult = await musicSources.getSongUrl(songId, 0, 'bilibili', undefined, options)
+
+        if (urlResult && urlResult.success && urlResult.url) {
+          result.url = urlResult.url
+          result.hasUrl = true
+          return result
+        }
+      } catch (error) {
+        console.error('Bilibili获取播放链接失败:', error)
+      }
+    }
+
+    if (sourceType === 'vkeys-v3') {
+      try {
+        const songId = result.musicId || result.id
+        if (!songId) throw new Error(locale.value.notifications.missingSongId)
+
+        const { getQuality } = useAudioQuality()
+        const urlResult = await musicSources.getSongUrl(songId, getQuality('tencent'), 'tencent')
+        if (urlResult?.success && urlResult.url) {
+          result.url = urlResult.url
+          result.hasUrl = true
+          return result
+        }
+      } catch (error) {
+        console.warn('vkeys v3 获取播放链接失败:', error)
+      }
+    }
+
+    // 对于vkeys音源的处理
+    if (sourceType === 'vkeys') {
+      if (result.url) {
+        result.hasUrl = true
+        return result
+      } else {
+        // 根据平台直接尝试对应的备用源
+        if (platform.value === 'tencent') {
+          try {
+            const songId = result.musicId || result.id
+            if (!songId) throw new Error(locale.value.notifications.missingSongId)
+
+            const { getQuality } = useAudioQuality()
+            const quality = getQuality(platform.value) || 8
+            const urlResult = await musicSources.getSongUrl(songId, quality, platform.value)
+
+            if (urlResult && urlResult.success && urlResult.url) {
+              result.url = urlResult.url
+              result.hasUrl = true
+              return result
+            } else {
+              // QQ音乐 vkeys 系无法获取URL，继续回退
+            }
+          } catch (qqError) {
+            // QQ音乐播放链接获取失败，继续回退
+          }
+        } else if (platform.value === 'netease') {
+          try {
+            const { getQuality } = useAudioQuality()
+            const quality = getQuality(platform.value)
+            const songDetail = await musicSources.getSongDetail({
+              ids: [result.musicId || result.id],
+              quality: quality
+            })
+
+            if (songDetail?.data?.songs?.[0]?.url) {
+              const song = songDetail.data.songs[0]
+              result.url = song.url
+              result.hasUrl = true
+              if (song.cover) result.cover = song.cover
+              if (song.duration) result.duration = song.duration
+              return result
+            } else {
+              console.warn('getSongDetail 未返回 url，尝试备用音源')
+              throw new Error('song detail has no url')
+            }
+          } catch (error) {
+            // vkeys getSongDetail 失败，继续回退
+          }
+
+          // 如果getSongDetail失败，尝试网易云备用源
+          try {
+            const { getQuality } = useAudioQuality()
+            const quality = getQuality(platform.value)
+            const songId = result.musicId || result.id
+
+            const urlResult = await musicSources.getSongUrl(songId, quality, platform.value)
+
+            if (urlResult && urlResult.success && urlResult.url) {
+              result.url = urlResult.url
+              result.hasUrl = true
+              return result
+            } else {
+              // 备用源也无法获取URL
+            }
+          } catch (backupError) {
+            // 备用源获取失败
+          }
+        }
+      }
+    }
+
+    // 对于网易云备用源，直接调用getSongUrl获取播放链接
+    if (sourceType === 'netease-backup') {
+      const targetPlatform = 'netease'
+      const { getQuality } = useAudioQuality()
+      const quality = getQuality(targetPlatform)
+      const songId = result.musicId || result.id
+
+      // 检查是否为播客内容
+      const isPodcast = result.sourceInfo?.type === 'voice' || searchType.value === 1009
+
+      try {
+        const urlResult = await musicSources.getSongUrl(
+          songId,
+          quality,
+          targetPlatform,
+          neteaseCookie.value,
+          { unblock: isPodcast ? false : undefined } // 播客内容 unblock=false，普通歌曲使用默认逻辑（登录则false，未登录则true）
+        )
+
+        if (urlResult && urlResult.success && urlResult.url) {
+          // 更新结果中的URL和其他信息
+          result.url = urlResult.url
+          result.hasUrl = true
+
+          // 更新搜索结果中的对应项
+          const index = searchResults.value.findIndex(
+            (item) => (item.musicId || item.id) === (result.musicId || result.id)
+          )
+          if (index !== -1) {
+            searchResults.value[index] = { ...result }
+          }
+        } else {
+          // 未能获取到有效的歌曲URL
+        }
+      } catch (urlError) {
+        // 调用 getSongUrl 失败
+      }
+    }
+
+    // 如果是网易云音乐且没有被前面特殊的 sourceType 处理（比如听歌识曲的普通结果）
+    if (result.musicPlatform === 'netease' && !result.url) {
+      try {
+        const { getQuality } = useAudioQuality()
+        const quality = getQuality('netease')
+        const songDetail = await musicSources.getSongDetail({
+          ids: [result.musicId || result.id],
+          quality: quality
+        })
+
+        if (songDetail?.data?.songs?.[0]?.url) {
+          const song = songDetail.data.songs[0]
+          result.url = song.url
+          result.hasUrl = true
+          if (song.cover) result.cover = song.cover
+          if (song.duration) result.duration = song.duration
+          return result
+        } else {
+          console.warn('getSongDetail 未返回 url，尝试备用音源')
+          throw new Error('song detail has no url')
+        }
+      } catch (error) {
+        console.error('获取网易云音乐详情失败:', error)
+      }
+
+      // 如果getSongDetail失败，尝试网易云备用源
+      try {
+        const { getQuality } = useAudioQuality()
+        const quality = getQuality('netease')
+        const songId = result.musicId || result.id
+
+        const urlResult = await musicSources.getSongUrl(songId, quality, 'netease')
+
+        if (urlResult && urlResult.success && urlResult.url) {
+          result.url = urlResult.url
+          result.hasUrl = true
+          return result
+        }
+      } catch (backupError) {
+        console.error('备用源获取失败:', backupError)
+      }
+    }
+
+    // 最终回退：使用统一的 resolveMusicUrl（包含 vkeys API 回退）
+    // 对于未登录用户或音源获取失败时使用第三方 API 获取播放链接
+    if (!result.url && result.musicPlatform && result.musicId) {
+      try {
+        const fallbackUrl = await resolveMusicUrl(
+          result.musicPlatform,
+          result.musicId,
+          result.playUrl,
+          {
+            mediaId:
+              result.sourceInfo?.strMediaMid ||
+              result.sourceInfo?.mediaId ||
+              result.sourceInfo?.mediaMid,
+            musicInfo: {
+              name: result.title,
+              artist: result.artist,
+              album: result.album || undefined,
+              rawItem: result
+            }
+          }
+        )
+        if (fallbackUrl) {
+          result.url = fallbackUrl
+          result.hasUrl = true
+        }
+      } catch (fallbackError) {
+        console.error('resolveMusicUrl 回退获取失败:', fallbackError)
+      }
+    }
+
+    return result
+  } catch (err) {
+    error.value = locale.value.notifications.musicUrlFailedRetry
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.musicUrlFailedRetry, 'error')
+    }
+    return result
+  }
+}
+
+// 播放歌曲
+const playSong = async (result, playlist, playlistIndex) => {
+  // 如果还没有获取URL，先获取
+  if (!result.hasUrl && !result.url) {
+    result = await getAudioUrl(result)
+  }
+
+  // 对于非哔哩哔哩平台，如果没有URL则提示错误
+  if (!result.url && !isBilibiliSong(result)) {
+    error.value = locale.value.notifications.songUnavailable
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.songUnavailable, 'error')
+    }
+    return
+  }
+
+  let finalMusicId = result.musicId ? String(result.musicId) : null
+  if (isBilibiliSong(result) && result.bilibiliCid) {
+    finalMusicId = `${result.musicId}:${result.bilibiliCid}`
+    // 如果有分P信息，也添加到 musicId
+    if (result.bilibiliPage || result.page) {
+      const page = result.bilibiliPage || result.page
+      if (Number(page) > 1) {
+        finalMusicId += `:${page}`
+      }
+    }
+  }
+
+  // 准备播放所需的数据
+  const song = {
+    id: finalMusicId || result.musicId || Date.now(),
+    title: result.song || result.title,
+    artist: result.singer || result.artist,
+    cover: result.cover || null,
+    musicUrl: result.url || null, // 哔哩哔哩可能没有音频URL
+    musicPlatform: result.musicPlatform || platform.value,
+    musicId: finalMusicId,
+    albumId: result.albumId,
+    sourceInfo: result.sourceInfo,
+    selectionToken: result.selectionToken,
+    bilibiliCid: result.bilibiliCid // 确保传递 cid
+  }
+
+  console.log('[RequestForm] 准备播放歌曲:', song)
+
+  // 处理播放列表：如果提供了playlist，将其转换为audioPlayer需要的格式
+  let finalPlaylist
+  let finalIndex
+  if (playlist && playlist.length > 0) {
+    finalPlaylist = playlist.map((s) => ({
+      ...s,
+      id: String(s.id),
+      musicId: String(s.musicId || s.id),
+      musicUrl: s.musicUrl || s.url || null
+    }))
+    // 如果提供了playlistIndex则使用，否则自动查找
+    finalIndex =
+      typeof playlistIndex === 'number'
+        ? playlistIndex
+        : finalPlaylist.findIndex((s) => s.id === String(song.id))
+    if (finalIndex < 0) finalIndex = 0
+  }
+
+  // 使用全局播放器播放歌曲
+  const playResult = audioPlayer.playSong(song, finalPlaylist, finalIndex)
+
+  if (!playResult) {
+    console.error('[RequestForm] 播放器返回 false，播放失败')
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.playFailed, 'error')
+    }
+    return
+  }
+
+  console.log('[RequestForm] 播放器已启动')
+
+  // 如果有音乐平台信息，请求歌词
+  if (song.musicPlatform && song.musicId) {
+    try {
+      const { useLyrics } = await import('~/composables/useLyrics')
+      const lyrics = useLyrics()
+      // 请求歌词（对于bilibili，传递原始的bvid，不包含cid）
+      const lyricMusicId = result.bilibiliCid ? result.musicId : song.musicId
+      await lyrics.fetchLyrics(song.musicPlatform, lyricMusicId, {
+        title: song.title,
+        artist: song.artist,
+        album: result.album || '',
+        selectionToken: result.selectionToken
+      })
+    } catch (error) {
+      console.error('获取歌词失败:', error)
+      // 歌词获取失败不影响播放
+    }
+  }
+}
+
+// 选择搜索结果
+const selectResult = async (result) => {
+  // 防止重复点击和事件冒泡
+  event?.stopPropagation()
+
+  // 先获取完整信息
+  if (!result.hasUrl) {
+    result = await getAudioUrl(result)
+  }
+
+  // 标准化属性名称（处理不同API返回格式的差异）
+  const songTitle = result.song || result.title
+  const singerName = result.singer || result.artist
+
+  title.value = songTitle
+  artist.value = singerName
+  selectedCover.value = result.cover || ''
+  selectedUrl.value = result.url || ''
+
+  // 如果没有URL，给出提示
+  if (!result.url) {
+    success.value = locale.value.notifications.songSelectedMaybeLimited
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.songSelectedMaybeLimited, 'info')
+    }
+  }
+
+  console.log('已选择歌曲:', songTitle, '- 填充表单但不自动提交')
+}
+
+// 打开上传到网易云对话框
+const openUploadDialog = (result) => {
+  console.log('QQ音乐搜索结果 - 完整对象:', result)
+  console.log('QQ音乐搜索结果 - 所有键:', Object.keys(result))
+
+  // 转换QQ音乐搜索结果为上传对话框需要的格式
+  // 直接传递整个 result 对象，让上传对话框自己提取需要的字段
+  selectedUploadSong.value = result
+
+  console.log('准备上传的歌曲数据:', selectedUploadSong.value)
+  showUploadDialog.value = true
+}
+
+// 显示登录弹窗
+const handleShowLogin = () => {
+  showUploadDialog.value = false
+  showLoginModal.value = true
+}
+
+const handleLoginRedirect = async () => {
+  if (title.value.trim()) {
+    try {
+      sessionStorage.setItem(
+        'pending_search',
+        JSON.stringify({
+          title: title.value.trim(),
+          platform: platform.value
+        })
+      )
+    } catch {
+      // 浏览器禁用会话存储时仍可继续登录。
+    }
+  }
+  await navigateTo(`/login?redirect=${encodeURIComponent('/?tab=request')}`)
+}
+
+// 归一化时长到秒（网易云返回毫秒，其余平台返回秒）
+const normalizeDurationToSeconds = (duration, actualMusicPlatform) => {
+  if (!duration) return null
+  const d = Number(duration)
+  if (!isFinite(d) || d <= 0) return null
+  // 网易云详情接口返回毫秒，其余平台返回秒
+  return actualMusicPlatform === 'netease' || actualMusicPlatform === 'netease-podcast'
+    ? Math.floor(d / 1000)
+    : Math.floor(d)
+}
+
+const SUBMISSION_AUDIO_DURATION_TIMEOUT_MS = 8000
+
+// 播放地址未提供时长时，仅加载媒体元数据，不启动播放。
+const readAudioDuration = (url) => {
+  if (!url || typeof document === 'undefined') return Promise.resolve(null)
+
+  return new Promise((resolve) => {
+    const audio = document.createElement('audio')
+    let settled = false
+    let timeoutId = null
+
+    const cleanup = () => {
+      audio.onloadedmetadata = null
+      audio.ondurationchange = null
+      audio.onerror = null
+      audio.onabort = null
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
+    }
+
+    const finish = (duration) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(duration)
+    }
+
+    const handleMetadata = () => {
+      const duration = Number(audio.duration)
+      if (Number.isFinite(duration) && duration > 0) {
+        finish(Math.floor(duration))
+      }
+    }
+
+    audio.preload = 'metadata'
+    audio.onloadedmetadata = handleMetadata
+    audio.ondurationchange = handleMetadata
+    audio.onerror = () => finish(null)
+    audio.onabort = () => finish(null)
+    timeoutId = window.setTimeout(() => finish(null), SUBMISSION_AUDIO_DURATION_TIMEOUT_MS)
+
+    try {
+      audio.src = url
+      audio.load()
+    } catch {
+      finish(null)
+    }
+  })
+}
+
+const resolveSubmissionDuration = async (result, actualMusicPlatform, fallbackUrl = '') => {
+  const apiDuration = normalizeDurationToSeconds(result.duration, actualMusicPlatform)
+  if (apiDuration !== null) return apiDuration
+
+  const audioDuration = await readAudioDuration(result.url || result.file || fallbackUrl)
+  if (audioDuration === null) return null
+
+  // 保持 result.duration 与各平台搜索结果的单位一致，后续统一转换为秒。
+  result.duration =
+    actualMusicPlatform === 'netease' || actualMusicPlatform === 'netease-podcast'
+      ? audioDuration * 1000
+      : audioDuration
+  return audioDuration
+}
+
+// 结束一次投稿：卡片投稿由父页完成网络请求，调用本接口（或 resetForm）后才能恢复按钮文案
+const endSubmission = () => {
+  submitting.value = false
+  submittingSongKey.value = ''
+}
+
+// 提交选中的歌曲
+const submitSong = async (result, options = {}) => {
+  // 防止重复点击和重复提交；播出时段弹窗拦下的这次投稿待确认后继续，不在此拦截
+  if (submitting.value && !isResultSubmitting(result)) return
+
+  // 如果是播客/电台模式，且是在网易云平台下，且不是具体的单集提交
+  if (
+    platform.value === 'netease' &&
+    searchType.value === 1009 &&
+    !options.isPodcastEpisode &&
+    !options.isDirectSubmit
+  ) {
+    console.log('打开播客节目列表:', result)
+    // 打开播客节目列表弹窗
+    selectedPodcastId.value = result.id || result.musicId
+    selectedPodcastName.value = result.title || result.song || result.name
+    podcastCookie.value = neteaseCookie.value
+    showPodcastModal.value = true
+    return
+  }
+
+  // 如果是 Bilibili 平台，且有多个剧集，且不是具体的剧集提交
+  if (
+    platform.value === 'bilibili' &&
+    result.pages &&
+    result.pages.length > 1 &&
+    !options.isBilibiliEpisode
+  ) {
+    console.log('打开 Bilibili 剧集列表:', result)
+    selectedBilibiliVideo.value = result
+    bilibiliEpisodes.value = result.pages
+    bilibiliEpisodeSubmitOptions.value =
+      options.replayRequest === true ? { replayRequest: true } : {}
+    showBilibiliEpisodesModal.value = true
+    return
+  }
+
+  console.log('执行submitSong，提交歌曲:', result.title || result.song)
+
+  // 使用搜索结果中的数据
+  const songTitle = result.song || result.title
+  const songArtist = result.singer || result.artist
+
+  let replayTargetSong = null
+
+  // 重播申请需要定位到本学期内已播放的原歌曲；多P 视频按完整 musicId 精确匹配，其余平台由 getSimilarSong 归一化回退
+  if (
+    options.replayRequest === true &&
+    !auth.isAdmin.value &&
+    auth.isAuthenticated.value &&
+    songService.songs.value &&
+    songService.songs.value.length > 0 &&
+    platform.value === 'bilibili' &&
+    result.musicId
+  ) {
+    let fullMusicId = String(result.musicId)
+    if (options.isBilibiliEpisode && options.episode) {
+      const bvId = fullMusicId.split(':')[0]
+      const musicIdParts = [bvId, options.episode.cid]
+      if (options.episode.page && Number(options.episode.page) > 1) {
+        musicIdParts.push(String(options.episode.page))
+      }
+      fullMusicId = musicIdParts.join(':')
+    }
+
+    replayTargetSong =
+      songService.songs.value.find(
+        (song) => isBilibiliSong(song) && song.musicId === fullMusicId && song.played
+      ) || null
+  }
+
+  // 能否投稿由服务端预检结论决定（区分本学期查重与排期冷却窗口两种模式，且已随开关关闭放行）
+  if (!auth.isAdmin.value && isSongBlockedByRestriction(result)) {
+    if (window.$showNotification) {
+      window.$showNotification(getRestrictionMessage(getRestrictionReason(result)), 'warning')
+    }
+    return
+  }
+
+  // 重复投稿提醒：本学期已存在同名同歌手歌曲时提示，但不阻止提交
+  if (!auth.isAdmin.value && options.replayRequest !== true) {
+    const existingSong = getSimilarSong(result)
+    if (existingSong && window.$showNotification) {
+      const warn = locale.value.notifications?.duplicateSubmitWarning
+      window.$showNotification(
+        typeof warn === 'function' ? warn(songTitle) : '该歌曲已有人投稿，本次为重复投稿',
+        'warning'
+      )
+    }
+  }
+
+  // 校验投稿日期与时段。
+  if (submissionDialogNeeded.value && options.replayRequest !== true && !options.fromSlotModal) {
+    // 记下本次投稿的卡片，弹窗关闭到请求返回期间按钮持续显示「处理中」
+    submittingSongKey.value = getSearchResultKey(result)
+    openRequiredSlotOptions({ result, options })
+    return
+  }
+
+  // 播出日期 + 时段校验（必选模式下未选择则阻止提交）
+  if (!validatePlaySlotSelection(options.replayRequest !== true)) {
+    return
+  }
+
+  submitting.value = true
+  submittingSongKey.value = getSearchResultKey(result)
+  error.value = ''
+
+  title.value = songTitle
+  artist.value = songArtist
+  selectedCover.value = result.cover || ''
+  selectedUrl.value = result.url || result.file || ''
+
+  if (options.replayRequest === true) {
+    try {
+      // 严格匹配未命中时回退到归一化模糊匹配，与相似歌曲检测保持一致
+      if (!replayTargetSong) {
+        const similarSong = getSimilarSong(result)
+        if (similarSong?.played) {
+          replayTargetSong = similarSong
+        }
+      }
+
+      if (!replayTargetSong) {
+        throw new Error(
+          locale.value.notifications?.replayOriginalNotFound || '未找到可申请重播的原歌曲'
+        )
+      }
+
+      const replayResult = await songService.requestReplay(replayTargetSong.id, {
+        preferredPlayTimeId: preferredPlayTimeId.value ? parseInt(preferredPlayTimeId.value) : null,
+        submissionNote: submissionNote.value.trim() || null,
+        submissionNotePublic: submissionNotePublic.value,
+        submissionAnonymous: submissionAnonymous.value,
+      })
+
+      if (!replayResult) return false
+      resetForm()
+      return true
+    } catch (err) {
+      // 服务端错误按错误码本地化；replayRequestFailed 是带参数的词典函数，需用 formatLocaleValue 求值
+      const replayErrorMessage = localizeServerError(err)
+      error.value =
+        formatLocaleValue(
+          locale.value.notifications?.replayRequestFailed,
+          replayErrorMessage || ''
+        ) || replayErrorMessage
+      if (window.$showNotification) {
+        window.$showNotification(error.value, 'error')
+      }
+      return false
+    } finally {
+      submitting.value = false
+      submittingSongKey.value = ''
+    }
+  }
+
+  if (!(await ensureCardCodeForSubmit())) {
+    endSubmission()
+    return false
+  }
+
+  // 检查投稿限额
+  const limitCheck = checkSubmissionLimit()
+  if (!limitCheck.canSubmit) {
+    error.value = limitCheck.message
+    if (window.$showNotification) {
+      window.$showNotification(limitCheck.message, 'error')
+    }
+    endSubmission()
+    return
+  }
+
+  // 管理员不受黑名单限制
+  if (!auth.isAdmin.value) {
+    try {
+      // 检查黑名单
+      const blacklistCheck = await $fetch('/api/blacklist/check', {
+        method: 'POST',
+        body: {
+          title: title.value,
+          artist: artist.value,
+          musicPlatform: result.actualMusicPlatform || result.musicPlatform || platform.value,
+          musicId: result.musicId ? String(result.musicId) : null
+        }
+      })
+
+      if (blacklistCheck.isBlocked) {
+        const reasons = blacklistCheck.reasons.map((r) => r.reason).join('; ')
+        error.value = callLocale('notifications.blacklistedSong', '', reasons)
+        if (window.$showNotification) {
+          window.$showNotification(error.value, 'error')
+        }
+        endSubmission()
+        return
+      }
+    } catch (err) {
+      console.error('黑名单检查失败:', err)
+      // 黑名单检查失败不阻止提交，只记录错误
+    }
+  }
+
+  const actualMusicPlatform = result.actualMusicPlatform || result.musicPlatform || platform.value
+  let submissionDurationSeconds = normalizeDurationToSeconds(result.duration, actualMusicPlatform)
+
+  // 只有平台接口没有有效时长时，才获取播放地址并读取音频元数据。
+  if (submissionDurationSeconds === null) {
+    if (!result.url && !result.file && !selectedUrl.value && result.musicId) {
+      const fullResult = await getAudioUrl(result)
+      result = fullResult
+      selectedUrl.value = fullResult.url || ''
+    }
+
+    submissionDurationSeconds = await resolveSubmissionDuration(
+      result,
+      actualMusicPlatform,
+      selectedUrl.value
+    )
+  }
+
+  // 处理 Bilibili 分 P 信息
+  let bilibiliCid = result.bilibiliCid
+  let bilibiliPage = result.bilibiliPage || null
+
+  if (options.isBilibiliEpisode && options.episode) {
+    bilibiliCid = options.episode.cid
+    bilibiliPage = options.episode.page
+    // 追加分P标题
+    if (options.episode.part && !title.value.includes(options.episode.part)) {
+      title.value += ` - ${options.episode.part}`
+    }
+  }
+
+  try {
+    // 构建歌曲数据对象
+    const songData = {
+      title: title.value,
+      artist: artist.value,
+      preferredPlayTimeId: preferredPlayTimeId.value ? parseInt(preferredPlayTimeId.value) : null,
+      preferredPlayDate: preferredPlayDate.value || null,
+      cover: selectedCover.value,
+      musicPlatform: actualMusicPlatform, // 优先使用搜索结果的实际平台来源
+      musicId: result.musicId ? String(result.musicId) : null,
+      selectionToken: result.selectionToken,
+      durationSeconds: submissionDurationSeconds,
+      submissionNote: submissionNote.value.trim() || null,
+      submissionNotePublic: submissionNotePublic.value,
+      submissionAnonymous: submissionAnonymous.value,
+      collaborators: collaborators.value.map((u) => u.id),
+      bilibiliCid: bilibiliCid || null,
+      bilibiliPage: bilibiliPage,
+      onBehalfOfUserId: isAdminUser.value ? (onBehalfUser.value?.id || null) : null
+    }
+    // 如果用户填写了点歌券，传递给后端
+    if (cardCode.value && cardCode.value.trim()) {
+      songData.cardCode = cardCode.value.trim()
+    }
+
+    // 只emit事件，让父组件处理实际的API调用
+    emit('request', songData)
+
+    // 投稿状态由父组件在请求结束后通过 endSubmission / resetForm 释放
+    return true
+  } catch (err) {
+    error.value = getErrorMessage(err) || locale.value.notifications.submitFailed
+    if (window.$showNotification) {
+      window.$showNotification(error.value, 'error')
+    }
+    return false
+  }
+}
+
+// 直接提交表单（手动投稿）
+const handleSubmit = async (fromSlotModal = false) => {
+  if (submitting.value) return
+
+  // 校验手动投稿日期与时段。
+  if (submissionDialogNeeded.value && fromSlotModal !== true) {
+    openRequiredSlotOptions({ manual: true })
+    return
+  }
+
+  // 播出日期 + 时段校验（必选模式下未选择则阻止提交）
+  if (!validatePlaySlotSelection()) {
+    return
+  }
+
+  if (!(await ensureCardCodeForSubmit())) {
+    return
+  }
+
+  // 检查投稿限额
+  const limitCheck = checkSubmissionLimit()
+  if (!limitCheck.canSubmit) {
+    error.value = limitCheck.message
+    if (window.$showNotification) {
+      window.$showNotification(limitCheck.message, 'error')
+    }
+    return
+  }
+
+  submitting.value = true
+  submittingSongKey.value = ''
+  error.value = ''
+
+  try {
+    // 构建歌曲数据对象
+    const songData = {
+      title: title.value,
+      artist: artist.value,
+      preferredPlayTimeId: preferredPlayTimeId.value ? parseInt(preferredPlayTimeId.value) : null,
+      preferredPlayDate: preferredPlayDate.value || null,
+      cover: selectedCover.value,
+      musicPlatform: platform.value,
+      musicId: null, // 手动输入时没有musicId
+      submissionNote: submissionNote.value.trim() || null,
+      submissionNotePublic: submissionNotePublic.value,
+      submissionAnonymous: submissionAnonymous.value,
+      collaborators: collaborators.value.map((u) => u.id),
+      onBehalfOfUserId: isAdminUser.value ? (onBehalfUser.value?.id || null) : null
+    }
+    if (cardCode.value && cardCode.value.trim()) {
+      songData.cardCode = cardCode.value.trim()
+    }
+
+    // 只emit事件，让父组件处理实际的API调用
+    emit('request', songData)
+
+    // 表单在父组件确认投稿成功后重置，投稿期间保留「提交中」文案
+  } catch (err) {
+    error.value = getErrorMessage(err) || locale.value.notifications.submitFailed
+    if (window.$showNotification) {
+      window.$showNotification(error.value, 'error')
+    }
+    endSubmission()
+  }
+}
+
+const isBilibiliMultiP = (result) => {
+  return result && platform.value === 'bilibili' && result.pages && result.pages.length > 1
+}
+
+const getBilibiliEpisodeStatus = (result) => {
+  if (!result || !isBilibiliMultiP(result)) return null
+
+  const currentSemesterName = currentSemester.value?.name
+  const bvid = result.id
+
+  const submittedEpisodes = songService.songs.value.filter((song) => {
+    if (song.musicPlatform !== 'bilibili') return false
+    if (!song.musicId) return false
+
+    const songBvid = song.musicId.includes(':') ? song.musicId.split(':')[0] : song.musicId
+
+    const isSameBvid = songBvid === bvid
+
+    if (currentSemesterName) {
+      return isSameBvid && song.semester === currentSemesterName
+    }
+
+    return isSameBvid
+  })
+
+  const totalEpisodes = result.pages.length
+  const submittedCount = submittedEpisodes.length
+
+  return {
+    submittedEpisodes,
+    submittedCount,
+    totalEpisodes,
+    allSubmitted: submittedCount === totalEpisodes,
+    partialSubmitted: submittedCount > 0 && submittedCount < totalEpisodes,
+    noneSubmitted: submittedCount === 0
+  }
+}
+
+const canResubmitBilibiliEpisodes = (result) => {
+  if (!enableReplayRequests.value) return false
+
+  const episodeStatus = getBilibiliEpisodeStatus(result)
+  if (!episodeStatus || episodeStatus.submittedEpisodes.length === 0) return false
+
+  return episodeStatus.submittedEpisodes.every((song) => song.played)
+}
+
+const handleBilibiliEpisodeSelect = async (payload) => {
+  if (!selectedBilibiliVideo.value) return
+
+  const episode = payload?.episode || payload
+  const episodeStatus = payload?.status || null
+  const isReplayEpisode = episodeStatus?.played === true
+
+  const episodeResult = {
+    ...selectedBilibiliVideo.value,
+    title: `${selectedBilibiliVideo.value.title} - ${episode.part}`,
+    bilibiliCid: episode.cid,
+    duration: episode.duration
+  }
+
+  const success = await submitSong(episodeResult, {
+    ...(isReplayEpisode ? { replayRequest: true } : bilibiliEpisodeSubmitOptions.value),
+    isBilibiliEpisode: true,
+    episode: episode
+  })
+
+  if (success) {
+    showBilibiliEpisodesModal.value = false
+    bilibiliEpisodeSubmitOptions.value = {}
+    if (bilibiliModalRef.value && bilibiliModalRef.value.resetSubmissionState) {
+      bilibiliModalRef.value.resetSubmissionState()
+    }
+  } else {
+    if (bilibiliModalRef.value && bilibiliModalRef.value.resetSubmissionState) {
+      bilibiliModalRef.value.resetSubmissionState()
+    }
+  }
+}
+
+const handleBilibiliEpisodePlay = async ({ song: episodeData, playlist, playlistIndex }) => {
+  // 与 biliPlaylist 使用相同的 ID 构建逻辑，确保匹配
+  const bvid = episodeData.bvid || episodeData.id
+  let finalId = bvid
+  if (episodeData.cid) {
+    finalId = bvid + ':' + episodeData.cid
+    const page = episodeData.bilibiliPage || episodeData.page
+    if (page && Number(page) > 1) {
+      finalId += ':' + page
+    }
+  }
+
+  const episodeResult = {
+    id: finalId,
+    title: `${episodeData.title} - ${episodeData.part}`,
+    artist: episodeData.artist,
+    cover: episodeData.cover || '',
+    musicId: finalId,
+    musicPlatform: 'bilibili',
+    bilibiliCid: episodeData.cid,
+    duration: episodeData.duration,
+    sourceInfo: { source: 'bilibili' }
+  }
+
+  // 转换播放列表为统一格式
+  let biliPlaylist
+  let biliIndex
+  if (playlist && playlist.length > 0) {
+    biliPlaylist = playlist.map((e) => {
+      const bvid = e.bvid || e.id
+      let finalId = bvid
+      if (e.cid) {
+        finalId = bvid + ':' + e.cid
+        const page = e.bilibiliPage || e.page
+        if (page && Number(page) > 1) {
+          finalId += ':' + page
+        }
+      }
+      return {
+        id: finalId,
+        title: `${e.title} - ${e.part}`,
+        artist: e.artist,
+        cover: e.cover || '',
+        musicId: finalId,
+        musicPlatform: 'bilibili',
+        bilibiliCid: e.cid,
+        duration: e.duration,
+        sourceInfo: { source: 'bilibili' }
+      }
+    })
+    biliIndex =
+      typeof playlistIndex === 'number'
+        ? playlistIndex
+        : playlist.findIndex((e) => e.cid === episodeData.cid)
+    if (biliIndex < 0) biliIndex = 0
+  }
+
+  await playSong(episodeResult, biliPlaylist, biliIndex)
+}
+
+// 引用模态框组件
+const bilibiliModalRef = ref(null)
+const podcastModalRef = ref(null)
+const recentSongsModalRef = ref(null)
+const playlistModalRef = ref(null)
+const albumModalRef = ref(null)
+
+// 判断搜索结果是否为网易云专辑（仅网易云支持专辑详情弹窗）
+const isNeteaseAlbum = (result) => {
+  const p = result.actualMusicPlatform || result.musicPlatform || platform.value
+  return !!(result.albumId && p && p.includes('netease'))
+}
+
+// 判断结果是否来自QQ音乐（用于显示上传按钮）
+const isTencentSource = (result) => {
+  const p = result.actualMusicPlatform || result.musicPlatform || ''
+  return p.includes('vkeys') || p === 'tencent'
+}
+
+// 打开专辑详情（标准化平台名称，AlbumDetailsModal 只识别 netease/tencent）
+const openAlbumDetails = (result) => {
+  if (!result.albumId) return
+
+  selectedAlbumId.value = result.albumId
+  selectedAlbumName.value = result.album || result.albumName
+  const rawPlatform = result.actualMusicPlatform || result.musicPlatform || platform.value
+  selectedAlbumPlatform.value = rawPlatform.includes('netease') ? 'netease' : 'tencent'
+  showAlbumDetailsModal.value = true
+}
+
+// 处理专辑歌曲播放
+const handleAlbumSongPlay = async ({ song, playlist, playlistIndex }) => {
+  await playSong(song, playlist, playlistIndex)
+}
+
+// 处理专辑歌曲投稿
+const handleAlbumSongSubmit = async (songData) => {
+  const success = await submitSong(songData, { isDirectSubmit: true })
+
+  if (success) {
+    showAlbumDetailsModal.value = false
+  }
+
+  if (albumModalRef.value && albumModalRef.value.resetSubmissionState) {
+    albumModalRef.value.resetSubmissionState()
+  }
+}
+
+// 处理专辑歌曲点赞
+const handleAlbumSongVote = async (song) => {
+  if (voting.value) return
+  if (!song.songId) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.missingSongId, 'error')
+    }
+    return
+  }
+
+  if (song.voted) {
+    return
+  }
+
+  voting.value = true
+  try {
+    await songService.voteSong(song.songId)
+
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.likeSuccess, 'success')
+    }
+
+    // 静默刷新歌曲列表
+    songService.refreshSongsSilent().catch((err) => {
+      console.error('刷新歌曲列表失败', err)
+    })
+  } catch (error) {
+    console.error('点赞失败:', error)
+    if (window.$showNotification) {
+      window.$showNotification(
+        getErrorMessage(error) || locale.value.notifications.likeFailedRetry,
+        'error'
+      )
+    }
+  } finally {
+    voting.value = false
+  }
+}
+
+// 处理播客单集提交
+const handlePodcastSubmit = async (song) => {
+  const success = await submitSong(song, { isPodcastEpisode: true })
+  if (success) {
+    showPodcastModal.value = false
+  } else {
+    // 如果失败，重置模态框内的提交状态
+    if (podcastModalRef.value && podcastModalRef.value.resetSubmissionState) {
+      podcastModalRef.value.resetSubmissionState()
+    }
+  }
+}
+
+// 处理播客单集播放
+const handlePodcastPlay = async (song) => {
+  console.log('播放播客单集:', song.title)
+  await playSong(song)
+}
+
+// 处理最近播放歌曲提交
+const handleRecentSongSubmit = async (song) => {
+  const success = await submitSong(song, { isPodcastEpisode: false, isDirectSubmit: true })
+  if (success) {
+    showRecentSongsModal.value = false
+  } else {
+    // 如果失败，重置模态框内的提交状态
+    if (recentSongsModalRef.value && recentSongsModalRef.value.resetSubmissionState) {
+      recentSongsModalRef.value.resetSubmissionState()
+    }
+  }
+}
+
+// 处理最近播放歌曲播放
+const handleRecentSongPlay = async (song) => {
+  await playSong(song)
+}
+
+// 处理歌单歌曲提交
+const handlePlaylistSubmit = async (song) => {
+  const success = await submitSong(song, { isPodcastEpisode: false, isDirectSubmit: true })
+  if (success) {
+    showPlaylistModal.value = false
+  } else {
+    // 如果失败，重置模态框内的提交状态
+    if (playlistModalRef.value && playlistModalRef.value.resetSubmissionState) {
+      playlistModalRef.value.resetSubmissionState()
+    }
+  }
+}
+
+// 处理歌单歌曲播放
+const handlePlaylistPlay = async (song) => {
+  await playSong(song)
+}
+
+// 手动输入相关方法
+const handleManualSubmit = async (fromSlotModal = false) => {
+  if (!title.value.trim() || !manualArtist.value.trim()) {
+    error.value = locale.value.notifications.completeSongInfoRequired
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.completeSongInfoRequired, 'error')
+    }
+    return
+  }
+
+  // 验证URL
+  if (manualCover.value && !coverValidation.value.valid) {
+    error.value = locale.value.notifications.fixCoverUrl
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.fixCoverUrl, 'error')
+    }
+    return
+  }
+
+  if (manualPlayUrl.value && !playUrlValidation.value.valid) {
+    error.value = locale.value.notifications.fixPlayUrl
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.notifications.fixPlayUrl, 'error')
+    }
+    return
+  }
+
+  // 播出时段：仅在后台开启「时段必选」且尚未选择时段时弹窗收集，确认后再继续提交
+  if (submissionDialogNeeded.value && fromSlotModal !== true) {
+    openRequiredSlotOptions({ manualForm: true })
+    return
+  }
+
+  // 播出日期 + 时段校验（必选模式下未选择则阻止提交）
+  if (!validatePlaySlotSelection()) {
+    return
+  }
+
+  if (!(await ensureCardCodeForSubmit())) {
+    return
+  }
+
+  // 检查投稿限额
+  const limitCheck = checkSubmissionLimit()
+  if (!limitCheck.canSubmit) {
+    error.value = limitCheck.message
+    if (window.$showNotification) {
+      window.$showNotification(limitCheck.message, 'error')
+    }
+    return
+  }
+
+  submitting.value = true
+  submittingSongKey.value = ''
+  error.value = ''
+
+  // 管理员不受黑名单限制
+  if (!auth.isAdmin.value) {
+    try {
+      // 检查黑名单
+      const blacklistCheck = await $fetch('/api/blacklist/check', {
+        method: 'POST',
+        body: {
+          title: title.value,
+          artist: manualArtist.value,
+          musicPlatform: platform.value,
+          musicId: null // 手动输入没有 musicId，类型黑名单不生效
+        }
+      })
+
+      if (blacklistCheck.isBlocked) {
+        const reasons = blacklistCheck.reasons.map((r) => r.reason).join('; ')
+        error.value = callLocale('notifications.blacklistedSong', '', reasons)
+        if (window.$showNotification) {
+          window.$showNotification(error.value, 'error')
+        }
+        endSubmission()
+        return
+      }
+    } catch (err) {
+      console.error('黑名单检查失败:', err)
+      // 黑名单检查失败不阻止提交，只记录错误
+    }
+  }
+
+  try {
+    // 构建歌曲数据对象
+    // 如果手动填入了 playUrl，则不保留平台标识符
+    const trimmedPlayUrl = manualPlayUrl.value?.trim() || ''
+    const hasManualPlayUrl = !!trimmedPlayUrl
+    const songData = {
+      title: title.value,
+      artist: manualArtist.value,
+      preferredPlayTimeId: preferredPlayTimeId.value ? parseInt(preferredPlayTimeId.value) : null,
+      preferredPlayDate: preferredPlayDate.value || null,
+      cover: manualCover.value?.trim() || '',
+      playUrl: trimmedPlayUrl,
+      musicPlatform: hasManualPlayUrl ? null : platform.value,
+      musicId: null, // 手动输入时没有musicId
+      submissionNote: submissionNote.value.trim() || null,
+      submissionNotePublic: submissionNotePublic.value,
+      submissionAnonymous: submissionAnonymous.value,
+      onBehalfOfUserId: isAdminUser.value ? (onBehalfUser.value?.id || null) : null
+    }
+
+    if (cardCode.value && cardCode.value.trim()) {
+      songData.cardCode = cardCode.value.trim()
+    }
+
+    // 只emit事件，让父组件处理实际的API调用
+    emit('request', songData)
+
+    // 父组件确认投稿成功后统一重置表单并关闭弹窗，投稿期间保留「提交中」文案
+  } catch (err) {
+    error.value = getErrorMessage(err) || locale.value.notifications.submitFailed
+    if (window.$showNotification) {
+      window.$showNotification(error.value, 'error')
+    }
+    endSubmission()
+  }
+}
+
+// 重置表单
+const resetForm = () => {
+  title.value = ''
+  artist.value = ''
+  preferredPlayTimeId.value = ''
+  preferredPlayDate.value = ''
+  playSlotError.value = ''
+  searchResults.value = []
+  restrictionCheckMap.value = new Map()
+  selectedCover.value = ''
+  selectedUrl.value = ''
+  showManualModal.value = false
+  manualArtist.value = ''
+  manualCover.value = ''
+  manualPlayUrl.value = ''
+  hasSearched.value = false
+  collaborators.value = []
+  submissionNote.value = ''
+  submissionNotePublic.value = true
+  submissionAnonymous.value = false
+  onBehalfUser.value = null
+  cardCode.value = ''
+  cardCodeDraft.value = ''
+  resetCardCodeValidation()
+  showSubmissionOptions.value = false
+  pendingPlaySlotSubmit.value = null
+  submissionOptionsMode.value = 'options'
+  // 投稿完成后释放卡片按钮的「处理中」状态
+  submitting.value = false
+  submittingSongKey.value = ''
+  // 重置默认时段预选标记，保证下一次投稿仍能重新应用默认时段
+  defaultSlotApplied.value = false
+  // 重置URL验证状态
+  coverValidation.value = { valid: true, error: '', validating: false }
+  playUrlValidation.value = { valid: true, error: '', validating: false }
+}
+
+// 停止播放
+const stopPlaying = () => {
+  audioPlayer.stopSong()
+}
+
+// 获取投稿状态
+const fetchSubmissionStatus = async () => {
+  if (!user.value) return
+
+  loadingSubmissionStatus.value = true
+
+  try {
+    const authConfig = auth.getAuthConfig()
+    const response = await $fetch('/api/songs/submission-status', authConfig)
+    submissionStatus.value = response
+  } catch (err) {
+    console.error('获取投稿状态失败:', err)
+  } finally {
+    loadingSubmissionStatus.value = false
+  }
+}
+
+// 检查投稿限额
+const checkSubmissionLimit = () => {
+  // 超级管理员不受投稿限制
+  if (user.value && (user.value.role === 'SUPER_ADMIN' || user.value.role === 'ADMIN')) {
+    return { canSubmit: true, message: '' }
+  }
+
+  if (!submissionStatus.value) {
+    return { canSubmit: true, message: '' }
+  }
+
+  // 检查投稿是否已关闭
+  if (submissionStatus.value.submissionClosed) {
+    let message = locale.value.submissionClosed
+    if (submissionStatus.value.timeLimitationEnabled && !submissionStatus.value.currentTimePeriod) {
+      message = locale.value.outsideRequestTime
+    }
+    return {
+      canSubmit: false,
+      message: message
+    }
+  }
+
+  // 全站投稿总量已满
+  if (submissionStatus.value.globalLimitReached) {
+    return {
+      canSubmit: false,
+      message: locale.value.globalLimitReached
+    }
+  }
+
+  // 检查投稿时段名额限制
+  if (submissionStatus.value.timeLimitationEnabled && submissionStatus.value.currentTimePeriod) {
+    const { expected, accepted } = submissionStatus.value.currentTimePeriod
+    if (expected > 0 && accepted >= expected) {
+      return {
+        canSubmit: false,
+        message: callLocale('notifications.periodQuotaFull', '', accepted, expected)
+      }
+    }
+  }
+
+  if (!submissionStatus.value.limitEnabled) {
+    return { canSubmit: true, message: '' }
+  }
+
+  if (
+    cardCodeLimitBypassActive.value &&
+    trimmedCardCode.value &&
+    cardCodeValidation.value.valid === true
+  ) {
+    return { canSubmit: true, message: '' }
+  }
+
+  const { dailyLimit, weeklyLimit, monthlyLimit, dailyUsed, weeklyUsed, monthlyUsed } =
+    submissionStatus.value
+
+  // 检查日限额
+  if (dailyLimit && dailyUsed >= dailyLimit) {
+    return {
+      canSubmit: false,
+      message: callLocale('notifications.dailyLimitReached', '', dailyUsed, dailyLimit)
+    }
+  }
+
+  // 检查周限额
+  if (weeklyLimit && weeklyUsed >= weeklyLimit) {
+    return {
+      canSubmit: false,
+      message: callLocale('notifications.weeklyLimitReached', '', weeklyUsed, weeklyLimit)
+    }
+  }
+
+  // 检查月限额
+  if (monthlyLimit && monthlyUsed >= monthlyLimit) {
+    return {
+      canSubmit: false,
+      message: callLocale('notifications.monthlyLimitReached', '', monthlyUsed, monthlyLimit)
+    }
+  }
+
+  return { canSubmit: true, message: '' }
+}
+
+// URL验证函数
+const validateCoverUrl = async (url) => {
+  if (!url) {
+    coverValidation.value = { valid: true, error: '', validating: false }
+    return
+  }
+
+  coverValidation.value.validating = true
+  const result = validateUrl(url)
+  coverValidation.value = {
+    valid: result.valid,
+    error: result.error || '',
+    validating: false
+  }
+}
+
+const validatePlayUrl = async (url) => {
+  if (!url) {
+    playUrlValidation.value = { valid: true, error: '', validating: false }
+    return
+  }
+
+  playUrlValidation.value.validating = true
+  const result = validateUrl(url)
+  playUrlValidation.value = {
+    valid: result.valid,
+    error: result.error || '',
+    validating: false
+  }
+}
+
+// 监听URL变化并验证
+watch(manualCover, (newUrl) => {
+  if (newUrl) {
+    // 防抖处理，避免频繁验证
+    clearTimeout(coverValidation.value.debounceTimer)
+    coverValidation.value.debounceTimer = setTimeout(() => {
+      validateCoverUrl(newUrl)
+    }, 1000)
+  } else {
+    coverValidation.value = { valid: true, error: '', validating: false }
+  }
+})
+
+watch(manualPlayUrl, (newUrl) => {
+  if (newUrl) {
+    // 防抖处理，避免频繁验证
+    clearTimeout(playUrlValidation.value.debounceTimer)
+    playUrlValidation.value.debounceTimer = setTimeout(() => {
+      validatePlayUrl(newUrl)
+    }, 1000)
+  } else {
+    playUrlValidation.value = { valid: true, error: '', validating: false }
+  }
+})
+
+// 计算属性：检查手动表单是否可以提交
+const canSubmitFromSearch = computed(() => {
+  // 复用 checkSubmissionLimit：包含管理员豁免、投稿关闭、时段名额、日/周/月限额及卡码绕过
+  return checkSubmissionLimit().canSubmit
+})
+
+const isSongBlockedByRestriction = (result) => {
+  if (auth.isAdmin.value) return false
+  if (restrictionChecking.value) return false
+  const songTitle = result.song || result.title
+  const songArtist = result.singer || result.artist
+  const key = `${songTitle}||${songArtist}`
+  const check = restrictionCheckMap.value.get(key)
+  if (!check) return false
+  return check.blocked
+}
+
+const getRestrictionReason = (result) => {
+  const songTitle = result.song || result.title
+  const songArtist = result.singer || result.artist
+  const key = `${songTitle}||${songArtist}`
+  const check = restrictionCheckMap.value.get(key)
+  return check?.reason || null
+}
+
+const getRestrictionMessage = (reason) => {
+  if (reason === 'duplicateSong') return locale.value.notifications?.duplicateSong
+  if (reason === 'sameSong') return locale.value.notifications?.restrictionSameSong
+  if (reason === 'sameArtist') return locale.value.notifications?.restrictionSameArtist
+  return locale.value.notifications?.restrictionGeneric
+}
+
+const fetchRestrictionChecks = async () => {
+  // 每次搜索后清空旧预检结果，避免上一轮结果污染
+  const requestId = ++restrictionCheckRequestId
+  restrictionAbortController.value?.abort()
+  restrictionAbortController.value = new AbortController()
+  restrictionCheckMap.value = new Map()
+  if (!auth.isAuthenticated.value || searchResults.value.length === 0) {
+    restrictionChecking.value = false
+    return
+  }
+
+  restrictionChecking.value = true
+  const uniqueResults = []
+  const resultKeys = new Set()
+  for (const result of searchResults.value) {
+    const title = result.song || result.title
+    const artist = result.singer || result.artist
+    const key = `${title}||${artist}`
+    if (!title || !artist || resultKeys.has(key)) continue
+    resultKeys.add(key)
+    uniqueResults.push({
+      key,
+      title,
+      artist,
+      musicPlatform: result.actualMusicPlatform || result.musicPlatform || '',
+      musicId: result.musicId || ''
+    })
+  }
+
+  if (uniqueResults.length === 0) {
+    if (requestId === restrictionCheckRequestId) {
+      restrictionChecking.value = false
+    }
+    return
+  }
+
+  try {
+    const authConfig = auth.getAuthConfig()
+    const response = await $fetch('/api/songs/check-restriction', {
+      method: 'POST',
+      body: { songs: uniqueResults },
+      signal: restrictionAbortController.value.signal,
+      ...authConfig
+    })
+    const checks = Array.isArray(response?.checks) ? response.checks : []
+    if (requestId === restrictionCheckRequestId) {
+      uniqueResults.forEach((result, index) => {
+        restrictionCheckMap.value.set(result.key, checks[index] || { blocked: false, reason: null })
+      })
+    }
+  } catch (err) {
+    const status = err && (err.statusCode || (err.data && err.data.statusCode))
+    if (status === 401 && requestId === restrictionCheckRequestId) {
+      console.warn('投稿限制预检鉴权失败，未应用限制', err)
+    }
+  } finally {
+    if (requestId === restrictionCheckRequestId) {
+      restrictionChecking.value = false
+    }
+  }
+}
+
+const canSubmitManualForm = computed(() => {
+  // 必填字段检查
+  if (!manualArtist.value.trim()) {
+    return false
+  }
+
+  // 可选字段验证检查
+  // 如果输入了封面URL，必须验证通过且不在验证中
+  if (manualCover.value && (!coverValidation.value.valid || coverValidation.value.validating)) {
+    return false
+  }
+
+  // 如果输入了播放URL，必须验证通过且不在验证中
+  if (
+    manualPlayUrl.value &&
+    (!playUrlValidation.value.valid || playUrlValidation.value.validating)
+  ) {
+    return false
+  }
+
+  return true
+})
+
+// 暴露方法给父组件
+defineExpose({
+  refreshSubmissionStatus: fetchSubmissionStatus,
+  resetForm,
+  endSubmission
+})
+</script>
+
+<style scoped>
+.request-form {
+  width: 100%;
+  color: var(--text-primary);
+  display: flex;
+  gap: 2rem;
+  /* 顶部导航 160px + 底部播放器 165px + 1rem 偏移 + 间距 */
+  height: calc(100vh - 160px - 195px);
+  min-height: 500px;
+}
+
+/* 桌面端样式 */
+.desktop-only-rules {
+  display: block;
+}
+
+.mobile-only-rules {
+  display: none;
+}
+
+.rules-section {
+  background: var(--surface-card-bg);
+  border-radius: 13px;
+  padding: 1.25rem;
+  flex: 0 0 28%;
+  min-width: 280px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.rules-content-desktop {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.7;
+  letter-spacing: 0.04em;
+  color: var(--overlay-40);
+}
+
+.rules-content-desktop p {
+  margin-bottom: 0.6rem;
+}
+
+.guidelines-content {
+  overflow-wrap: anywhere;
+}
+
+/* 移动端样式 */
+.rules-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--overlay-90);
+  margin-bottom: 1.25rem;
+}
+
+.rules-icon {
+  color: var(--color-warning);
+}
+
+.rules-content {
+  font-family: 'MiSans', sans-serif;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--overlay-50);
+}
+
+.rule-item {
+  display: flex;
+  margin-bottom: 0.75rem;
+}
+
+.rule-item span {
+  margin-right: 0.5rem;
+  color: var(--overlay-30);
+  font-weight: 600;
+}
+
+.form-container {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.song-request-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 1rem;
+  position: relative;
+}
+
+/* 搜索区域样式 */
+.form-header-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding-top: 4px; /* 为按钮悬停上浮留出空间 */
+  flex-wrap: wrap; /* 允许在窄屏下换行 */
+}
+
+.search-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1.5;
+  min-width: 460px; /* 增加最小宽度，确保搜索框、标签和按钮有足够空间 */
+  flex-wrap: wrap; /* 允许在窄屏下换行 */
+}
+
+.search-label {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0; /* 防止标签被压缩 */
+}
+
+.search-input-group {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 220px; /* 保证按钮与输入框同行不重叠 */
+}
+
+.search-input {
+  background: var(--panel-bg-quaternary);
+  border: 1px solid var(--panel-border-active);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--overlay-60);
+  flex: 1;
+  min-width: 80px; /* 确保输入框不会缩到太小 */
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.search-button {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.75rem 1.2rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.3s ease;
+  flex-shrink: 0; /* 确保搜索按钮始终完整显示，不被重叠 */
+}
+
+.search-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--primary-30);
+}
+
+.search-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.audio-match-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--overlay-8);
+  border: 1px solid var(--overlay-12);
+  border-radius: 8px;
+  padding: 0.75rem 0.75rem;
+  color: var(--overlay-85);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.audio-match-btn .btn-text {
+  display: none;
+}
+
+.audio-match-btn:hover:not(:disabled) {
+  background: var(--primary-18);
+  border-color: var(--requestform-audio-match-hover-border);
+  color: var(--text-primary);
+}
+
+.audio-match-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 联合投稿人区域 */
+.collaborators-section {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 200px; /* 增加最小宽度，防止在窄屏下与搜索框重叠 */
+}
+
+.section-label {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0; /* 防止标签被压缩 */
+}
+
+/* 管理员代他人投稿 */
+.on-behalf-section {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+
+.on-behalf-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.on-behalf-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.on-behalf-picker {
+  display: flex;
+}
+
+.on-behalf-change {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.on-behalf-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: var(--overlay-10);
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.on-behalf-clear:hover {
+  background: var(--overlay-20);
+}
+
+.on-behalf-detail {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--overlay-10);
+  border-radius: 12px;
+}
+
+.on-behalf-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.on-behalf-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.on-behalf-name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.on-behalf-name {
+  font-family: 'MiSans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.on-behalf-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.on-behalf-badge {
+  padding: 0 0.4rem;
+  border-radius: 5px;
+  background: var(--overlay-10);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.on-behalf-badge.is-active {
+  color: var(--success);
+}
+
+.on-behalf-badge.is-disabled {
+  color: var(--danger, #f56c6c);
+}
+
+.on-behalf-loading {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.on-behalf-grid {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem 0.9rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.on-behalf-field {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.on-behalf-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.on-behalf-value {
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collaborators-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.collaborator-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-accent-alpha-10);
+  border: 1px solid var(--color-accent-alpha-20);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.remove-collaborator {
+  background: none;
+  border: none;
+  color: var(--overlay-60);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+.remove-collaborator:hover {
+  color: var(--text-primary);
+}
+
+.add-collaborator-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--overlay-5);
+  border: 1px solid var(--overlay-10);
+  border-radius: 6px;
+  padding: 0.25rem 0.75rem;
+  font-size: 13px;
+  color: var(--overlay-80);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-collaborator-btn:hover {
+  background: var(--overlay-10);
+  color: var(--text-primary);
+}
+
+/* 自定义复选框样式 */
+.custom-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.custom-checkbox-input {
+  display: none;
+}
+
+.custom-checkbox-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--panel-bg-hover);
+  background: var(--panel-bg-overlay);
+  transition: all 0.2s ease;
+}
+
+.custom-checkbox-icon {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  color: white;
+}
+
+.custom-checkbox-input:checked + .custom-checkbox-box {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent-light);
+}
+
+.custom-checkbox-input:checked + .custom-checkbox-box .custom-checkbox-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.custom-checkbox-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+}
+
+.custom-checkbox-input:checked ~ .custom-checkbox-text {
+  color: var(--text-primary-lighter);
+}
+
+.custom-checkbox-wrapper:hover .custom-checkbox-box {
+  border-color: var(--color-accent-light);
+}
+
+/* 横向投稿状态样式 */
+.login-required-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--primary-10);
+  border-color: var(--primary-30);
+}
+
+.login-required-notice .notice-icon {
+  flex-shrink: 0;
+  color: var(--color-accent-light);
+}
+
+.login-required-notice .notice-text {
+  color: var(--text-link-hover);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.login-required-notice .login-link-btn {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--primary-40);
+  border-radius: 4px;
+  background: var(--primary-20);
+  color: var(--color-accent-light);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.login-required-notice .login-link-btn:hover {
+  background: var(--primary-35);
+  color: var(--text-link-hover);
+}
+
+.submission-status-horizontal {
+  background: var(--surface-card-bg-medium);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--overlay-10);
+}
+
+.admin-notice-horizontal {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.admin-notice-horizontal .admin-icon {
+  font-size: 14px;
+}
+
+.admin-notice-horizontal .admin-text {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-highlight);
+}
+
+.submission-closed-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.submission-closed-notice .closed-icon {
+  font-size: 14px;
+}
+
+.submission-closed-notice .closed-text {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--color-error-light);
+}
+
+.status-content-horizontal {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.status-item-horizontal {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.status-item-horizontal .status-label {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.status-item-horizontal .status-value {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-accent);
+}
+
+.status-item-horizontal .status-remaining {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--overlay-70);
+  background: var(--color-accent-alpha-10);
+  border: 1px solid var(--color-accent-alpha-30);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+  width: 100%;
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0; /* 防止被压缩 */
+  position: relative;
+  z-index: 10;
+}
+
+.form-group label {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--overlay-90);
+  margin-bottom: 0.25rem;
+}
+
+.input-wrapper {
+  width: 100%;
+}
+
+.form-input,
+.form-select {
+  background: var(--panel-bg-quaternary);
+  border: 1px solid var(--panel-border-active);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--overlay-60);
+  width: 100%;
+}
+
+.form-input:focus,
+.form-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* 平台选择按钮样式 */
+.platform-selection-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.platform-selection {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* 网易云音乐登录选项 - 内联风格 */
+.netease-options {
+  position: relative;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  min-width: 300px;
+  justify-content: center;
+}
+
+.netease-options:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.netease-options::before {
+  display: none;
+}
+
+.login-entry {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  background: transparent;
+  padding: 0;
+  border: none;
+}
+
+.login-desc {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.login-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted-light);
+  margin: 0;
+}
+
+.login-hint {
+  font-size: 11px;
+  color: var(--overlay-45);
+  margin: 2px 0 0 0;
+  line-height: 1.3;
+}
+
+.login-btn {
+  background: linear-gradient(135deg, var(--color-accent-light) 0%, var(--color-accent-hover) 100%);
+  color: white;
+  border: none;
+  padding: 0.45rem 0.85rem;
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px var(--primary-15);
+}
+
+.login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px var(--primary-25);
+  filter: brightness(1.1);
+}
+
+.qq-login-btn {
+  background: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal) 100%);
+  box-shadow: 0 4px 10px var(--requestform-qq-login-shadow);
+}
+
+.qq-login-btn:hover {
+  box-shadow: 0 5px 14px var(--requestform-qq-login-shadow-hover);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.header-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: transparent;
+  border: none;
+  color: var(--overlay-50);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-btn:hover {
+  color: var(--text-primary);
+  background: var(--overlay-8);
+}
+
+.login-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.import-btn {
+  background: var(--overlay-4);
+  color: var(--overlay-70);
+  border: 1px solid var(--overlay-8);
+  padding: 0.45rem 0.75rem;
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.import-btn:hover {
+  background: var(--overlay-8);
+  border-color: var(--overlay-15);
+  color: var(--text-primary);
+}
+
+.user-status {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-compact-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid var(--overlay-10);
+}
+
+.qq-user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--color-cyan);
+  background: var(--requestform-user-icon-bg);
+  border: 1.5px solid var(--requestform-user-icon-border);
+}
+
+.user-name {
+  font-size: 12px;
+  color: var(--overlay-90);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-actions-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.action-btn-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--overlay-4);
+  border: 1px solid var(--overlay-6);
+  color: var(--overlay-70);
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.action-btn-compact:hover {
+  background: var(--overlay-8);
+  color: var(--text-primary);
+  border-color: var(--overlay-12);
+}
+
+.audio-waveform {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+}
+
+.audio-waveform .wave-bar {
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    var(--color-accent-light) 0%,
+    var(--color-accent-light-hover) 100%
+  );
+  border-radius: 2px;
+  animation: wave 1.2s ease-in-out infinite;
+}
+
+.audio-waveform .wave-bar:nth-child(1) {
+  animation-delay: 0s;
+  height: 45%;
+}
+.audio-waveform .wave-bar:nth-child(2) {
+  animation-delay: 0.1s;
+  height: 70%;
+}
+.audio-waveform .wave-bar:nth-child(3) {
+  animation-delay: 0.2s;
+  height: 100%;
+}
+.audio-waveform .wave-bar:nth-child(4) {
+  animation-delay: 0.3s;
+  height: 60%;
+}
+.audio-waveform .wave-bar:nth-child(5) {
+  animation-delay: 0.4s;
+  height: 40%;
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.audio-match-primary-btn,
+.audio-match-cancel-btn,
+.audio-match-record-btn,
+.audio-match-result-item {
+  transition: all 0.2s ease;
+}
+
+.audio-match-primary-btn {
+  background: linear-gradient(
+    135deg,
+    var(--color-accent-hover) 0%,
+    var(--color-accent-light-hover) 100%
+  );
+  border: none;
+  border-radius: 12px;
+  padding: 0.875rem 2rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px var(--requestform-login-btn-hover-shadow);
+}
+
+.audio-match-primary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--requestform-login-btn-hover-shadow-lg);
+}
+
+.audio-match-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.audio-match-record-btn {
+  background: linear-gradient(135deg, var(--color-error-hover) 0%, var(--color-error-hover) 100%);
+  border: none;
+  border-radius: 12px;
+  padding: 0.875rem 2rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px var(--requestform-like-btn-hover-shadow);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-match-record-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--requestform-like-btn-hover-shadow-lg);
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+.audio-match-cancel-btn {
+  background: transparent;
+  border: 1px solid var(--overlay-10);
+  border-radius: 12px;
+  padding: 0.875rem 1.5rem;
+  color: var(--text-muted-light);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.audio-match-cancel-btn:hover {
+  background: var(--overlay-5);
+  color: var(--text-primary-lighter);
+  border-color: var(--overlay-15);
+}
+
+.audio-match-result-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--overlay-8);
+  background: var(--overlay-3);
+  padding: 0.95rem 1rem;
+  cursor: pointer;
+}
+
+.audio-match-result-item:hover {
+  background: var(--primary-10);
+  border-color: var(--requestform-audio-match-hover-border-light);
+  transform: translateY(-1px);
+}
+
+.search-type-switch {
+  display: flex;
+  background: var(--surface-card-bg-soft);
+  border-radius: 6px;
+  padding: 2px;
+  border: 1px solid var(--overlay-5);
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--overlay-40);
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.radio-label.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--overlay-8);
+  box-shadow: 0 1px 3px var(--mask-10);
+}
+
+.radio-label input {
+  display: none;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: transparent;
+  border: none;
+  color: var(--overlay-40);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logout-btn:hover {
+  color: var(--overlay-70);
+  background: var(--overlay-5);
+}
+
+.platform-btn {
+  background: var(--overlay-8);
+  border: 1px solid var(--overlay-12);
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--overlay-50);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.platform-btn.active {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border-color: var(--overlay-16);
+  color: var(--text-primary);
+}
+
+.platform-btn:hover:not(.active) {
+  background: var(--overlay-20);
+  color: var(--overlay-80);
+}
+
+/* 音源状态显示 */
+.source-status-display {
+  background: var(--overlay-5);
+  border: 1px solid var(--overlay-10);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  backdrop-filter: blur(10px);
+}
+
+.status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.status-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--overlay-90);
+  font-family: 'MiSans', sans-serif;
+}
+
+.status-summary {
+  font-size: 12px;
+  color: var(--overlay-60);
+  background: var(--overlay-10);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+}
+
+.status-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.source-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+}
+
+.source-item.healthy {
+  background: var(--requestform-source-healthy-bg);
+  border-color: var(--requestform-source-healthy-border);
+  color: var(--color-success-light);
+}
+
+.source-item.unhealthy {
+  background: var(--error-15);
+  border-color: var(--error-30);
+  color: var(--color-error-light);
+}
+
+.source-item.checking {
+  background: var(--requestform-source-checking-bg);
+  border-color: var(--requestform-source-checking-border);
+  color: var(--color-warning-light);
+}
+
+.source-item.current {
+  box-shadow: 0 0 0 2px var(--color-accent-alpha-40);
+  transform: scale(1.02);
+}
+
+.source-name {
+  font-weight: 600;
+}
+
+.source-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.source-item.healthy .source-indicator {
+  background: var(--color-success-hover);
+  box-shadow: 0 0 6px var(--requestform-source-healthy-glow);
+}
+
+.source-item.unhealthy .source-indicator {
+  background: var(--color-error);
+  box-shadow: 0 0 6px var(--error-60);
+}
+
+.source-item.checking .source-indicator {
+  background: var(--color-warning-light);
+  box-shadow: 0 0 6px var(--requestform-source-checking-glow);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--error-15);
+  border: 1px solid var(--error-30);
+  border-radius: 6px;
+  color: var(--color-error-light);
+  font-size: 12px;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+}
+
+/* 搜索结果容器样式 */
+.search-results-container {
+  flex: 1;
+  background: var(--surface-card-bg);
+  border-radius: 13px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.5rem 1rem 1rem 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.results-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 加载状态 */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 1rem;
+  min-height: 200px; /* 添加最小高度 */
+}
+
+.loading-text {
+  color: var(--overlay-60);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  margin: 0;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* 搜索结果列表 */
+.results-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.results-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-right: 0.5rem;
+  min-height: 0;
+}
+
+/* 滚动条样式 */
+.results-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.results-grid::-webkit-scrollbar-track {
+  background: var(--overlay-10);
+  border-radius: 3px;
+}
+
+.results-grid::-webkit-scrollbar-thumb {
+  background: var(--overlay-30);
+  border-radius: 3px;
+}
+
+.results-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--overlay-50);
+}
+
+/* 空状态和初始状态 */
+.empty-state,
+.initial-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  min-height: 200px; /* 增加最小高度 */
+}
+
+.empty-icon,
+.initial-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.empty-text,
+.initial-text {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.empty-hint,
+.initial-hint {
+  color: var(--overlay-60);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* 搜索插图样式 */
+.search-illustration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+}
+
+.search-svg {
+  width: 25%;
+  max-width: 300px;
+  min-width: 150px;
+  height: auto;
+  object-fit: contain;
+  opacity: 0.8;
+}
+
+/* 手动输入触发按钮 */
+.manual-input-trigger {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--overlay-10);
+  text-align: center;
+}
+
+.manual-submit-btn {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1.5rem;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.manual-submit-btn:hover {
+  background: var(--overlay-20);
+  transform: translateY(-2px);
+}
+
+.form-notice {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--overlay-40);
+  margin-top: 0.5rem;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.submit-button {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1.5rem;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.submit-button:hover {
+  transform: translateY(-2px);
+}
+
+.submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.alert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.alert-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.alert-icon {
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
+
+.alert-title {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.alert-content {
+  margin-bottom: 1rem;
+}
+
+.similar-songs-list {
+  margin-bottom: 0.5rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.similar-song-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--overlay-5);
+}
+
+.similar-song-item:last-child {
+  border-bottom: none;
+}
+
+.song-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.song-title {
+  margin: 0 0 0.25rem 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.song-actions {
+  margin-left: 1rem;
+  flex-shrink: 0;
+}
+
+.vote-btn.small,
+.replay-btn.small {
+  padding: 0.3rem 0.6rem;
+  font-size: 12px;
+}
+
+/* 歌曲状态样式 */
+.song-status {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.status-played {
+  color: var(--color-error);
+}
+
+.status-scheduled {
+  color: var(--color-warning);
+}
+
+.alert-hint {
+  color: var(--overlay-60);
+  font-size: 14px;
+  margin-top: 0.5rem;
+}
+
+.voted-status {
+  color: var(--color-success);
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.alert-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.vote-btn {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vote-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--primary-30);
+}
+
+.vote-btn:disabled {
+  background: var(--overlay-20);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ignore-btn {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* 桌面端继续投稿按钮 */
+.desktop-continue-btn {
+  display: none;
+}
+
+/* 移动端继续投稿按钮 */
+.mobile-continue-actions {
+  display: block;
+}
+
+.mobile-continue-btn {
+  display: block;
+}
+
+/* 宽屏时的样式 */
+@media (min-width: 768px) {
+  .desktop-continue-btn {
+    display: inline-flex;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .mobile-continue-actions {
+    display: none;
+  }
+
+  .similar-songs-list {
+    max-height: 80px;
+  }
+}
+
+/* 移动端时增加相似歌曲列表高度 */
+@media (max-width: 767px) {
+  .similar-songs-list {
+    max-height: 150px;
+  }
+}
+
+/* 动画样式 */
+.results-fade-enter-active,
+.results-fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.results-fade-enter-from,
+.results-fade-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.result-item-enter-active {
+  transition: all 0.4s ease;
+}
+
+.result-item-leave-active {
+  transition: all 0.3s ease;
+}
+
+.result-item-enter-from {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+.result-item-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.result-item-move {
+  transition: transform 0.3s ease;
+}
+
+/* 弹窗样式 */
+.requestform-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--mask-60);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: all 0.3s ease;
+}
+
+.modal-content {
+  background: var(--requestform-modal-overlay-bg);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 25px 50px -12px var(--mask-50);
+  overflow: hidden;
+  border: 1px solid var(--overlay-10);
+  transform-origin: center;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--overlay-5);
+  background: var(--overlay-2);
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: var(--overlay-40);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: var(--overlay-10);
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 2rem;
+}
+
+.btn {
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-secondary {
+  background: var(--overlay-5);
+  border-color: var(--overlay-10);
+  color: var(--overlay-80);
+}
+
+.btn-secondary:hover {
+  background: var(--overlay-10);
+  color: var(--text-primary);
+  border-color: var(--overlay-20);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border-color: var(--overlay-10);
+  color: var(--text-primary);
+  box-shadow: 0 4px 12px var(--primary-30);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px var(--requestform-submit-btn-hover-shadow);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.readonly {
+  background: var(--surface-card-bg-soft) !important;
+  color: var(--overlay-50) !important;
+  cursor: not-allowed;
+  border-color: transparent !important;
+}
+
+/* 弹窗动画 */
+.modal-animation-enter-active,
+.modal-animation-leave-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-animation-enter-from,
+.modal-animation-leave-to {
+  opacity: 0;
+}
+
+.modal-animation-enter-from .modal-content,
+.modal-animation-leave-to .modal-content {
+  transform: scale(0.95) translateY(10px);
+  opacity: 0;
+}
+
+.result-item {
+  display: flex;
+  padding: 0.6rem 1rem; /* 缩小内边距以提高信息密度 */
+  gap: 1rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border-bottom: 1px solid var(--overlay-10);
+}
+
+.result-item:last-child {
+  border-bottom: none;
+}
+
+.result-item:hover {
+  background: var(--overlay-5);
+}
+
+.result-cover {
+  width: 70px;
+  height: 70px;
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px var(--mask-20);
+  background: var(--panel-bg-dialog);
+}
+
+.cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.result-item:hover .cover-img {
+  transform: scale(1.1);
+}
+
+.play-overlay-container {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 2;
+}
+
+.result-item:hover .play-overlay-container {
+  opacity: 1;
+}
+
+.play-button-wrapper {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--overlay-20);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  border: 1px solid var(--overlay-30);
+  box-shadow: 0 8px 16px var(--mask-30);
+}
+
+.play-icon {
+  fill: currentColor;
+  margin-left: 2px;
+}
+
+.result-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.result-title {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.result-artist {
+  color: var(--overlay-60);
+  font-size: 13px;
+  margin: 0.25rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-album,
+.result-quality,
+.result-pay {
+  color: var(--overlay-40);
+  font-size: 11px;
+  margin: 0.15rem 0;
+}
+
+.result-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: row;
+  gap: 0.8rem;
+  margin-right: 0.25rem;
+  flex-shrink: 0;
+}
+
+.cloud-disk-btn {
+  background: linear-gradient(180deg, var(--color-error) 0%, var(--color-error-hover) 100%);
+  border: 1px solid var(--overlay-20);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px var(--mask-20);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.cloud-disk-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px var(--requestform-delete-btn-hover-shadow);
+  background: linear-gradient(180deg, var(--color-error-hover) 0%, var(--color-error-hover) 100%);
+  border-color: var(--overlay-40);
+}
+
+.cloud-disk-btn:active {
+  transform: translateY(0) scale(0.95);
+  box-shadow: 0 2px 4px var(--requestform-delete-btn-hover-shadow-sm);
+}
+
+.similar-song-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.similar-text {
+  font-size: 12px;
+  color: var(--overlay-60);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+}
+
+.similar-text.status-played {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.similar-text.status-scheduled {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.like-btn {
+  background: linear-gradient(180deg, var(--color-error) 0%, var(--color-error-hover) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: all 0.2s ease;
+}
+
+.like-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--error-30);
+}
+
+.like-btn:disabled {
+  background: var(--overlay-20);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.like-btn.disabled {
+  background: var(--overlay-10);
+  border-color: var(--overlay-20);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.like-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.select-btn {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.replay-btn {
+  background: var(--requestform-replay-btn-bg);
+  border: 1px solid var(--requestform-replay-btn-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  color: var(--color-accent-light);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.replay-btn:hover:not(:disabled) {
+  background: var(--requestform-replay-btn-bg-hover);
+  border-color: var(--requestform-replay-btn-border-hover);
+  color: var(--color-accent-light);
+  transform: translateY(-1px);
+}
+
+.replay-btn:disabled {
+  background: var(--overlay-5);
+  border-color: var(--overlay-10);
+  color: var(--overlay-30);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 音频播放器现在使用全局组件 */
+
+/* 手动提交按钮样式 */
+.no-results-action {
+  margin-top: 1rem;
+  text-align: center;
+  padding: 1rem 0;
+  border-top: 1px solid var(--overlay-10);
+}
+
+.manual-submit-btn {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1.5rem;
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.manual-submit-btn:hover {
+  background: var(--overlay-20);
+  transform: translateY(-2px);
+}
+
+/* 手动输入区域样式 */
+.manual-input-section {
+  margin-top: 2rem;
+  background: var(--surface-card-bg);
+  border-radius: 13px;
+  padding: 1.5rem;
+}
+
+.manual-title {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 18px;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.manual-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.manual-cancel-btn {
+  background: var(--overlay-10);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.manual-cancel-btn:hover {
+  background: var(--overlay-20);
+}
+
+.manual-confirm-btn {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent) 100%);
+  border: 1px solid var(--overlay-16);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.manual-confirm-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--primary-30);
+}
+
+.manual-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  /* Netease Options Mobile Optimization */
+  .netease-options {
+    padding: 0.75rem;
+    min-width: unset; /* 移除桌面端的最小宽度限制 */
+  }
+
+  .user-compact-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .user-profile {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .search-type-switch {
+    width: 100%;
+    display: flex;
+    min-width: 0;
+  }
+
+  .radio-label {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .user-actions-row {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  /* 移动端下让按钮平分宽度 */
+  .user-actions-row .action-btn-compact {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    justify-content: center;
+    padding: 0.6rem 0.4rem;
+  }
+
+  /* 按钮文字过窄时省略号截断 */
+  .user-actions-row .action-btn-compact span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 移动端显示/隐藏控制 */
+  .desktop-only-rules {
+    display: none;
+  }
+
+  .mobile-only-rules {
+    display: block;
+  }
+
+  .request-form {
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 0; /* 移除可能的内边距 */
+  }
+
+  .rules-section {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1.5rem;
+    padding: 1.25rem;
+    background: var(--overlay-4);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--overlay-8);
+    border-radius: 18px;
+  }
+
+  .rules-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--overlay-90);
+    margin-bottom: 1.25rem;
+    letter-spacing: normal;
+  }
+
+  .rules-icon {
+    display: block;
+    color: var(--color-warning);
+  }
+
+  .form-container {
+    width: 100%;
+    flex: none; /* 改为不占用flex空间，让内容自然撑开 */
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    overflow-x: hidden; /* 防止横向溢出 */
+    max-width: 100%; /* 确保不超过父容器宽度 */
+  }
+
+  .song-request-form {
+    flex: none; /* 改为不占用flex空间，让内容自然撑开 */
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    gap: 1.25rem;
+    max-width: 100%; /* 确保不超过父容器宽度 */
+  }
+
+  .form-header-row {
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%; /* 确保占满宽度 */
+    max-width: 100%; /* 防止超出 */
+  }
+
+  .search-results-container {
+    flex: none; /* 改为不占用flex空间，让内容自然撑开 */
+    height: auto;
+    max-height: none; /* 移除最大高度限制 */
+    padding: 0.75rem;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 2rem;
+    background: var(--overlay-2);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--overlay-8);
+    border-radius: 20px;
+    /* 允许容器内容触发页面滚动 */
+    touch-action: pan-y;
+  }
+
+  .results-content {
+    height: auto;
+    min-height: 200px; /* 减小最小高度 */
+    max-height: none; /* 移除最大高度限制 */
+    overflow: visible;
+    flex: none; /* 改为不占用flex空间 */
+  }
+
+  /* 移动端搜索区域 */
+  .form-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    margin-bottom: 0;
+  }
+
+  .login-entry {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.85rem;
+    gap: 0.6rem;
+  }
+
+  .login-desc {
+    width: 100%;
+  }
+
+  .login-title {
+    /* 不缩小字号 */
+  }
+
+  .login-hint {
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.3;
+  }
+
+  .login-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  .login-btn,
+  .import-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 0.5rem 0.4rem;
+  }
+
+  .search-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    flex: none;
+    width: 100%;
+    min-width: unset; /* 移除桌面端的最小宽度限制 */
+  }
+
+  .collaborators-section {
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex: none;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .section-label {
+    font-size: 14px;
+  }
+
+  .search-label {
+    font-size: 14px;
+  }
+
+  .search-input-group {
+    flex-direction: row;
+    gap: 0.5rem;
+    width: 100%; /* 确保占满父容器宽度 */
+    max-width: 100%; /* 防止超出 */
+  }
+
+  .search-input {
+    background: var(--overlay-5);
+    border: 1px solid var(--overlay-10);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    font-size: 15px;
+    flex: 1;
+    min-width: 0; /* 允许输入框在必要时缩小 */
+    max-width: 100%; /* 防止超出 */
+  }
+
+  .search-button {
+    padding: 0.75rem 1rem; /* 减小按钮的左右内边距 */
+    border-radius: 12px;
+    flex-shrink: 0; /* 防止按钮被压缩 */
+    white-space: nowrap; /* 防止按钮文字换行 */
+    font-size: 14px; /* 稍微减小字体 */
+  }
+
+  .audio-match-btn {
+    padding: 0.75rem;
+    min-width: 48px;
+  }
+
+  .audio-match-btn .btn-text {
+    display: none;
+  }
+
+  /* 移动端平台选择按钮 */
+  .platform-selection-container {
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .platform-selection {
+    background: var(--surface-card-bg-soft);
+    padding: 4px;
+    border-radius: 12px;
+    margin-bottom: 0.5rem;
+    display: flex;
+    min-width: 0;
+  }
+
+  .platform-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.25rem;
+    font-size: 12px;
+    line-height: 1.3;
+    border-radius: 10px;
+    background: transparent;
+    border: none;
+    color: var(--overlay-50);
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .platform-btn.active {
+    background: var(--color-accent);
+    color: var(--text-primary);
+    box-shadow: 0 2px 8px var(--color-accent-alpha-30);
+  }
+
+  /* 移动端音源状态显示 */
+  .source-status-display {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .status-header {
+    margin-bottom: 0.5rem;
+  }
+
+  .status-title {
+    font-size: 13px;
+  }
+
+  .status-summary {
+    font-size: 11px;
+    padding: 0.2rem 0.4rem;
+  }
+
+  .status-sources {
+    gap: 0.4rem;
+  }
+
+  .source-item {
+    padding: 0.4rem 0.6rem;
+    font-size: 11px;
+  }
+
+  .source-indicator {
+    width: 6px;
+    height: 6px;
+  }
+
+  .error-message {
+    margin-top: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 11px;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .form-group label {
+    font-size: 18px;
+  }
+
+  .form-actions {
+    justify-content: center;
+  }
+
+  .submit-button {
+    width: 100%;
+    padding: 0.75rem;
+  }
+
+  .alert-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .vote-btn,
+  .ignore-btn {
+    width: 100%;
+  }
+
+  .audio-player {
+    flex-direction: column;
+    padding: 0.75rem;
+  }
+
+  .player-info {
+    width: 100%;
+  }
+
+  .audio-player audio {
+    width: 100%;
+  }
+
+  .close-player {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+
+  /* 移动端平台选择Tab */
+  .tab-header {
+    gap: 2px;
+  }
+
+  .tab-btn {
+    padding: 0.6rem 0.8rem;
+    font-size: 13px;
+  }
+
+  /* 移动端搜索结果优化 */
+  .result-item {
+    background: var(--overlay-3);
+    border-radius: 16px;
+    border: 1px solid var(--overlay-6);
+    margin-bottom: 0.5rem;
+    padding: 10px;
+    flex-direction: row;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .result-cover {
+    width: 64px;
+    height: 64px;
+    align-self: flex-start;
+  }
+
+  .result-info {
+    text-align: left;
+    flex: 1;
+  }
+
+  .result-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .result-artist {
+    font-size: 12px;
+    opacity: 0.6;
+    margin: 4px 0;
+  }
+
+  .result-actions {
+    flex-direction: row;
+    width: auto;
+  }
+
+  .select-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 12px;
+    border-radius: 10px;
+    width: auto;
+  }
+
+  /* 移动端弹窗优化 */
+  .modal-content {
+    width: 95%;
+    max-width: none;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 0.75rem;
+  }
+
+  /* 移动端搜索插图 */
+  .search-svg {
+    width: 50%;
+    max-width: 250px;
+    min-width: 120px;
+  }
+
+  .search-illustration {
+    padding: 0.5rem;
+    min-height: 120px;
+  }
+
+  /* 移动端搜索结果列表 */
+  .results-list {
+    flex: none; /* 改为不占用flex空间 */
+    height: auto;
+    max-height: none; /* 移除最大高度限制 */
+    overflow: visible;
+  }
+
+  .results-grid {
+    max-height: 60vh; /* 保持合理的最大高度，防止结果过长 */
+    overflow-y: auto; /* 当结果超过最大高度时允许滚动 */
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2rem; /* 减小底部内边距 */
+    padding-right: 0;
+    /* 优化触摸滚动体验 */
+    overscroll-behavior: contain; /* 防止滚动穿透 */
+  }
+
+  /* 当没有搜索结果时，移除滚动容器的高度限制 */
+  .initial-state,
+  .empty-state,
+  .loading-state {
+    min-height: 300px;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* 移动端期望排期选择 */
+  .form-group {
+    margin-bottom: 1rem;
+    z-index: 10;
+    position: relative;
+  }
+
+  .form-select {
+    position: relative;
+    z-index: 10;
+  }
+}
+
+/* 网易云音乐账号加载状态样式 */
+.netease-loading-state {
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0;
+  border: none;
+  height: 32px; /* 匹配旁边按钮的高度 */
+}
+
+.loading-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.netease-loading-state .loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--error-20);
+  border-top-color: var(--color-error);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.netease-loading-state .loading-text {
+  color: var(--text-muted-light);
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* URL验证状态样式 */
+.validation-loading {
+  color: var(--color-warning-light);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.validation-error {
+  color: var(--color-error);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.validation-success {
+  color: var(--color-success);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.form-input.error {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 1px var(--color-error);
+}
+
+.import-semester-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--overlay-8);
+  border: 1px solid var(--overlay-12);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  color: var(--overlay-80);
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  height: 42px; /* 使匹配搜索输入框的大致高度 */
+  flex-shrink: 0;
+}
+
+.import-semester-btn:hover {
+  background: var(--overlay-15);
+  color: var(--text-primary);
+  border-color: var(--overlay-20);
+}
+
+@media (max-width: 768px) {
+  .import-semester-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.bilibili-episodes-container {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.video-info {
+  padding: 1rem;
+  border-bottom: 1px solid var(--overlay-10);
+  margin-bottom: 1rem;
+}
+
+.video-info h3 {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.video-author {
+  font-family: 'MiSans', sans-serif;
+  font-size: 14px;
+  color: var(--overlay-60);
+}
+
+.episodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 1rem 1rem;
+}
+
+.episode-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--overlay-5);
+  border: 1px solid var(--overlay-10);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.episode-item:hover {
+  background: var(--overlay-10);
+  border-color: var(--overlay-20);
+  transform: translateX(4px);
+}
+
+.episode-number {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--overlay-80);
+  background: var(--overlay-10);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.episode-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.episode-title {
+  font-family: 'MiSans', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.episode-duration {
+  font-family: 'MiSans', sans-serif;
+  font-size: 12px;
+  color: var(--overlay-50);
+}
+
+/* 专辑详情样式 */
+.clickable-album {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.clickable-album:hover .album-name {
+  color: var(--color-accent-light);
+  text-decoration: underline;
+}
+
+.album-label {
+  color: var(--overlay-40);
+}
+
+.album-link-icon {
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.clickable-album:hover .album-link-icon {
+  opacity: 1;
+}
+</style>

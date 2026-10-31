@@ -1,0 +1,273 @@
+import { isIP } from 'node:net'
+import { lookup } from 'node:dns/promises'
+import { lookup as dnsLookup } from 'node:dns'
+import http from 'node:http'
+import https from 'node:https'
+import { publicAddress } from '~~/server/utils/music-source-plugins/network'
+import { getServerTimestamp } from '~~/server/utils/serverTime'
+import { isServerlessRuntime } from '~~/server/utils/serverless-runtime'
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+// 并发上限是进程内计数，多实例之间不共享：Serverless 下压到 4，超载立即 429 而不是各占一个实例直到平台超时
+const IS_SERVERLESS = isServerlessRuntime()
+const MAX_CONCURRENT_IMAGE_FETCHES = IS_SERVERLESS ? 4 : 30
+const MAX_REDIRECTS = 5
+const REQUEST_TIMEOUT_MS = 15000
+// Serverless 下单次代理的整体截止时间，跨重定向、重试与响应体读取共享；自建部署不设截止（大封面合法地需要上百秒）
+const IMAGE_FETCH_DEADLINE_MS = 8000
+const PROXY_DEADLINE_UNLIMITED = Number.POSITIVE_INFINITY
+// 剩余预算低于一次握手的耗时就不再重试
+const RETRY_MIN_BUDGET_MS = 1500
+let activeImageFetches = 0
+
+// 超时单独成类：重试策略按类型判断，不依赖用户可见文案
+class ImageFetchTimeoutError extends Error {
+  constructor() {
+    super('图片请求超时')
+    this.name = 'ImageFetchTimeoutError'
+  }
+}
+
+// 内网/保留地址判定复用插件网络层的 ipaddr.js unicast 实现（同一份 IP 名单）
+const isBlockedAddress = (address) => !publicAddress(address)
+
+const validateUrl = async (url) => {
+  if (url.username || url.password) {
+    throw createError({ statusCode: 400, message: '图片URL不能包含用户名或密码' })
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    throw createError({ statusCode: 403, message: '不允许代理本机地址' })
+  }
+
+  // 如果是直接IP → 直接检查
+  const directIp = isIP(hostname)
+  if (directIp && isBlockedAddress(hostname)) {
+    throw createError({ statusCode: 403, message: '不允许代理内网地址' })
+  }
+
+  // 域名 → DNS解析后检查
+  if (!directIp) {
+    const addrs = await lookup(hostname, { all: true })
+    for (const addr of addrs) {
+      if (isBlockedAddress(addr.address)) {
+        throw createError({
+          statusCode: 403,
+          message: `该域名解析到内网地址(${addr.address})，不允许代理`
+        })
+      }
+    }
+  }
+}
+
+const getReferer = (hostname) => {
+  const h = hostname.toLowerCase()
+  if (h === 'hdslb.com' || h.endsWith('.hdslb.com')) return 'https://www.bilibili.com/'
+  if (
+    h === 'y.qq.com' ||
+    h.endsWith('.y.qq.com') ||
+    h === 'y.gtimg.cn' ||
+    h.endsWith('.y.gtimg.cn') ||
+    h === 'music-file.y.qq.com'
+  ) return 'https://y.qq.com/'
+  if (h === 'music.126.net' || h.endsWith('.music.126.net')) return 'https://music.163.com/'
+  if (h.endsWith('.musicapp.migu.cn') || h.endsWith('.migu.cn')) return 'https://y.migu.cn/'
+  return ''
+}
+
+// 连接时 DNS 校验：作为 http/https 请求的自定义 lookup，确保实际连接的 IP 与校验的 IP 一致，
+// 彻底关闭 DNS 重绑定（DNS Rebinding）窗口
+const secureLookup = (hostname, options, callback) => {
+  dnsLookup(hostname, options, (err, address, family) => {
+    if (err) {
+      callback(err)
+      return
+    }
+    const resolved = Array.isArray(address) ? address : [{ address, family }]
+    for (const item of resolved) {
+      if (isBlockedAddress(item.address)) {
+        callback(new Error('该域名解析到内网地址，不允许代理'))
+        return
+      }
+    }
+    callback(null, address, family)
+  })
+}
+
+// 发起单次请求（不自动跟随重定向），连接层使用 secureLookup 校验 IP
+const requestOnce = (targetUrl, headers, timeoutMs) => {
+  return new Promise((resolve, reject) => {
+    const url = new URL(targetUrl)
+    const client = url.protocol === 'https:' ? https : http
+    const req = client.request(
+      targetUrl,
+      { method: 'GET', headers, lookup: secureLookup },
+      (res) => resolve(res)
+    )
+    req.on('error', reject)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new ImageFetchTimeoutError())
+    })
+    req.end()
+  })
+}
+
+const fetchImage = async (imageUrl, deadlineAt) => {
+  let currentUrl = imageUrl
+
+  for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
+    const remainingMs = deadlineAt - getServerTimestamp()
+    if (remainingMs <= 0) {
+      throw new ImageFetchTimeoutError()
+    }
+    const url = new URL(currentUrl)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('不支持的协议')
+    }
+
+    // 每一跳连接前都先校验（直连 IP / localhost / 域名预解析）
+    await validateUrl(url)
+
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      Accept: 'image/webp,image/apng,image/*,*/*;q=0.8',
+      Referer: getReferer(url.hostname) || url.origin
+    }
+
+    const res = await requestOnce(currentUrl, headers, Math.min(REQUEST_TIMEOUT_MS, remainingMs))
+    const status = res.statusCode || 0
+
+    // 手动处理重定向：下一跳目标会在循环顶部重新校验，避免自动跟随造成的 SSRF
+    if (status >= 300 && status < 400 && res.headers.location) {
+      res.destroy()
+      if (redirect === MAX_REDIRECTS) {
+        throw new Error('重定向次数过多')
+      }
+      currentUrl = new URL(res.headers.location, currentUrl).toString()
+      continue
+    }
+
+    if (status !== 200) {
+      res.destroy()
+      throw new Error(`图片请求失败: HTTP ${status}`)
+    }
+
+    const contentType = res.headers['content-type'] || ''
+    if (!contentType.startsWith('image/')) {
+      res.destroy()
+      throw new Error('响应不是图片类型')
+    }
+
+    const contentLength = Number(res.headers['content-length'] || 0)
+    if (contentLength > MAX_IMAGE_BYTES) {
+      res.destroy()
+      throw createError({ statusCode: 413, message: '图片文件过大' })
+    }
+
+    // socket 超时只管空闲状态，上游缓慢吐字节挡不住，响应体读取同样按剩余预算兜底
+    const expireTimer = Number.isFinite(deadlineAt)
+      ? setTimeout(() => res.destroy(new ImageFetchTimeoutError()), Math.max(1, deadlineAt - getServerTimestamp()))
+      : undefined
+
+    // 流式读取，防止恶意服务器通过缺失或伪造 content-length 导致内存耗尽
+    let loaded = 0
+    const chunks = []
+    try {
+      for await (const chunk of res) {
+        loaded += chunk.length
+        if (loaded > MAX_IMAGE_BYTES) {
+          res.destroy()
+          throw createError({ statusCode: 413, message: '图片文件过大' })
+        }
+        chunks.push(chunk)
+      }
+    } finally {
+      if (expireTimer) clearTimeout(expireTimer)
+    }
+    const buffer = Buffer.concat(chunks)
+
+    return { contentType, buffer }
+  }
+
+  throw new Error('重定向次数过多')
+}
+
+const retryFetchImage = async (imageUrl, deadlineAt, maxRetries = 2) => {
+  const hasDeadline = Number.isFinite(deadlineAt)
+  let lastError
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      return await fetchImage(imageUrl, deadlineAt)
+    } catch (err) {
+      lastError = err
+      // 校验层面错误（400/403）重试无意义，直接中断
+      if (
+        err &&
+        typeof err === 'object' &&
+        'statusCode' in err &&
+        (err.statusCode === 400 || err.statusCode === 403)
+      ) {
+        throw err
+      }
+      // 有截止时间时：超时重试只会把实例占用翻倍，剩余预算不够一次握手也不再重试
+      if (
+        hasDeadline &&
+        (err instanceof ImageFetchTimeoutError ||
+          deadlineAt - getServerTimestamp() < RETRY_MIN_BUDGET_MS)
+      ) {
+        throw err
+      }
+      if (i < maxRetries) {
+        const delay = 1000 * (i + 1)
+        await new Promise((r) =>
+          setTimeout(
+            r,
+            hasDeadline ? Math.min(delay, Math.max(0, deadlineAt - getServerTimestamp() - 500)) : delay
+          )
+        )
+      }
+    }
+  }
+  throw lastError
+}
+
+export default defineEventHandler(async (event) => {
+  const imageUrl = getQuery(event).url
+
+  if (!imageUrl) throw createError({ statusCode: 400, message: '缺少图片URL参数' })
+
+  if (activeImageFetches >= MAX_CONCURRENT_IMAGE_FETCHES) {
+    throw createError({ statusCode: 429, message: '图片代理请求过多，请稍后重试' })
+  }
+
+  activeImageFetches++
+
+  try {
+    const deadlineAt = IS_SERVERLESS
+      ? getServerTimestamp() + IMAGE_FETCH_DEADLINE_MS
+      : PROXY_DEADLINE_UNLIMITED
+    const { contentType, buffer } = await retryFetchImage(imageUrl, deadlineAt)
+
+    setHeader(event, 'Content-Type', contentType)
+    setHeader(event, 'Cache-Control', 'public, max-age=3600')
+    setHeader(event, 'Access-Control-Allow-Origin', '*')
+
+    return new Uint8Array(buffer)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      console.warn(`图片代理已拒绝 [${error.statusCode}]`, imageUrl, error.message)
+      throw error
+    }
+
+    console.error('图片代理失败:', imageUrl, error)
+
+    throw createError({
+      statusCode: 500,
+      message: `图片获取失败: ${error?.message || '未知错误'}`
+    })
+  } finally {
+    activeImageFetches = Math.max(0, activeImageFetches - 1)
+  }
+})

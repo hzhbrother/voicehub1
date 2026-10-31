@@ -1,0 +1,447 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1756291495622,
+      "tag": "0000_friendly_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1756291496622,
+      "tag": "20250102000001_add_schedule_draft_support",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1756291497622,
+      "tag": "20250113000001_add_user_status_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1756299330141,
+      "tag": "20250827125530_little_james_howlett",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1756339201000,
+      "tag": "20250828000001_add_api_framework_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1756368610365,
+      "tag": "20250828081010_careful_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1757548801000,
+      "tag": "20250911000001_add_smtp_email_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1757772919975,
+      "tag": "20250913141519_clumsy_maria_hill",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1757819341115,
+      "tag": "20250914030901_majestic_black_widow",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1759363201000,
+      "tag": "20251002000001_add_song_play_url",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1759395147253,
+      "tag": "20251002085227_deep_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1767777840967,
+      "tag": "20260107092400_add_collaboration_and_request_time",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1768042908810,
+      "tag": "20260110000001_add_replay_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1769766215307,
+      "tag": "20260130094335_add_replay_request_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1770895837437,
+      "tag": "20260212113037_add_user_identities_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1772187630689,
+      "tag": "20260227102030_add_monthly_submission_limit",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1772889825480,
+      "tag": "20260307132345_add_gongan_filing",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1772890398452,
+      "tag": "20260307133318_remove_gongan_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1773923154561,
+      "tag": "20260319122554_add_collaborative_submission_toggle",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1773927000000,
+      "tag": "20260319133000_add_submission_remarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1774700000000,
+      "tag": "20260328120000_add_custom_oauth_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1774700600000,
+      "tag": "20260328121000_add_oauth_system_settings_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1775136952492,
+      "tag": "20260402133552_remarkable_star_brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1775310943895,
+      "tag": "20260404135543_add_show_beian_icon",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1775393214709,
+      "tag": "20260405124654_add_allow_oauth_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1778311885032,
+      "tag": "20260509073125_add_captcha_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778318043510,
+      "tag": "20260509091403_add_turnstile_support",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1779603809404,
+      "tag": "20260524062329_add_instance_id_and_telemetry_toggle",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781481660000,
+      "tag": "20260614000100_add_card_code_request_system",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782432001000,
+      "tag": "20260626000100_add_card_code_auto_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782527721417,
+      "tag": "20260627023521_add_card_code_foreign_key_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1783690428462,
+      "tag": "20260710133348_add_card_code_limit_bypass",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784419260000,
+      "tag": "20260718000100_add_aggregate_oauth_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1784530957225,
+      "tag": "20260720070237_minimize-redis-add-song-query-indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785196801000,
+      "tag": "20260727000100_replay_request_seamless",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785239348895,
+      "tag": "20260728114908_add_password_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785492048291,
+      "tag": "20260731100048_notification-announcement",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785578400000,
+      "tag": "20260801000000_add_auto_backup",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786269600000,
+      "tag": "20260809000000_add_platform_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786809600000,
+      "tag": "20260816000000_add_schedule_song_pool",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1787483779816,
+      "tag": "20260823000000_theme-settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787497559680,
+      "tag": "20260823230554_add_auth_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1787587786102,
+      "tag": "20260824160946_add_schedule_visibility_range",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1787653675610,
+      "tag": "20260825102755_add-oauth-avatar",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787655239368,
+      "tag": "20260825105359_drop_aggregate_oauth_endpoint_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787715174545,
+      "tag": "20260826033254_add_registration_review_grade_class_and_note_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1787825301370,
+      "tag": "20260827100821_add_register_requires_grade_class",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787880865098,
+      "tag": "20260828013425_add_song_type_blacklist",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1787902641410,
+      "tag": "20260828073721_add_statistics_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1789659572062,
+      "tag": "20260917153932_music_source_plugins",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790315264789,
+      "tag": "20260925054744_legal_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790340222774,
+      "tag": "20260925124342_add_aliyun_esa_captcha",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790488086779,
+      "tag": "20260927054806_add_astrbot_notification",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791966443301,
+      "tag": "20261014082723_global_submission_limit",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792242270895,
+      "tag": "20261017130430_add_submission_anonymous",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1793402409641,
+      "tag": "20261023040954_add_play_date_slot",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1793402409642,
+      "tag": "20261026161516_card_code_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1793402409643,
+      "tag": "20261028100231_play_time_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1793402409640,
+      "tag": "20261030232009_add_topics",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1793451620033,
+      "tag": "20261031130020_add_announcement",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1793455416245,
+      "tag": "20261031140336_add_announcement_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1793459324945,
+      "tag": "20261031150844_add_announcement_display_and_title",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1793462934104,
+      "tag": "20261031160854_drop_topics",
+      "breakpoints": true
+    }
+  ]
+}

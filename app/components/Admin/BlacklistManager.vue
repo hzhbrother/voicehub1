@@ -1,0 +1,673 @@
+<template>
+  <div
+    class="max-w-[1400px] mx-auto space-y-8 pb-20 px-2 animate-in fade-in slide-in-from-bottom-4 duration-700"
+  >
+    <!-- 页面标题 -->
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div>
+        <h2 class="text-2xl font-black text-text-primary tracking-tight flex items-center gap-3">
+          {{ locale.title }}
+        </h2>
+        <p class="text-xs text-text-tertiary mt-1 font-medium">
+          {{ locale.desc }}
+        </p>
+      </div>
+    </div>
+
+    <!-- 添加黑名单项表单 -->
+    <section class="bg-bg-secondary-40 border border-border-secondary rounded-xl p-8 shadow-xl">
+      <h3 class="text-[10px] font-black text-text-disabled uppercase tracking-[0.2em] mb-6 px-1">
+        {{ locale.addTitle }}
+      </h3>
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-end">
+        <div class="xl:col-span-2 space-y-2">
+          <label class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+            >{{ locale.type }}</label
+          >
+          <div class="grid grid-cols-2 gap-1 p-1 bg-bg-primary border border-border-secondary rounded-lg">
+            <button
+              class="flex items-center justify-center gap-2 py-2 rounded-md text-[11px] font-bold transition-all"
+              :class="newItem.type === 'SONG' ? 'bg-bg-tertiary text-primary' : 'text-text-disabled'"
+              @click="selectType('SONG')"
+            >
+              <Music :size="12" /> {{ locale.song }}
+            </button>
+            <button
+              class="flex items-center justify-center gap-2 py-2 rounded-md text-[11px] font-bold transition-all"
+              :class="newItem.type === 'KEYWORD' ? 'bg-bg-tertiary text-info' : 'text-text-disabled'"
+              @click="selectType('KEYWORD')"
+            >
+              <Type :size="12" /> {{ locale.keyword }}
+            </button>
+            <button
+              class="flex items-center justify-center gap-2 py-2 rounded-md text-[11px] font-bold transition-all"
+              :class="newItem.type === 'LANGUAGE' ? 'bg-bg-tertiary text-warning' : 'text-text-disabled'"
+              @click="selectType('LANGUAGE')"
+            >
+              <Languages :size="12" /> {{ locale.language }}
+            </button>
+            <button
+              class="flex items-center justify-center gap-2 py-2 rounded-md text-[11px] font-bold transition-all"
+              :class="newItem.type === 'GENRE' ? 'bg-bg-tertiary text-success' : 'text-text-disabled'"
+              @click="selectType('GENRE')"
+            >
+              <AudioLines :size="12" /> {{ locale.genre }}
+            </button>
+          </div>
+        </div>
+
+        <div class="xl:col-span-4 space-y-2">
+          <label class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1">
+            {{ valueLabel }}
+          </label>
+          <input
+            v-if="newItem.type === 'SONG' || newItem.type === 'KEYWORD'"
+            v-model="newItem.value"
+            type="text"
+            :placeholder="
+              newItem.type === 'SONG' ? locale.songPlaceholder : locale.keywordPlaceholder
+            "
+            class="w-full bg-bg-primary border border-border-secondary rounded-lg px-5 py-3 text-sm text-text-primary focus:outline-none focus:border-primary-30 placeholder:text-text-secondary transition-all"
+          >
+          <CustomSelect
+            v-else
+            v-model="newItem.value"
+            :options="typeValueOptions"
+          />
+          <p
+            v-if="newItem.type === 'LANGUAGE' || newItem.type === 'GENRE'"
+            class="text-[10px] text-text-secondary px-1 leading-relaxed"
+          >
+            {{ newItem.type === 'LANGUAGE' ? locale.languageHint : locale.genreHint }}
+          </p>
+        </div>
+
+        <div class="xl:col-span-4 space-y-2">
+          <label class="text-[10px] font-black text-text-disabled uppercase tracking-widest px-1"
+            >{{ locale.reason }}</label
+          >
+          <input
+            v-model="newItem.reason"
+            type="text"
+            :placeholder="locale.reasonPlaceholder"
+            class="w-full bg-bg-primary border border-border-secondary rounded-lg px-5 py-3 text-sm text-text-primary focus:outline-none focus:border-primary-30 placeholder:text-text-secondary transition-all"
+          >
+        </div>
+
+        <div class="xl:col-span-2">
+          <button
+            :disabled="!newItem.value || loading"
+            class="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-hover hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-xs font-black rounded-lg shadow-lg shadow-[var(--primary-glow)] transition-all active:scale-95"
+            @click="addBlacklistItem"
+          >
+            <Plus v-if="!loading" :size="16" />
+            <AppSpinner v-else :size="16" color="white" />
+            {{ loading ? locale.processing : locale.addButton }}
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 筛选和搜索 -->
+    <div
+      class="bg-bg-secondary-20 border border-border-secondary rounded-xl p-4 flex flex-col md:flex-row gap-4 items-center"
+    >
+      <div class="flex-1 relative w-full">
+        <Search class="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary" :size="18" />
+        <input
+          v-model="filters.search"
+          type="text"
+          :placeholder="locale.searchPlaceholder"
+          class="w-full bg-bg-primary-50 border border-border-secondary rounded-lg pl-12 pr-4 py-3 text-sm text-text-primary focus:outline-none focus:border-primary-30 placeholder:text-text-secondary transition-all"
+          @input="debounceSearch"
+        >
+      </div>
+      <div class="flex gap-3 w-full md:w-auto">
+        <CustomSelect
+          :label="locale.typeFilter"
+          v-model="filters.type"
+          :options="typeOptions"
+          label-key="label"
+          value-key="value"
+          class="flex-1 md:w-48"
+          @change="() => { pagination.page = 1; loadBlacklist(); }"
+        />
+        <button
+          class="p-3 bg-bg-primary border border-border-secondary rounded-lg text-text-disabled hover:text-primary transition-all active:scale-95 flex items-center justify-center"
+          @click="loadBlacklist"
+        >
+          <Filter :size="18" />
+        </button>
+      </div>
+    </div>
+
+    <!-- 黑名单列表 -->
+    <div class="space-y-4">
+      <div class="flex items-center justify-between px-2">
+        <h4 class="text-[10px] font-black text-text-disabled uppercase tracking-widest">
+          {{ locale.listTitle(pagination.total) }}
+        </h4>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3">
+        <TransitionGroup
+          enter-active-class="transition duration-300 ease-out"
+          enter-from-class="transform scale-95 opacity-0"
+          enter-to-class="transform scale-100 opacity-100"
+          leave-active-class="transition duration-200 ease-in absolute w-full"
+          leave-from-class="transform scale-100 opacity-100"
+          leave-to-class="transform scale-95 opacity-0"
+        >
+          <div
+            v-for="item in blacklist"
+            :key="item.id"
+            class="group flex flex-col lg:flex-row lg:items-center gap-6 p-6 bg-bg-secondary-30 border rounded-xl transition-all hover:border-border-tertiary"
+            :class="[item.isActive ? 'border-border-secondary' : 'border-border-secondary-40 opacity-60']"
+          >
+            <div class="flex-1 flex items-start gap-5">
+              <div
+                class="shrink-0 w-12 h-12 rounded-lg flex items-center justify-center border transition-all"
+                :class="getTypeMeta(item.type).boxClass"
+              >
+                <component :is="getTypeMeta(item.type).icon" :size="22" />
+              </div>
+
+              <div class="space-y-1.5 min-w-0">
+                <div class="flex items-center gap-3">
+                  <span
+                    class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border"
+                    :class="getTypeMeta(item.type).badgeClass"
+                  >
+                    {{ getTypeMeta(item.type).label }}
+                  </span>
+                  <h5 class="text-base font-black text-text-primary truncate tracking-tight">
+                    {{ item.value }}
+                  </h5>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4">
+                  <div class="flex items-center gap-2 text-text-tertiary font-bold text-[11px]">
+                    <MessageSquare :size="12" class="text-text-secondary" />
+                    {{ locale.reasonPrefix }} {{ item.reason || locale.noReason }}
+                  </div>
+                  <div
+                    class="flex items-center gap-2 text-text-disabled font-bold text-[10px] uppercase tracking-tighter"
+                  >
+                    <Clock :size="11" class="text-text-primary" />
+                    {{ locale.createdAt }} {{ formatDate(item.createdAt) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="flex items-center justify-end gap-3 pt-4 lg:pt-0 border-t lg:border-t-0 border-border-secondary-50"
+            >
+              <button
+                :disabled="loading"
+                class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                :class="[
+                  item.isActive
+                    ? 'bg-bg-tertiary text-text-tertiary hover:text-warning hover:bg-warning-5 hover:border-warning-10 border border-transparent'
+                    : 'bg-success text-text-primary shadow-lg shadow-[var(--success-glow-20)]'
+                ]"
+                @click="toggleItemStatus(item)"
+              >
+                <Power :size="12" />
+                {{ item.isActive ? locale.disable : locale.enable }}
+              </button>
+              <button
+                :disabled="loading"
+                class="flex items-center justify-center p-3 bg-bg-primary border border-border-secondary rounded-xl text-text-secondary hover:text-error hover:border-error-30 transition-all active:scale-95"
+                @click="deleteItem(item)"
+              >
+                <Trash2 :size="16" />
+              </button>
+            </div>
+          </div>
+        </TransitionGroup>
+
+        <!-- 加载状态 -->
+        <div
+          v-if="loading && blacklist.length === 0"
+          class="py-20 flex flex-col items-center justify-center space-y-4"
+        >
+          <AppSpinner :size="48" />
+          <p class="text-text-tertiary text-xs font-bold uppercase tracking-widest">{{ locale.loading }}</p>
+        </div>
+
+        <!-- 空状态 -->
+        <div
+          v-else-if="blacklist.length === 0"
+          class="py-20 flex flex-col items-center justify-center text-center space-y-4 bg-bg-secondary-10 border border-border-secondary-40 border-dashed rounded-xl"
+        >
+          <div
+            class="w-16 h-16 rounded-lg bg-bg-primary border border-border-secondary flex items-center justify-center text-text-primary shadow-xl"
+          >
+            <Ban :size="32" />
+          </div>
+          <div class="space-y-1 px-4">
+            <h6 class="text-sm font-bold text-text-disabled">{{ locale.emptyTitle }}</h6>
+            <p class="text-[10px] text-text-secondary font-bold uppercase tracking-widest">
+              {{ locale.emptyDesc }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分页控制 -->
+      <div v-if="pagination.pages > 1" class="flex items-center justify-center gap-4 mt-8">
+        <button
+          :disabled="pagination.page <= 1 || loading"
+          class="p-3 bg-bg-primary border border-border-secondary rounded-lg text-text-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center"
+          @click="changePage(pagination.page - 1)"
+        >
+          <ChevronLeft :size="20" />
+        </button>
+        <div
+          class="px-6 py-3 bg-bg-secondary-50 border border-border-secondary rounded-lg text-[11px] font-black text-text-tertiary uppercase tracking-widest"
+        >
+          {{ locale.pagination(pagination.page, pagination.pages) }}
+        </div>
+        <button
+          :disabled="pagination.page >= pagination.pages || loading"
+          class="p-3 bg-bg-primary border border-border-secondary rounded-lg text-text-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center"
+          @click="changePage(pagination.page + 1)"
+        >
+          <ChevronRight :size="20" />
+        </button>
+      </div>
+    </div>
+
+    <!-- 删除确认模态框 -->
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="showDeleteDialog"
+        class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bg-primary-80 backdrop-blur-sm"
+      >
+        <div
+          class="w-full max-w-md bg-bg-secondary border border-border-secondary rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300"
+          @click.stop
+        >
+          <div class="flex flex-col items-center py-8 space-y-6 text-center px-8">
+            <div
+              class="w-16 h-16 rounded-lg bg-error-10 text-error flex items-center justify-center border border-error-20 shadow-2xl shadow-[var(--error-glow-10)]"
+            >
+              <Trash2 :size="28" />
+            </div>
+            <div class="space-y-2">
+              <h4 class="text-lg font-bold text-text-primary">{{ locale.removeTitle }}</h4>
+              <p class="text-xs text-text-tertiary leading-relaxed">
+                {{ locale.removeMessage(deleteTargetItem?.value || '') }}
+              </p>
+            </div>
+            <div class="flex gap-3 w-full pt-4">
+              <button
+                class="flex-1 px-4 py-4 bg-bg-tertiary hover:bg-bg-quaternary text-text-tertiary text-[10px] font-black rounded-lg transition-all uppercase tracking-widest"
+                @click="showDeleteDialog = false"
+              >
+                {{ locale.cancel }}
+              </button>
+              <button
+                :disabled="loading"
+                class="flex-1 px-4 py-4 bg-error hover:bg-error text-text-primary text-[10px] font-black rounded-lg shadow-xl shadow-[var(--error-glow-20)] transition-all active:scale-95 uppercase tracking-widest disabled:opacity-50"
+                @click="confirmDelete"
+              >
+                {{ loading ? locale.deleting : locale.confirmRemove }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </div>
+</template>
+
+<script setup>
+import { onMounted, reactive, ref, computed } from 'vue'
+import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
+import {
+  ShieldAlert,
+  Music,
+  Type,
+  Languages,
+  AudioLines,
+  Plus,
+  Search,
+  Filter,
+  MessageSquare,
+  Clock,
+  Power,
+  Trash2,
+  Ban,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown
+} from '@lucide/vue'
+import { useToast } from '~/composables/useToast'
+import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
+import {
+  BLACKLIST_LANGUAGE_VALUES,
+  BLACKLIST_GENRE_VALUES,
+  BLACKLIST_LANGUAGE_LABEL_EN,
+  BLACKLIST_GENRE_LABEL_EN
+} from '~/utils/blacklist'
+import { useLocale } from '~/utils/locale'
+
+const { showToast: showNotification } = useToast()
+const { admin, currentLocale } = useLocale()
+const locale = computed(() => {
+  const base = admin.value?.blacklist || {}
+  return {
+    ...base,
+    listTitle: (total) => formatLocaleValue(base.listTitle, total),
+    pagination: (page, pages) => formatLocaleValue(base.pagination, page, pages),
+    removeMessage: (value) => formatLocaleValue(base.removeMessage, value),
+    statusSuccess: (statusText) => formatLocaleValue(base.statusSuccess, statusText)
+  }
+})
+
+const blacklist = ref([])
+const loading = ref(false)
+const error = ref('')
+const success = ref('')
+
+// 删除对话框相关
+const showDeleteDialog = ref(false)
+const deleteTargetItem = ref(null)
+
+const newItem = reactive({
+  type: 'SONG',
+  value: '',
+  reason: ''
+})
+
+const filters = reactive({
+  type: '',
+  search: ''
+})
+
+const pagination = reactive({
+  page: 1,
+  limit: 20,
+  total: 0,
+  pages: 0
+})
+
+const typeOptions = computed(() => [
+  { label: locale.value?.allTypes || 'All Types', value: '' },
+  { label: locale.value?.song || 'Song', value: 'SONG' },
+  { label: locale.value?.keyword || 'Keyword', value: 'KEYWORD' },
+  { label: locale.value?.language || 'Language', value: 'LANGUAGE' },
+  { label: locale.value?.genre || 'Genre', value: 'GENRE' }
+])
+
+// 类型 → 图标/徽章/文案元数据
+const getTypeMeta = (type) => {
+  switch (type) {
+    case 'SONG':
+      return {
+        icon: Music,
+        label: locale.value?.song || 'Song',
+        boxClass: 'bg-primary-hover-10 text-primary border-primary-20 shadow-lg shadow-[var(--primary-glow-5)]',
+        badgeClass: 'bg-primary-hover-10 text-primary border-primary-20'
+      }
+    case 'LANGUAGE':
+      return {
+        icon: Languages,
+        label: locale.value?.language || 'Language',
+        boxClass: 'bg-warning-10 text-warning border-warning-20 shadow-lg shadow-[var(--warning-glow-5)]',
+        badgeClass: 'bg-warning-10 text-warning border-warning-20'
+      }
+    case 'GENRE':
+      return {
+        icon: AudioLines,
+        label: locale.value?.genre || 'Genre',
+        boxClass: 'bg-success-10 text-success border-success-20 shadow-lg shadow-[var(--success-glow-5)]',
+        badgeClass: 'bg-success-10 text-success border-success-20'
+      }
+    default:
+      return {
+        icon: Type,
+        label: locale.value?.keyword || 'Keyword',
+        boxClass: 'bg-info-10 text-info border-info-20 shadow-lg shadow-[var(--info-glow-5)]',
+        badgeClass: 'bg-info-10 text-info border-info-20'
+      }
+  }
+}
+
+// 语种/曲风候选值选项（存储值为规范中文标签，英文界面附注显示名）
+const localeValueLabel = (value, enMap) =>
+  currentLocale.value === 'en-US' ? `${enMap[value] || value} (${value})` : value
+
+const typeValueOptions = computed(() => {
+  if (newItem.type === 'LANGUAGE') {
+    return BLACKLIST_LANGUAGE_VALUES.map((value) => ({
+      value,
+      label: localeValueLabel(value, BLACKLIST_LANGUAGE_LABEL_EN)
+    }))
+  }
+  if (newItem.type === 'GENRE') {
+    return BLACKLIST_GENRE_VALUES.map((value) => ({
+      value,
+      label: localeValueLabel(value, BLACKLIST_GENRE_LABEL_EN)
+    }))
+  }
+  return []
+})
+
+const valueLabel = computed(() => {
+  if (newItem.type === 'SONG') return locale.value?.songLabel
+  if (newItem.type === 'KEYWORD') return locale.value?.keywordLabel
+  if (newItem.type === 'LANGUAGE') return locale.value?.languageLabel
+  return locale.value?.genreLabel
+})
+
+// 切换类型时清空已选值
+const selectType = (type) => {
+  if (newItem.type === type) return
+  newItem.type = type
+  newItem.value = ''
+}
+
+let searchTimeout = null
+
+// 加载黑名单
+const loadBlacklist = async () => {
+  loading.value = true
+  error.value = ''
+
+  try {
+    const params = new URLSearchParams({
+      page: pagination.page.toString(),
+      limit: pagination.limit.toString(),
+      ...(filters.type && { type: filters.type }),
+      ...(filters.search && { search: filters.search })
+    })
+
+    const response = await $fetch(`/api/admin/blacklist?${params}`, {
+      ...useAuth().getAuthConfig()
+    })
+
+    blacklist.value = response.blacklist
+    Object.assign(pagination, response.pagination)
+  } catch (err) {
+    const fetchFailed = locale.value?.fetchFailed || 'Failed to load blacklist'
+    error.value = fetchFailed
+    console.error('获取黑名单失败:', err)
+    showNotification(`${fetchFailed}: ${getErrorMessage(err)}`, 'error')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 处理类型筛选变更
+
+// 添加黑名单项
+const addBlacklistItem = async () => {
+  if (!newItem.value.trim()) return
+
+  loading.value = true
+  error.value = ''
+  success.value = ''
+
+  try {
+    await $fetch('/api/admin/blacklist', {
+      method: 'POST',
+      body: {
+        type: newItem.type,
+        value: newItem.value.trim(),
+        reason: newItem.reason.trim() || null
+      },
+      ...useAuth().getAuthConfig()
+    })
+
+    showNotification(locale.value.addSuccess, 'success')
+
+    // 重置表单
+    newItem.value = ''
+    newItem.reason = ''
+
+    // 重新加载列表
+    pagination.page = 1
+    await loadBlacklist()
+  } catch (err) {
+    error.value = getErrorMessage(err) || locale.value.addFailed
+    console.error('添加黑名单项失败:', err)
+    showNotification(locale.value.addFailedPrefix + error.value, 'error')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 切换项目状态
+const toggleItemStatus = async (item) => {
+  loading.value = true
+  error.value = ''
+
+  try {
+    await $fetch(`/api/admin/blacklist/${item.id}`, {
+      method: 'PATCH',
+      body: {
+        isActive: !item.isActive
+      },
+      ...useAuth().getAuthConfig()
+    })
+
+    item.isActive = !item.isActive
+    showNotification(locale.value.statusSuccess(item.isActive ? locale.value.enable : locale.value.disable), 'success')
+  } catch (err) {
+    error.value = locale.value.updateFailed
+    console.error('更新状态失败:', err)
+    showNotification(locale.value.updateFailed, 'error')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 删除项目
+const deleteItem = (item) => {
+  deleteTargetItem.value = item
+  showDeleteDialog.value = true
+}
+
+// 确认删除
+const confirmDelete = async () => {
+  if (!deleteTargetItem.value) return
+
+  loading.value = true
+  error.value = ''
+
+  try {
+    await $fetch(`/api/admin/blacklist/${deleteTargetItem.value.id}`, {
+      method: 'DELETE',
+      ...useAuth().getAuthConfig()
+    })
+
+    showNotification(locale.value.deleteSuccess, 'success')
+    await loadBlacklist()
+  } catch (err) {
+    error.value = locale.value.deleteFailed
+    console.error('删除失败:', err)
+    showNotification(`${locale.value.deleteFailed}: ${getErrorMessage(err)}`, 'error')
+  } finally {
+    loading.value = false
+    showDeleteDialog.value = false
+    deleteTargetItem.value = null
+  }
+}
+
+// 搜索防抖
+const debounceSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    pagination.page = 1
+    loadBlacklist()
+  }, 500)
+}
+
+// 切换页面
+const changePage = (page) => {
+  pagination.page = page
+  loadBlacklist()
+}
+
+// 格式化日期
+const formatDate = (dateString) => {
+  if (!dateString) return '-'
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString(currentLocale.value, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
+
+onMounted(() => {
+  loadBlacklist()
+})
+</script>
+
+<style scoped>
+.animate-in {
+  animation-duration: 0.5s;
+  animation-fill-mode: both;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 隐藏滚动条但保持功能 */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--panel-bg-alt);
+  border-radius: 10px;
+}
+</style>

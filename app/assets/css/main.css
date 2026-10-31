@@ -1,0 +1,514 @@
+/* 导入浏览器主题保护样式 */
+@import url('./theme-protection.css');
+
+/* 导入主题变量（亮色覆盖暗色，由 data-theme 控制） */
+@import url('./themes/ClassicDark.css');
+@import url('./themes/ClassicLight.css');
+@import url('./themes/ModernLight.css');
+
+@unocss;
+
+/* 防止浏览器自动应用深色主题 */
+:root {
+  color-scheme: light dark;
+}
+
+/* 全站字号基准：桌面 15px，移动端按视口宽度自适应收缩（rem 尺寸随之等比缩小） */
+@media screen {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media screen and (max-width: 1023px) {
+  html {
+    font-size: clamp(13px, 3.6vw, 15px);
+  }
+}
+
+/* 全局控件默认强调色 — 跟随主题主色调，但允许显式 accent-* 类覆盖 */
+input[type="checkbox"]:not([class*="accent-"]),
+input[type="radio"]:not([class*="accent-"]),
+input[type="range"]:not([class*="accent-"]) {
+  accent-color: var(--accent-color);
+}
+
+/* 暗色主题下 date/time 输入框的日历/时钟图标刷白，与正文颜色一致 */
+:root[data-theme='ClassicDark'] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme='ClassicDark'] input[type="time"]::-webkit-calendar-picker-indicator,
+:root[data-theme='ClassicDark'] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: brightness(0) invert(1);
+  cursor: pointer;
+  opacity: 1;
+}
+
+/* 流体背景与全局样式 */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  /* UnoCSS preflight 未重置 border-style，补齐后 utility 边框与加载转圈才能渲染 */
+  border-style: solid;
+  border-width: 0;
+}
+
+/* 字体显示策略优化 */
+@font-face {
+  font-family: 'MiSans';
+  font-display: swap; /* 确保字体加载期间文本可见 */
+}
+
+body {
+  font-family:
+    'MiSans',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Open Sans',
+    sans-serif;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+  font-size: var(--text-base);
+  /* 字体渲染优化 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family:
+    'MiSans',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Open Sans',
+    sans-serif;
+}
+
+/* 链接样式 */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* 简洁现代背景 */
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* 可选的微妙纹理效果 */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 20% 50%, rgba(var(--color-indigo-rgb), 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, var(--bg-texture-warm-glow) 0%, transparent 50%),
+    radial-gradient(circle at 40% 80%, rgba(var(--color-indigo-rgb), 0.02) 0%, transparent 50%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* 容器 */
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* 常用工具类 */
+.flex {
+  display: flex;
+}
+.flex-col {
+  flex-direction: column;
+}
+.items-center {
+  align-items: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.justify-center {
+  justify-content: center;
+}
+.gap-2 {
+  gap: var(--spacing-sm);
+}
+.gap-4 {
+  gap: var(--spacing-lg);
+}
+.gap-6 {
+  gap: var(--spacing-2xl);
+}
+
+.grid {
+  display: grid;
+}
+.grid-cols-1 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.grid-cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* 间距 */
+.mt-2 {
+  margin-top: var(--spacing-sm);
+}
+.mt-4 {
+  margin-top: var(--spacing-lg);
+}
+.mt-6 {
+  margin-top: var(--spacing-2xl);
+}
+.mt-8 {
+  margin-top: var(--spacing-3xl);
+}
+.mb-2 {
+  margin-bottom: var(--spacing-sm);
+}
+.mb-4 {
+  margin-bottom: var(--spacing-lg);
+}
+.mb-6 {
+  margin-bottom: var(--spacing-2xl);
+}
+.mb-8 {
+  margin-bottom: var(--spacing-3xl);
+}
+.ml-2 {
+  margin-left: var(--spacing-sm);
+}
+.ml-4 {
+  margin-left: var(--spacing-lg);
+}
+.mr-2 {
+  margin-right: var(--spacing-sm);
+}
+.mr-4 {
+  margin-right: var(--spacing-lg);
+}
+
+.p-2 {
+  padding: var(--spacing-sm);
+}
+.p-4 {
+  padding: var(--spacing-lg);
+}
+.p-6 {
+  padding: var(--spacing-2xl);
+}
+.p-8 {
+  padding: var(--spacing-3xl);
+}
+
+/* 文本 */
+.text-center {
+  text-align: center;
+}
+.text-sm {
+  font-size: var(--text-sm);
+}
+.text-lg {
+  font-size: var(--text-lg);
+}
+.text-xl {
+  font-size: var(--text-xl);
+}
+.text-2xl {
+  font-size: var(--text-2xl);
+}
+.text-3xl {
+  font-size: var(--text-3xl);
+}
+.font-bold {
+  font-weight: var(--font-bold);
+}
+.text-primary {
+  color: var(--primary);
+}
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+.text-success {
+  color: var(--success);
+}
+.text-danger {
+  color: var(--error);
+}
+.text-warning {
+  color: var(--warning);
+}
+
+/* 卡片 */
+.card {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-2xl);
+  box-shadow:
+    0 4px 6px var(--mask-10),
+    0 1px 3px var(--mask-8),
+    inset 0 1px 0 var(--overlay-5);
+  transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--overlay-10), transparent);
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  border-color: var(--card-hover-border);
+  box-shadow:
+    0 12px 24px var(--mask-15),
+    0 4px 8px var(--mask-10),
+    inset 0 1px 0 var(--overlay-10);
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md) var(--spacing-2xl);
+  font-weight: var(--font-semibold);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-normal);
+  cursor: pointer;
+  text-decoration: none;
+  border: none;
+  outline: none;
+  font-size: var(--text-sm);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 4px var(--mask-10);
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--overlay-10), transparent);
+  transition: left 0.5s;
+}
+
+.btn:hover::before {
+  left: 100%;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--btn-primary-bg) 0%, var(--primary-hover) 100%);
+  color: var(--btn-primary-text);
+  border: 1px solid var(--primary-border);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--btn-primary-shadow);
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, var(--btn-secondary-bg) 0%, var(--bg-quaternary) 100%);
+  color: var(--btn-secondary-text);
+  border: 1px solid var(--btn-secondary-border);
+}
+
+.btn-secondary:hover {
+  background: linear-gradient(135deg, var(--bg-quaternary) 0%, var(--btn-secondary-hover) 100%);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--overlay-10);
+}
+
+.btn-outline {
+  background: transparent;
+  border: 2px solid var(--border-tertiary);
+  color: var(--text-primary);
+  backdrop-filter: blur(8px);
+}
+
+.btn-outline:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--primary-20);
+}
+
+.btn:disabled {
+  background: var(--btn-disabled-bg);
+  color: var(--btn-disabled-text);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn:disabled::before {
+  display: none;
+}
+
+/* 列表样式 */
+.list-disc {
+  list-style-type: disc;
+  list-style-position: inside;
+}
+
+.list-none {
+  list-style-type: none;
+}
+
+.pl-5 {
+  padding-left: 1.25rem;
+}
+
+/* 表单 */
+.input {
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--input-bg);
+  border: 2px solid var(--input-border);
+  border-radius: var(--radius-lg);
+  color: var(--input-text);
+  outline: none;
+  transition: all var(--transition-normal);
+  font-size: var(--text-sm);
+  position: relative;
+  backdrop-filter: blur(8px);
+}
+
+.input:focus {
+  border-color: var(--input-border-focus);
+  box-shadow:
+    var(--input-shadow-focus),
+    0 4px 12px var(--primary-10);
+  background: var(--bg-secondary);
+  transform: translateY(-1px);
+}
+
+.input::placeholder {
+  color: var(--input-placeholder);
+  transition: color var(--transition-normal);
+}
+
+.input:focus::placeholder {
+  color: var(--text-quaternary);
+}
+
+.form-group {
+  margin-bottom: var(--spacing-lg);
+  position: relative;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  transition: color var(--transition-normal);
+}
+
+.form-group:focus-within label {
+  color: var(--primary);
+}
+
+/* 响应式 */
+@media (min-width: 640px) {
+  .sm\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sm\:flex-row {
+    flex-direction: row;
+  }
+  .sm\:items-center {
+    align-items: center;
+  }
+  .sm\:justify-between {
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 768px) {
+  .md\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .md\:flex-row {
+    flex-direction: row;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lg\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .lg\:flex-row {
+    flex-direction: row;
+  }
+}
+
+/* 玻璃态效果 */
+.glass {
+  background: var(--bg-secondary);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-xl);
+}
+
+/* 手机设备上的优化 */
+@media (max-width: 640px) {
+  .home {
+    padding: 0 !important;
+  }
+
+  .main-content {
+    grid-template-columns: 1fr !important;
+    gap: 2rem !important;
+  }
+
+  .action-card {
+    padding: 0.75rem !important;
+  }
+
+  .modal-content {
+    width: 95% !important;
+    max-width: none !important;
+  }
+}
+
+/* 重置 fixed 元素外边距：space-y-* 布局规则会给子元素加 margin-top，导致弹窗遮罩定位偏移 */
+.fixed {
+  margin: 0 !important;
+}

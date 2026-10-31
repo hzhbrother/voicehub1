@@ -1,0 +1,253 @@
+/**
+ * 音源配置文件
+ * 定义音源接口、配置和默认设置
+ */
+
+/**
+ * 音源接口定义
+ */
+export interface MusicSource {
+  /** 音源唯一标识 */
+  id: string
+  /** 音源显示名称 */
+  name: string
+  /** API基础URL */
+  baseUrl: string
+  /** 优先级，数字越小优先级越高 */
+  priority: number
+  /** 是否启用 */
+  enabled: boolean
+  /** 请求超时时间（毫秒），可选 */
+  timeout?: number
+  /** 自定义请求头，可选 */
+  headers?: Record<string, string>
+}
+
+/**
+ * 音源配置接口
+ */
+export interface MusicSourceConfig {
+  /** 主音源ID */
+  primarySource: string
+  /** 是否启用故障转移 */
+  enableFailover: boolean
+  /** 音源列表 */
+  sources: MusicSource[]
+  /** 默认超时时间（毫秒） */
+  timeout: number
+  /** 重试次数 */
+  retryAttempts: number
+}
+
+/**
+ * 音源状态接口
+ */
+export interface SourceStatus {
+  /** 状态：在线、离线、错误 */
+  status: 'online' | 'offline' | 'error'
+  /** 响应时间（毫秒） */
+  responseTime?: number
+  /** 最后检查时间 */
+  lastCheck: Date
+  /** 错误信息 */
+  errorMessage?: string
+}
+
+/**
+ * 音乐搜索参数接口
+ */
+export interface MusicSearchParams {
+  /** 搜索关键词 */
+  keywords: string
+  /** 音乐平台：tencent=QQ音乐, netease=网易云音乐 */
+  platform?: string
+  /** 返回数量限制 */
+  limit?: number
+  /** 偏移量 */
+  offset?: number
+  /** 搜索类型：1=单曲, 10=专辑, 100=歌手, 1000=歌单, 1009=播客/电台, 2000=声音 */
+  type?: number
+  /** 网易云音乐Cookie */
+  cookie?: string
+}
+
+/**
+ * 音乐搜索结果接口
+ */
+export interface MusicSearchResult {
+  /** 是否成功 */
+  success: boolean
+  /** 使用的音源ID */
+  source: string
+  /** 搜索结果数据 */
+  data: any[]
+  /** 错误信息 */
+  error?: string
+}
+
+/**
+ * 歌曲详情参数接口
+ */
+export interface SongDetailParams {
+  /** 歌曲ID，可以是单个或多个 */
+  ids: string | string[]
+}
+
+/**
+ * 歌曲详情结果接口
+ */
+export interface SongDetailResult {
+  /** 是否成功 */
+  success: boolean
+  /** 使用的音源ID */
+  source: string
+  /** 歌曲详情数据 */
+  data: {
+    songs: any[]
+  }
+  /** 错误信息 */
+  error?: string
+}
+
+/**
+ * 默认音源配置
+ * 内置网易云和 QQ 音乐音源只保留已验证可用的请求路径。
+ */
+export const MUSIC_SOURCE_CONFIG: MusicSourceConfig = {
+  primarySource: 'netease-backup-1',
+  enableFailover: true,
+  timeout: 10000,
+  retryAttempts: 2,
+  sources: [
+    {
+      id: 'netease-backup-1',
+      name: 'NeteaseCloudMusicApi',
+      baseUrl: '/api/api-enhanced/netease',
+      priority: 1,
+      enabled: true,
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    },
+    {
+      id: 'vkeys-v3',
+      name: 'Vkeys QQ 音乐 (v3)',
+      baseUrl: 'https://api.vkeys.cn/music',
+      priority: 2,
+      enabled: true,
+      timeout: 10000
+    },
+    {
+      id: 'vkeys',
+      name: 'Vkeys QQ 音乐 (v2)',
+      baseUrl: 'https://api.vkeys.cn/v2/music',
+      priority: 3,
+      enabled: true,
+      timeout: 10000
+    },
+    {
+      id: 'ygking-qq',
+      name: 'Ygking QQ 音乐备用',
+      baseUrl: 'https://api.ygking.top/api/song/url',
+      priority: 4,
+      enabled: true,
+      timeout: 8000
+    },
+    {
+      id: 'netease-gdstudio',
+      name: 'GD Studio 网易云',
+      baseUrl: 'https://music-api.gdstudio.xyz/api.php',
+      priority: 5,
+      enabled: true,
+      timeout: 10000
+    },
+    {
+      id: 'meting-1',
+      name: 'Meting API 网易云备用源1',
+      baseUrl: 'https://api.qijieya.cn/meting/',
+      priority: 6,
+      enabled: true,
+      timeout: 8000
+    },
+    {
+      id: 'meting-2',
+      name: 'Meting API 网易云备用源2',
+      baseUrl: 'https://api.injahow.cn/meting/',
+      priority: 7,
+      enabled: true,
+      timeout: 8000
+    },
+    {
+      id: 'bilibili',
+      name: '哔哩哔哩',
+      baseUrl: 'https://api.bilibili.com',
+      priority: 8,
+      enabled: true,
+      timeout: 10000
+    },
+    {
+      id: 'migu',
+      name: '咪咕音乐',
+      baseUrl: '/api/native-api/migu/playurl',
+      priority: 9,
+      enabled: true,
+      timeout: 10000
+    }
+  ]
+}
+
+/**
+ * 获取启用的音源列表（按优先级排序）
+ */
+export function getEnabledSources(): MusicSource[] {
+  return MUSIC_SOURCE_CONFIG.sources
+    .filter((source) => source.enabled)
+    .sort((a, b) => a.priority - b.priority)
+}
+
+/**
+ * 根据ID获取音源
+ */
+export function getSourceById(id: string): MusicSource | undefined {
+  return MUSIC_SOURCE_CONFIG.sources.find((source) => source.id === id)
+}
+
+/**
+ * 获取主音源
+ */
+export function getPrimarySource(): MusicSource | undefined {
+  return getSourceById(MUSIC_SOURCE_CONFIG.primarySource)
+}
+
+/**
+ * 获取备用音源列表
+ */
+export function getBackupSources(): MusicSource[] {
+  return getEnabledSources().filter((source) => source.id !== MUSIC_SOURCE_CONFIG.primarySource)
+}
+
+/**
+ * 判断是否为纯数字（旧版 QQ 音乐数字 id）
+ */
+function isNumericId(id: string | number): boolean {
+  return /^\d+$/.test(String(id))
+}
+
+/**
+ * 构造 vkeys 请求的身份参数
+ * 网易云始终用 id；QQ 音乐旧版数字 id 用 id，新版 mid 用 mid
+ */
+export function getVkeysIdParam(
+  platform: 'netease' | 'tencent',
+  musicId: string | number
+): { key: string; value: string } {
+  if (platform === 'netease') {
+    return { key: 'id', value: String(musicId) }
+  }
+  // tencent
+  if (isNumericId(musicId)) {
+    return { key: 'id', value: String(musicId) }
+  }
+  return { key: 'mid', value: String(musicId) }
+}

@@ -1,0 +1,243 @@
+<template>
+  <Teleport to="body">
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="opacity-0 scale-95"
+      leave-to-class="opacity-0 scale-95"
+    >
+      <div
+        v-if="show"
+        class="fixed inset-0 z-[2000] bg-bg-primary-80 backdrop-blur-sm flex items-center justify-center p-4"
+        @click="$emit('cancel')"
+      >
+        <div 
+          class="w-full max-w-md bg-bg-primary border border-border-secondary rounded-2xl p-6 shadow-2xl space-y-6"
+          @click.stop
+        >
+          <div class="text-center space-y-2">
+            <h3 class="text-xl font-bold text-text-primary">{{ locale.title }}</h3>
+            <p class="text-sm text-text-tertiary">
+              {{ method === 'totp' ? locale.totpDesc : locale.emailDesc }}
+            </p>
+          </div>
+
+          <div class="space-y-4">
+            <!-- 邮箱输入 (仅 Email 模式) -->
+            <div v-if="method === 'email'" class="space-y-2">
+              <label class="block text-sm text-text-tertiary">
+                {{ locale.emailLabel }}
+                <span v-if="maskedEmail" class="block text-xs text-text-tertiary mt-1">
+                  {{ locale.maskedEmailTip }} {{ maskedEmail }}
+                </span>
+              </label>
+              <div class="relative">
+                <input
+                  v-model="emailInput"
+                  type="email"
+                  :placeholder="locale.emailPlaceholder"
+                  class="w-full bg-bg-secondary border border-border-secondary rounded-lg px-4 py-3 text-text-primary placeholder-text-disabled focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  :disabled="emailSent && cooldown > 0"
+                  @keyup.enter="!emailSent && sendEmailCode()"
+                />
+              </div>
+            </div>
+
+            <!-- 验证码输入 -->
+            <div v-if="method === 'totp' || emailSent">
+              <div class="relative">
+                <input
+                  v-model="code"
+                  type="text"
+                  maxlength="6"
+                  placeholder="000000"
+                  class="w-full bg-bg-secondary border border-border-secondary rounded-lg px-4 py-3 text-center text-2xl font-mono tracking-widest text-text-primary placeholder-text-disabled focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  @keyup.enter="handleVerify"
+                  ref="inputRef"
+                />
+              </div>
+            </div>
+
+            <!-- 发送邮箱验证码按钮 -->
+            <div v-if="method === 'email'" class="text-center">
+              <button
+                type="button"
+                @click="sendEmailCode"
+                :disabled="cooldown > 0 || sending || !emailInput"
+                class="text-sm text-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {{ resendButtonText }}
+              </button>
+            </div>
+
+            <div v-if="error" class="p-3 bg-error-10 border border-error-20 rounded-lg flex items-center gap-2 text-error text-sm">
+              <AlertCircle :size="16" />
+              <span>{{ error }}</span>
+            </div>
+
+            <button
+              @click="handleVerify"
+              :disabled="loading || code.length !== 6"
+              class="w-full py-3 bg-primary-hover hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-text-primary font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <Loader2 v-if="loading" class="animate-spin" :size="18" />
+              <span>{{ locale.verifyLogin }}</span>
+            </button>
+            
+            <!-- 切换验证方式按钮 -->
+            <button
+              v-if="hasMultipleMethods"
+              @click="toggleMethod"
+              class="w-full py-2 text-primary hover:text-primary text-sm transition-colors"
+            >
+              {{ method === 'totp' ? locale.switchToEmail : locale.switchToTotp }}
+            </button>
+
+            <button
+              @click="$emit('cancel')"
+              class="w-full py-2 text-text-tertiary hover:text-text-secondary text-sm transition-colors"
+            >
+              {{ locale.backLogin }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, nextTick, computed, onUnmounted } from 'vue'
+import { Loader2, AlertCircle } from '@lucide/vue'
+import { useToast } from '~/composables/useToast'
+import { useLocale } from '~/utils/locale'
+
+const props = defineProps<{
+  show: boolean
+  userId: number
+  availableMethods?: string[]
+  maskedEmail?: string
+  tempToken?: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'success', data: any): void
+  (e: 'cancel'): void
+}>()
+
+const { showToast } = useToast()
+const { auth } = useLocale()
+const locale = computed(() => auth.value?.twoFactorVerify || {})
+const { format: formatLocaleValue } = useLocaleText(locale)
+const resendButtonText = computed(() => {
+  if (cooldown.value > 0) {
+    return formatLocaleValue(locale.value.resendCountdown, '', cooldown.value)
+  }
+  return emailSent.value ? locale.value.resendCode : locale.value.sendCode
+})
+// 默认优先使用 TOTP，如果没有则使用 Email
+const defaultMethod = computed(() => props.availableMethods?.includes('totp') ? 'totp' : 'email')
+const method = ref(defaultMethod.value)
+const methods = computed(() => props.availableMethods || ['totp', 'email'])
+const hasMultipleMethods = computed(() => methods.value.length > 1)
+
+const code = ref('')
+const emailInput = ref('')
+const emailSent = ref(false)
+const loading = ref(false)
+const sending = ref(false)
+const cooldown = ref(0)
+const error = ref('')
+const inputRef = ref<HTMLInputElement | null>(null)
+
+let timer: NodeJS.Timeout | undefined
+
+onUnmounted(() => {
+  if (timer) {
+    clearInterval(timer)
+    timer = undefined
+  }
+})
+
+const toggleMethod = () => {
+  method.value = method.value === 'totp' ? 'email' : 'totp'
+  // 切换回 totp 时清空邮箱输入
+  if (method.value === 'totp') {
+    emailInput.value = ''
+    emailSent.value = false
+  }
+}
+
+const sendEmailCode = async () => {
+  try {
+    if (!emailInput.value) {
+      error.value = locale.value.emailRequired || '请输入邮箱'
+      return
+    }
+
+    sending.value = true
+    error.value = ''
+    
+    await $fetch('/api/auth/2fa/send-email', {
+      method: 'POST',
+      body: { 
+        userId: props.userId,
+        token: props.tempToken,
+        email: emailInput.value
+      }
+    })
+
+    showToast(locale.value.codeSent, 'success')
+    emailSent.value = true
+    cooldown.value = 60
+    timer = setInterval(() => {
+      cooldown.value--
+      if (cooldown.value <= 0) {
+        clearInterval(timer)
+        timer = undefined
+      }
+    }, 1000)
+    
+    // 发送成功后自动聚焦验证码输入框
+    nextTick(() => inputRef.value?.focus())
+  } catch (err: any) {
+    error.value = err.data?.message || err.message || locale.value.sendFailed || '发送失败'
+  } finally {
+    sending.value = false
+  }
+}
+
+const handleVerify = async () => {
+  if (code.value.length !== 6) return
+  
+  try {
+    loading.value = true
+    error.value = ''
+    
+    const { verify2FA } = useAuth()
+    const response = await verify2FA(props.userId, code.value, method.value as 'totp' | 'email', props.tempToken)
+    
+    emit('success', response)
+  } catch (err: any) {
+    error.value = err.data?.message || err.message || locale.value.verifyFailed || '验证失败'
+    code.value = '' // 出错清空
+  } finally {
+    loading.value = false
+  }
+}
+
+// 切换方式时清空输入
+watch(method, () => {
+  code.value = ''
+  error.value = ''
+  nextTick(() => inputRef.value?.focus())
+})
+
+// 显示时聚焦输入框
+watch(() => props.show, (newVal) => {
+  if (newVal) {
+    // 每次重新打开时重置为默认方式（优先 TOTP）
+    method.value = defaultMethod.value
+    nextTick(() => inputRef.value?.focus())
+  }
+})
+</script>

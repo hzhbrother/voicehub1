@@ -1,0 +1,2355 @@
+<template>
+  <div
+    class="flex flex-col space-y-8 pb-12 lg:pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500"
+  >
+    <div class="flex flex-col space-y-2">
+      <h2 class="text-2xl font-bold tracking-tight text-text-primary">{{ locale.title }}</h2>
+      <p class="text-sm text-text-tertiary">{{ locale.desc }}</p>
+    </div>
+
+    <!-- 权限检查 -->
+    <div
+      v-if="!canPrintSchedule"
+      class="flex flex-col items-center justify-center py-20 bg-bg-secondary-50 rounded-xl border border-border-secondary"
+    >
+      <div
+        class="w-16 h-16 bg-error-10 rounded-full flex items-center justify-center text-error mb-4"
+      >
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <path d="m15 9-6 6" />
+          <path d="m9 9 6 6" />
+        </svg>
+      </div>
+      <h3 class="text-lg font-bold text-text-primary">{{ locale.noPermissionTitle }}</h3>
+      <p class="text-text-tertiary mt-2">{{ locale.noPermissionDesc }}</p>
+    </div>
+
+    <div v-else class="grid grid-cols-1 lg:grid-cols-12 gap-8 h-auto">
+      <!-- 设置面板 -->
+      <div class="lg:col-span-4 flex flex-col gap-6 h-auto">
+        <div
+          class="bg-bg-secondary-40 border border-border-secondary rounded-xl p-6 space-y-6 shadow-lg flex flex-col h-auto"
+        >
+          <h3 class="text-lg font-bold flex items-center gap-2 text-text-primary shrink-0">
+            <Layout class="w-4 h-4 text-primary" /> {{ locale.settingsTitle }}
+          </h3>
+
+          <div class="space-y-5 pr-2">
+            <!-- 纸张大小 -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.paperSize }}</label
+              >
+              <CustomSelect
+                v-model="settings.paperSize"
+                :options="paperSizeOptions"
+                :placeholder="locale.selectPaperSize"
+                class-name="w-full"
+              />
+            </div>
+
+            <!-- 页面方向 -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.orientation }}</label
+              >
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  :class="[
+                    'py-2.5 rounded-lg text-sm font-bold transition-all',
+                    settings.orientation === 'portrait'
+                      ? 'border border-primary-30 bg-primary-hover-10 text-primary shadow-sm'
+                      : 'border border-border-secondary bg-bg-primary text-text-tertiary hover:text-text-secondary'
+                  ]"
+                  @click="settings.orientation = 'portrait'"
+                >
+                  {{ locale.portrait }}
+                </button>
+                <button
+                  :class="[
+                    'py-2.5 rounded-lg text-sm font-bold transition-all',
+                    settings.orientation === 'landscape'
+                      ? 'border border-primary-30 bg-primary-hover-10 text-primary shadow-sm'
+                      : 'border border-border-secondary bg-bg-primary text-text-tertiary hover:text-text-secondary'
+                  ]"
+                  @click="settings.orientation = 'landscape'"
+                >
+                  {{ locale.landscape }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 排版样式 -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.layoutStyle }}</label
+              >
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  :class="[
+                    'py-2 rounded-lg text-sm font-bold transition-all',
+                    settings.layoutStyle === 'classic'
+                      ? 'border border-primary-30 bg-primary-hover-10 text-primary shadow-sm'
+                      : 'border border-border-secondary bg-bg-primary text-text-tertiary hover:text-text-secondary'
+                  ]"
+                  @click="selectClassicLayout"
+                >
+                  {{ locale.classicList }}
+                </button>
+                <button
+                  :class="[
+                    'py-2 rounded-lg text-sm font-bold transition-all',
+                    settings.layoutStyle === 'table'
+                      ? 'border border-primary-30 bg-primary-hover-10 text-primary shadow-sm'
+                      : 'border border-border-secondary bg-bg-primary text-text-tertiary hover:text-text-secondary'
+                  ]"
+                  @click="selectTableLayout"
+                >
+                  {{ locale.tableLayout }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 列表分栏（仅纵向经典列表） -->
+            <div v-if="showListColumns" class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.listColumns }}</label
+              >
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  :class="[
+                    'py-2 rounded-lg text-sm font-bold transition-all',
+                    settings.listColumns === 1
+                      ? 'border border-primary-30 bg-primary-hover-10 text-primary shadow-sm'
+                      : 'border border-border-secondary bg-bg-primary text-text-tertiary hover:text-text-secondary'
+                  ]"
+                  @click="settings.listColumns = 1"
+                >
+                  {{ locale.oneColumn }}
+                </button>
+                <button
+                  :class="[
+                    'py-2 rounded-lg text-sm font-bold transition-all',
+                    settings.listColumns === 2
+                      ? 'border border-primary-30 bg-primary-hover-10 text-primary shadow-sm'
+                      : 'border border-border-secondary bg-bg-primary text-text-tertiary hover:text-text-secondary'
+                  ]"
+                  @click="settings.listColumns = 2"
+                >
+                  {{ locale.twoColumns }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 日期范围 -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.dateRange }}</label
+              >
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <AppDatePicker
+                  v-model="settings.startDate"
+                  size="md"
+                  rounded="lg"
+                  class-name="w-full"
+                  max="9999-12-31"
+                />
+                <AppDatePicker
+                  v-model="settings.endDate"
+                  size="md"
+                  rounded="lg"
+                  class-name="w-full"
+                  max="9999-12-31"
+                />
+              </div>
+              <div class="flex gap-2 flex-wrap">
+                <button
+                  v-for="range in dateRanges"
+                  :key="range.value"
+                  :class="[
+                    'px-2 py-1 text-[10px] rounded-md transition-colors border',
+                    settings.dateRangePreset === range.value
+                      ? 'bg-primary-hover-20 border-primary-50 text-primary'
+                      : 'bg-bg-tertiary-50 border-border-secondary text-text-tertiary hover:bg-bg-tertiary'
+                  ]"
+                  @click="setDateRange(range.value)"
+                >
+                  {{ range.label }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 显示内容 -->
+            <div class="space-y-3">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.displayContent }}</label
+              >
+              <div class="grid grid-cols-1 gap-2.5">
+                <label
+                  v-for="option in contentOptions"
+                  :key="option.key"
+                  class="flex items-center gap-3 cursor-pointer group select-none"
+                >
+                  <div
+                    :class="[
+                      'w-5 h-5 rounded flex items-center justify-center border transition-all',
+                      settings[option.key]
+                        ? 'bg-primary-hover border-primary'
+                        : 'bg-bg-primary border-border-secondary group-hover:border-border-tertiary'
+                    ]"
+                  >
+                    <CheckCircle2 v-if="settings[option.key]" class="w-3 h-3 text-text-primary" />
+                  </div>
+                  <input v-model="settings[option.key]" type="checkbox" class="hidden" />
+                  <span
+                    :class="[
+                      'text-sm font-medium transition-colors',
+                      settings[option.key]
+                        ? 'text-text-primary'
+                        : 'text-text-tertiary group-hover:text-text-tertiary'
+                    ]"
+                    >{{ option.label }}</span
+                  >
+                </label>
+
+                <label
+                  v-if="schoolLogoPrintDisplayUrl"
+                  class="flex items-center gap-3 cursor-pointer group select-none"
+                >
+                  <div
+                    :class="[
+                      'w-5 h-5 rounded flex items-center justify-center border transition-all',
+                      settings.showSchoolLogo
+                        ? 'bg-primary-hover border-primary'
+                        : 'bg-bg-primary border-border-secondary group-hover:border-border-tertiary'
+                    ]"
+                  >
+                    <CheckCircle2 v-if="settings.showSchoolLogo" class="w-3 h-3 text-text-primary" />
+                  </div>
+                  <input v-model="settings.showSchoolLogo" type="checkbox" class="hidden" />
+                  <span
+                    :class="[
+                      'text-sm font-medium transition-colors',
+                      settings.showSchoolLogo
+                        ? 'text-text-primary'
+                        : 'text-text-tertiary group-hover:text-text-tertiary'
+                    ]"
+                    >{{ locale.schoolLogo }}</span
+                  >
+                </label>
+              </div>
+            </div>
+
+            <!-- 备注 -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.remark }}</label
+              >
+              <textarea
+                v-model="settings.remark"
+                :placeholder="locale.remarkPlaceholder"
+                class="w-full bg-bg-primary border border-border-secondary rounded-lg px-4 py-3 text-sm focus:outline-none text-text-secondary min-h-[80px] resize-none focus:border-primary-50 transition-colors"
+              />
+            </div>
+
+            <!-- 导出方案 -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-black uppercase text-text-disabled tracking-wider"
+                >{{ locale.exportPresets }}</label
+              >
+              <div class="flex gap-2">
+                <input
+                  v-model="newPresetName"
+                  type="text"
+                  maxlength="30"
+                  :placeholder="locale.presetNamePlaceholder"
+                  class="flex-1 min-w-0 bg-bg-primary border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-secondary focus:outline-none focus:border-primary-50 transition-colors"
+                  @keydown.enter="saveCurrentAsPreset"
+                />
+                <button
+                  class="shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 bg-bg-tertiary-80 hover:bg-bg-quaternary text-text-secondary text-xs font-bold rounded-lg border border-border-tertiary transition-all"
+                  @click="saveCurrentAsPreset"
+                >
+                  <Plus class="w-3.5 h-3.5" /> {{ locale.savePreset }}
+                </button>
+              </div>
+
+              <p v-if="presets.length === 0" class="text-xs text-text-tertiary">
+                {{ locale.noPresetsHint }}
+              </p>
+              <div v-else class="space-y-1.5">
+                <div
+                  v-for="preset in presets"
+                  :key="preset.id"
+                  :class="[
+                    'flex items-center gap-2 rounded-lg border bg-bg-primary px-2.5 py-1.5 transition-colors',
+                    preset.selected ? 'border-primary-30' : 'border-border-secondary'
+                  ]"
+                >
+                  <label class="flex items-center cursor-pointer group select-none shrink-0">
+                    <div
+                      :class="[
+                        'w-4 h-4 rounded flex items-center justify-center border transition-all',
+                        preset.selected
+                          ? 'bg-primary-hover border-primary'
+                          : 'bg-bg-primary border-border-secondary group-hover:border-border-tertiary'
+                      ]"
+                    >
+                      <CheckCircle2 v-if="preset.selected" class="w-2.5 h-2.5 text-text-primary" />
+                    </div>
+                    <input v-model="preset.selected" type="checkbox" class="hidden" />
+                  </label>
+                  <button
+                    class="flex-1 min-w-0 text-left"
+                    :title="locale.applyPreset"
+                    @click="applyPreset(preset)"
+                  >
+                    <div class="text-xs font-bold text-text-secondary truncate">{{ preset.name }}</div>
+                    <div class="text-[10px] text-text-tertiary truncate">
+                      {{ presetSummary(preset) }}
+                    </div>
+                  </button>
+                  <button
+                    class="flex items-center justify-center shrink-0 p-1 rounded text-text-tertiary hover:text-error transition-colors"
+                    :title="locale.deletePreset"
+                    @click="removePreset(preset)"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="presets.length > 0" class="flex gap-2 pt-1">
+                <CustomSelect
+                  v-model="batchFormat"
+                  :options="batchFormatOptions"
+                  class-name="flex-1 min-w-0"
+                />
+                <button
+                  :disabled="selectedPresetCount === 0 || isBatchExporting"
+                  class="shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-hover hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-xs font-bold rounded-lg shadow-lg shadow-[var(--primary-glow)] transition-all"
+                  @click="batchExport"
+                >
+                  <Loader2 v-if="isBatchExporting" class="w-3.5 h-3.5 animate-spin" />
+                  <ListChecks v-else class="w-3.5 h-3.5" />
+                  {{ batchExportButtonText }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="space-y-2 pt-4 border-t border-border-secondary shrink-0">
+            <button
+              class="w-full flex items-center justify-center gap-2 py-3 bg-bg-tertiary-80 hover:bg-bg-quaternary text-text-secondary text-sm font-bold rounded-lg border border-border-tertiary transition-all"
+              @click="refreshPreview"
+            >
+              <RefreshCw class="w-4 h-4" /> {{ locale.refreshPreview }}
+            </button>
+            <button
+              :disabled="isPrinting || isBatchExporting"
+              class="w-full flex items-center justify-center gap-2 py-3 bg-primary-hover hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-sm font-bold rounded-lg shadow-lg shadow-[var(--primary-glow)] transition-all"
+              @click="printSchedule"
+            >
+              <Printer class="w-4 h-4" /> {{ isPrinting ? locale.printing : locale.print }}
+            </button>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                :disabled="isExporting || isBatchExporting"
+                class="flex items-center justify-center gap-2 py-2.5 bg-success-10 text-success hover:bg-success-20 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-bold rounded-lg border border-success-20 transition-all"
+                @click="exportPDF"
+              >
+                <FileText class="w-3.5 h-3.5" /> {{ isExporting ? locale.exporting : locale.exportPdf }}
+              </button>
+              <button
+                :disabled="isExportingImage || isBatchExporting"
+                class="flex items-center justify-center gap-2 py-2.5 bg-warning-10 text-warning hover:bg-warning-20 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-bold rounded-lg border border-warning-20 transition-all"
+                @click="exportImage"
+              >
+                <ImageIcon class="w-3.5 h-3.5" /> {{ isExportingImage ? locale.exporting : locale.exportImage }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 预览区域 -->
+      <div class="lg:col-span-8 flex flex-col gap-4 h-[700px] lg:h-0 lg:min-h-full mb-8 lg:mb-0">
+        <div
+          class="bg-bg-secondary-40 border border-border-secondary rounded-xl overflow-hidden flex flex-col h-full shadow-lg"
+        >
+          <div class="px-6 py-5 border-b border-border-secondary flex items-center justify-between">
+            <h3 class="text-lg font-bold flex items-center gap-2 text-text-primary">
+              <AlignLeft class="w-4.5 h-4.5 text-text-tertiary" /> {{ locale.previewArea }}
+            </h3>
+            <div class="flex items-center gap-2 text-xs font-bold">
+              <span class="text-text-tertiary">{{ formatLocale(locale.songCount, '', filteredSchedules.length) }}</span>
+              <span
+                v-if="schedules.length === 0"
+                class="px-2 py-0.5 rounded bg-error-10 text-error border border-error-20"
+                >{{ locale.noData }}</span
+              >
+              <span
+                v-else-if="filteredSchedules.length === 0"
+                class="px-2 py-0.5 rounded bg-warning-10 text-warning border border-warning-20"
+                >{{ locale.filtered }}</span
+              >
+            </div>
+          </div>
+
+          <div
+            class="flex-1 bg-bg-primary-50 p-6 md:p-12 overflow-auto custom-scrollbar flex items-start"
+          >
+            <!-- 纸张预览 -->
+            <div
+              ref="previewContent"
+              :class="[
+                `paper-${settings.paperSize.toLowerCase()}`,
+                `orientation-${settings.orientation}`
+              ]"
+              class="preview-content mx-auto shrink-0"
+            >
+              <div class="print-page">
+                <!-- 页面头部 -->
+                <div class="page-header">
+                  <div class="logo-section">
+                    <img src="/assets/logo.png" alt="VoiceHub Logo" class="logo" />
+                    <!-- 竖线分割 -->
+                    <div class="logo-divider" />
+                    <!-- 学校logo -->
+                    <img
+                      v-if="settings.showSchoolLogo && schoolLogoPrintDisplayUrl"
+                      :src="schoolLogoPrintDisplayUrl"
+                      :data-original-src="schoolLogoPrintUrl"
+                      :alt="locale.schoolLogo"
+                      class="school-logo-print"
+                    />
+                    <div class="title-section">
+                      <h1>{{ siteTitle }}</h1>
+                      <h2>{{ locale.printTitle }}</h2>
+                    </div>
+                  </div>
+                  <div class="date-info">
+                    <div class="date-range-display">{{ formatDateRange() }}</div>
+                  </div>
+                </div>
+
+                <!-- 排期内容 -->
+                <div :class="scheduleContentClass">
+                  <!-- 无数据提示 -->
+                  <div v-if="filteredSchedules.length === 0" class="no-data-message">
+                    <div class="no-data-icon">
+                      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <rect height="18" rx="2" ry="2" width="18" x="3" y="4" />
+                        <line x1="16" x2="16" y1="2" y2="6" />
+                        <line x1="8" x2="8" y1="2" y2="6" />
+                        <line x1="3" x2="21" y1="10" y2="10" />
+                      </svg>
+                    </div>
+                    <h3>{{ locale.emptyTitle }}</h3>
+                    <p v-if="schedules.length === 0">{{ locale.emptyNoSchedules }}</p>
+                    <p v-else>{{ locale.emptyFiltered }}</p>
+                  </div>
+
+                  <!-- 只有在非表格排布时才按日期分组 -->
+                  <div v-if="settings.layoutStyle !== 'table'" class="grouped-content">
+                    <div
+                      v-for="(dateGroup, date) in groupedSchedules"
+                      :key="date"
+                      class="date-group"
+                      :data-date="date"
+                    >
+                      <h3 class="group-title">
+                        {{ formatDate(date) }}
+                        <span class="group-count">({{ formatLocale(locale.countOnly, '', dateGroup.allSchedules.length) }})</span>
+                      </h3>
+
+                      <!-- 检查是否需要显示时段分组 -->
+                      <div v-if="hasMultiplePlayTimes(dateGroup)" class="playtime-groups">
+                        <div
+                          v-for="(playTimeData, playTime) in dateGroup.playTimes"
+                          :key="playTime"
+                          class="playtime-group"
+                        >
+                          <h4 class="playtime-title">
+                            {{ playTime }}
+                            <span class="playtime-count"
+                              >({{ formatLocale(locale.countOnly, '', playTimeData.schedules.length) }})</span
+                            >
+                          </h4>
+
+                          <!-- 经典排布 -->
+                          <div class="schedule-list">
+                            <div
+                              v-for="schedule in playTimeData.schedules"
+                              :key="schedule.id"
+                              class="schedule-item"
+                            >
+                              <ScheduleItemPrint :schedule="schedule" :settings="settings" :narrow="isTwoColumnList" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- 如果只有一个时段或没有时段，直接显示歌曲列表 -->
+                      <div v-else class="schedule-list">
+                        <div
+                          v-for="schedule in dateGroup.allSchedules"
+                          :key="schedule.id"
+                          class="schedule-item"
+                        >
+                          <ScheduleItemPrint :schedule="schedule" :settings="settings" :narrow="isTwoColumnList" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 如果是表格排布，显示单一的大表格 -->
+                  <div v-else-if="filteredSchedules.length > 0" class="schedule-table-wrapper">
+                    <ScheduleTablePrint
+                      :grouped-schedules="groupedSchedules"
+                      :settings="settings"
+                    />
+                  </div>
+                </div>
+
+                <!-- 页面底部 -->
+                <div class="page-footer">
+                  <div class="footer-left">
+                    <span>{{ generatedAtText }}</span>
+                    <span v-if="settings.remark" class="remark-text">
+                      {{ remarkText }}
+                    </span>
+                  </div>
+                  <span class="footer-right">{{ locale.footer }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRuntimeConfig } from '#app'
+import { usePermissions } from '~/composables/usePermissions'
+import { useSiteConfig } from '~/composables/useSiteConfig'
+import { useAuth } from '~/composables/useAuth'
+import { downloadImageAsBase64, warmupPrintImages } from '~/utils/print-image-cache'
+import { toPng, toBlob } from 'html-to-image'
+import { jsPDF } from 'jspdf'
+import {
+  Layout,
+  ChevronDown,
+  CheckCircle2,
+  Printer,
+  FileText,
+  ImageIcon,
+  AlignLeft,
+  RefreshCw,
+  Plus,
+  Trash2,
+  Loader2,
+  ListChecks
+} from '@lucide/vue'
+import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
+import AppDatePicker from '~/components/UI/Common/AppDatePicker.vue'
+import { useLocale } from '~/utils/locale'
+
+// 导入子组件
+import ScheduleItemPrint from './ScheduleItemPrint.vue'
+import ScheduleTablePrint from './ScheduleTablePrint.vue'
+
+// 学期管理
+import { useSemesters } from '~/composables/useSemesters'
+const { currentSemester, fetchCurrentSemester } = useSemesters()
+const { admin, currentLocale } = useLocale()
+const locale = computed(() => admin.value?.schedulePrinter || {})
+const { format: formatLocale } = useLocaleText(locale)
+const generatedAtText = computed(() => {
+  const nowText = new Date().toLocaleString(currentLocale.value)
+  return formatLocale(locale.value?.generatedAt, nowText, nowText)
+})
+const remarkText = computed(() => {
+  const remark = settings.value.remark || ''
+  return formatLocale(locale.value?.remarkPrefix, remark, remark)
+})
+
+// 权限检查
+const { canPrintSchedule } = usePermissions()
+
+// 认证信息
+const { getAuthConfig } = useAuth()
+
+// 站点配置
+const { siteTitle, schoolLogoPrintUrl, schoolLogoPrintDisplayUrl, initSiteConfig } = useSiteConfig()
+
+// 配置
+const config = useRuntimeConfig()
+
+
+
+// 响应式数据
+const schedules = ref([])
+const loading = ref(false)
+const isExporting = ref(false)
+const isExportingImage = ref(false)
+const isPrinting = ref(false)
+const previewContent = ref(null)
+
+// 打印设置
+const settings = ref({
+  paperSize: 'A4',
+  orientation: 'portrait',
+  layoutStyle: 'classic',
+  listColumns: 1,
+  startDate: '',
+  endDate: '',
+  dateRangePreset: '',
+  showCover: false,
+  showTitle: true,
+  showArtist: true,
+  showRequester: true,
+  showVotes: true,
+  showSequence: true,
+  showSchoolLogo: false,
+  showPlayTime: true,
+  remark: '',
+  currentSemester: ''
+})
+
+const paperSizeOptions = [
+  { label: 'A4 (210×297mm)', value: 'A4' },
+  { label: 'A3 (297×420mm)', value: 'A3' },
+  { label: 'Letter (216×279mm)', value: 'Letter' },
+  { label: 'Legal (216×356mm)', value: 'Legal' }
+]
+
+const dateRanges = computed(() => [
+  { label: locale.value?.dateRanges?.today || 'Today', value: 'today' },
+  { label: locale.value?.dateRanges?.tomorrow || 'Tomorrow', value: 'tomorrow' },
+  { label: locale.value?.dateRanges?.thisWeek || 'This week', value: 'thisWeek' },
+  { label: locale.value?.dateRanges?.nextWeek || 'Next week', value: 'nextWeek' }
+])
+
+const contentOptions = computed(() => [
+  { key: 'showCover', label: locale.value?.contentOptions?.cover || 'Cover' },
+  { key: 'showTitle', label: locale.value?.contentOptions?.title || 'Title' },
+  { key: 'showArtist', label: locale.value?.contentOptions?.artist || 'Artist' },
+  { key: 'showRequester', label: locale.value?.contentOptions?.requester || 'Requester' },
+  { key: 'showVotes', label: locale.value?.contentOptions?.votes || 'Votes' },
+  { key: 'showSequence', label: locale.value?.contentOptions?.sequence || 'Sequence' },
+  { key: 'showPlayTime', label: locale.value?.contentOptions?.playTime || 'Play time' }
+])
+
+const paperWidths = {
+  A4: { portrait: 800, landscape: 1132 },
+  A3: { portrait: 1132, landscape: 1600 },
+  Letter: { portrait: 800, landscape: 1034 },
+  Legal: { portrait: 800, landscape: 1318 }
+}
+
+const getPaperWidth = (paperSize, orientation) => {
+  return paperWidths[paperSize]?.[orientation] || paperWidths.A4.portrait
+}
+
+// 计算属性
+const itemsPerPage = computed(() => {
+  const baseItems = settings.value.paperSize === 'A4' ? 20 : 30
+  return settings.value.orientation === 'landscape' ? Math.floor(baseItems * 1.4) : baseItems
+})
+
+const filteredSchedules = computed(() => {
+  let filtered = schedules.value
+
+  if (settings.value.startDate) {
+    const startDate = new Date(settings.value.startDate)
+    startDate.setHours(0, 0, 0, 0)
+    filtered = filtered.filter((s) => {
+      const scheduleDate = new Date(s.playDate)
+      scheduleDate.setHours(0, 0, 0, 0)
+      return scheduleDate >= startDate
+    })
+  }
+
+  if (settings.value.endDate) {
+    const endDate = new Date(settings.value.endDate)
+    endDate.setHours(23, 59, 59, 999)
+    filtered = filtered.filter((s) => {
+      const scheduleDate = new Date(s.playDate)
+      return scheduleDate <= endDate
+    })
+  }
+
+  return filtered.sort((a, b) => {
+    const dateCompare = new Date(a.playDate) - new Date(b.playDate)
+    if (dateCompare !== 0) return dateCompare
+    return (a.sequence || 0) - (b.sequence || 0)
+  })
+})
+
+// 格式化日期
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  // 处理 YYYY-MM-DD 格式，确保在不同浏览器和时区下表现一致
+  const date =
+    dateStr.includes('-') && !dateStr.includes('T')
+      ? new Date(dateStr.replace(/-/g, '/'))
+      : new Date(dateStr)
+
+  return date.toLocaleDateString(currentLocale.value, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long'
+  })
+}
+
+const formatDateRange = () => {
+  if (!settings.value.startDate && !settings.value.endDate) {
+    return locale.value.allSchedules
+  }
+
+  // 如果开始和结束日期相同，只显示一个日期
+  if (
+    settings.value.startDate &&
+    settings.value.endDate &&
+    settings.value.startDate === settings.value.endDate
+  ) {
+    return formatDate(settings.value.startDate)
+  }
+
+  const start = settings.value.startDate ? formatDate(settings.value.startDate) : locale.value.rangeStart
+  const end = settings.value.endDate ? formatDate(settings.value.endDate) : locale.value.rangeEnd
+
+  // 如果日期范围较长，使用双行显示
+  const fullRange = `${start} - ${end}`
+  if (fullRange.length > 20) {
+    return locale.value.rangeTo(start, end)
+  }
+
+  return fullRange
+}
+
+// 根据预设类型计算日期范围
+const calculateDateRange = (type) => {
+  const today = getSyncedDate()
+  const start = new Date(today)
+  const end = new Date(today)
+
+  if (type === 'today') {
+    // start and end are already today
+  } else if (type === 'tomorrow') {
+    start.setDate(today.getDate() + 1)
+    end.setDate(today.getDate() + 1)
+  } else if (type === 'thisWeek') {
+    const day = today.getDay()
+    const diffToMon = day === 0 ? 6 : day - 1
+    start.setDate(today.getDate() - diffToMon)
+    end.setTime(start.getTime())
+    end.setDate(start.getDate() + 6)
+  } else if (type === 'nextWeek') {
+    const day = today.getDay()
+    const diffToMon = day === 0 ? 6 : day - 1
+    start.setDate(today.getDate() - diffToMon + 7)
+    end.setTime(start.getTime())
+    end.setDate(start.getDate() + 6)
+  }
+
+  const formatDateStr = (date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  return {
+    startDate: formatDateStr(start),
+    endDate: formatDateStr(end)
+  }
+}
+
+// 设置日期范围
+const setDateRange = (type) => {
+  const { startDate, endDate } = calculateDateRange(type)
+  settings.value.startDate = startDate
+  settings.value.endDate = endDate
+  settings.value.dateRangePreset = type
+}
+
+// 格式化播出时段显示文本
+const formatPlayTimeDisplay = (playTime) => {
+  if (!playTime) return locale.value.unspecifiedPlayTime
+
+  let displayText = playTime.name
+
+  // 根据时间参数决定显示格式
+  if (playTime.startTime && playTime.endTime) {
+    displayText += ` (${playTime.startTime}-${playTime.endTime})`
+  } else if (playTime.startTime) {
+    displayText = locale.value.playTimeStarts(displayText, playTime.startTime)
+  } else if (playTime.endTime) {
+    displayText = locale.value.playTimeEnds(displayText, playTime.endTime)
+  }
+
+  return displayText
+}
+
+// 选择经典排版时自动切换为纵向
+const selectClassicLayout = () => {
+  settings.value.layoutStyle = 'classic'
+  settings.value.orientation = 'portrait'
+}
+
+// 选择表格排版时自动切换为横向
+const selectTableLayout = () => {
+  settings.value.layoutStyle = 'table'
+  settings.value.orientation = 'landscape'
+}
+
+// 纵向经典列表才提供分栏设置
+const showListColumns = computed(() => {
+  const s = settings.value
+  return s.layoutStyle === 'classic' && s.orientation === 'portrait'
+})
+
+// 两列时排期项改用窄版两行排版
+const isTwoColumnList = computed(() => showListColumns.value && settings.value.listColumns === 2)
+
+// 排期内容容器 class（预览与两条导出路径共用）
+const scheduleContentClass = computed(
+  () =>
+    `schedule-content layout-${settings.value.layoutStyle}` +
+    (isTwoColumnList.value ? ' is-two-column' : '')
+)
+
+// 获取播出时段的排序权重
+const getPlayTimeSortWeight = (playTime) => {
+  if (!playTime || !playTime.startTime) return 9999 // 未指定时段排在最后
+
+  // 将时间转换为分钟数进行排序
+  const [hours, minutes] = playTime.startTime.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+const groupedSchedules = computed(() => {
+  const groups = {}
+
+  filteredSchedules.value.forEach((schedule) => {
+    // 处理日期，确保正确提取日期部分
+    const scheduleDate = new Date(schedule.playDate)
+    const dateKey = scheduleDate.toISOString().split('T')[0]
+
+    if (!groups[dateKey]) {
+      groups[dateKey] = {
+        date: dateKey,
+        playTimes: {},
+        allSchedules: []
+      }
+    }
+
+    groups[dateKey].allSchedules.push(schedule)
+
+    // 按播出时段分组
+    const playTimeKey = formatPlayTimeDisplay(schedule.playTime)
+
+    if (!groups[dateKey].playTimes[playTimeKey]) {
+      groups[dateKey].playTimes[playTimeKey] = {
+        schedules: [],
+        playTime: schedule.playTime // 保存原始playTime对象用于排序
+      }
+    }
+    groups[dateKey].playTimes[playTimeKey].schedules.push(schedule)
+  })
+
+  // 排序处理
+  const sortedGroups = {}
+  Object.keys(groups)
+    .sort()
+    .forEach((dateKey) => {
+      const dateGroup = groups[dateKey]
+
+      // 对每个时段内的歌曲按序号排序
+      Object.keys(dateGroup.playTimes).forEach((playTimeKey) => {
+        dateGroup.playTimes[playTimeKey].schedules.sort(
+          (a, b) => (a.sequence || 0) - (b.sequence || 0)
+        )
+      })
+
+      // 对时段按时间顺序排序
+      const sortedPlayTimes = {}
+      const playTimeKeys = Object.keys(dateGroup.playTimes).sort((a, b) => {
+        const playTimeA = dateGroup.playTimes[a].playTime
+        const playTimeB = dateGroup.playTimes[b].playTime
+
+        const weightA = getPlayTimeSortWeight(playTimeA)
+        const weightB = getPlayTimeSortWeight(playTimeB)
+
+        return weightA - weightB
+      })
+
+      playTimeKeys.forEach((key) => {
+        sortedPlayTimes[key] = dateGroup.playTimes[key]
+      })
+
+      // 重新计算allSchedules，按时段顺序排列
+      const sortedAllSchedules = []
+      playTimeKeys.forEach((key) => {
+        sortedAllSchedules.push(...dateGroup.playTimes[key].schedules)
+      })
+
+      sortedGroups[dateKey] = {
+        ...dateGroup,
+        playTimes: sortedPlayTimes,
+        allSchedules: sortedAllSchedules
+      }
+    })
+
+  return sortedGroups
+})
+
+// 判断是否需要显示时段分组
+const hasMultiplePlayTimes = (dateGroup) => {
+  if (!settings.value.showPlayTime) return false
+  const playTimeKeys = Object.keys(dateGroup.playTimes)
+  // 如果有多个时段，显示分组
+  if (playTimeKeys.length > 1) return true
+  // 如果只有一个时段且不是"未指定时段"，显示分组
+  if (playTimeKeys.length === 1 && playTimeKeys[0] !== locale.value.unspecifiedPlayTime) return true
+  // 其他情况不显示分组
+  return false
+}
+
+// 方法
+const loadSchedules = async () => {
+  loading.value = true
+  try {
+    const data = await $fetch('/api/songs/public', {
+      ...getAuthConfig()
+    })
+    // API直接返回排期数组，不是包装在schedules属性中
+    schedules.value = Array.isArray(data) ? data : []
+
+    // 如果没有数据，显示提示
+    if (schedules.value.length === 0) {
+      if (window.$showNotification) {
+        window.$showNotification(locale.value.noSchedulesNotice, 'info')
+      }
+    }
+  } catch (error) {
+    console.error('加载排期失败:', error)
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.loadFailed(error.message), 'error')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+const refreshPreview = async () => {
+  await loadSchedules()
+  if (window.$showNotification) {
+    window.$showNotification(locale.value.previewRefreshed, 'success')
+  }
+}
+
+const printSchedule = async () => {
+  if (isPrinting.value || isBatchExporting.value) return // 防止重复点击
+
+  isPrinting.value = true
+  try {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.preparingPrint, 'info')
+    }
+
+    // 复用PDF导出逻辑，但用于打印
+    await exportPDFForPrint()
+  } catch (error) {
+    console.error('打印失败:', error)
+    const errorMsg = error?.message || (typeof error === 'string' ? error : locale.value.unknownError)
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.printFailed(errorMsg), 'error')
+    }
+  } finally {
+    // 延迟重置状态，给用户足够的时间看到"打印中"状态
+    setTimeout(() => {
+      isPrinting.value = false
+    }, 2000)
+  }
+}
+
+// 统一的PDF生成函数（支持打印和下载）
+// 采用DOM分页策略，避免长图渲染导致的内存溢出和卡死
+const exportPDFForPrint = async (action = 'print', customFilename = null, { notify = true } = {}) => {
+  if (!previewContent.value) throw new Error(locale.value.previewNotFound)
+
+  const originalPrintPage = previewContent.value.querySelector('.print-page')
+  if (!originalPrintPage) throw new Error('打印页面元素未找到')
+
+  // 1. 准备PDF
+  const pdf = new jsPDF({
+    unit: 'mm',
+    format: settings.value.paperSize.toLowerCase(),
+    orientation: settings.value.orientation === 'landscape' ? 'l' : 'p'
+  })
+
+  const pdfWidth = pdf.internal.pageSize.getWidth()
+  const pdfHeight = pdf.internal.pageSize.getHeight()
+
+  // 计算容器尺寸，与 generateAndDownloadImage 保持一致
+  const s = settings.value
+  const containerWidth = getPaperWidth(s.paperSize, s.orientation)
+
+  // 保持宽高比
+  const ratio = pdfHeight / pdfWidth
+  const containerHeight = Math.floor(containerWidth * ratio)
+
+  // 创建分页容器（模拟单页纸张）
+  const pageContainer = document.createElement('div')
+  pageContainer.className = `print-page orientation-${settings.value.orientation}`
+  pageContainer.style.cssText = `
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: ${containerWidth}px;
+    height: ${containerHeight}px;
+    background: white;
+    color: black;
+    padding: 40px;
+    box-sizing: border-box;
+    z-index: -9999;
+    overflow: hidden;
+  `
+
+  // 辅助：强制样式
+  const applyForceStyles = (el) => {
+    el.style.setProperty('background', 'white', 'important')
+    el.style.setProperty('color', 'black', 'important')
+    el.style.setProperty('box-shadow', 'none', 'important')
+  }
+
+  document.body.appendChild(pageContainer)
+
+  try {
+    const sourceHeader = originalPrintPage.querySelector('.page-header')
+    const sourceFooter = originalPrintPage.querySelector('.page-footer')
+    const sourceContent = originalPrintPage.querySelector('.schedule-content')
+
+    // 如果找不到标准结构，尝试直接克隆（兼容旧版）
+    if (!sourceContent) {
+      throw new Error('排期内容结构不符合分页要求')
+    }
+
+    const scopeAttributeNames = originalPrintPage
+      .getAttributeNames()
+      .filter((name) => name.startsWith('data-v-'))
+
+    const applyScopeAttributes = (el) => {
+      scopeAttributeNames.forEach((name) => {
+        el.setAttribute(name, '')
+      })
+      return el
+    }
+
+    applyScopeAttributes(pageContainer)
+
+    // 辅助：渲染当前页并添加到PDF
+    const renderPage = async (isFirst) => {
+      // 在渲染前，清理页面中因为分页产生的空容器（如：没有子项的日期组、没有子项的表格），避免出现只有表头没有内容的孤立节点
+      const contentWrapper = pageContainer.querySelector('.schedule-content')
+      if (contentWrapper) {
+        const dGroups = contentWrapper.querySelectorAll('.date-group')
+        dGroups.forEach((dg) => {
+          if (dg.querySelectorAll('.schedule-item').length === 0) {
+            dg.remove()
+          } else {
+            const ptGroups = dg.querySelectorAll('.playtime-group')
+            ptGroups.forEach((ptg) => {
+              if (ptg.querySelectorAll('.schedule-item').length === 0) {
+                ptg.remove()
+              }
+            })
+            const ptWrappers = dg.querySelectorAll('.playtime-groups')
+            ptWrappers.forEach((ptw) => {
+              if (ptw.children.length === 0) ptw.remove()
+            })
+          }
+        })
+
+        const tableWrappers = contentWrapper.querySelectorAll('.schedule-table-wrapper')
+        tableWrappers.forEach((wrapper) => {
+          const table = wrapper.querySelector('.schedule-timetable')
+          if (table) {
+            // 移除没有歌曲项的 tbody (播放时间组)
+            table.querySelectorAll('tbody').forEach((tbody) => {
+              if (tbody.querySelectorAll('.song-item').length === 0) {
+                tbody.remove()
+              }
+            })
+            // 如果整个表格都没有歌曲项了，移除整个包装器
+            if (table.querySelectorAll('.song-item').length === 0) {
+              wrapper.remove()
+            }
+          }
+        })
+      }
+
+      applyForceStyles(pageContainer)
+
+      // 预处理当前页面的图片
+      await preprocessImages(pageContainer)
+
+      // 稍微等待渲染
+      await new Promise((r) => setTimeout(r, 100))
+
+      const blob = await toBlob(pageContainer, {
+        quality: 0.9,
+        pixelRatio: 2, // 保持清晰度
+        width: containerWidth,
+        height: containerHeight,
+        style: { visibility: 'visible', opacity: '1', background: 'white' }
+      })
+
+      if (!blob) throw new Error('页面渲染失败')
+      const imgUrl = URL.createObjectURL(blob)
+
+      if (!isFirst) pdf.addPage()
+      pdf.addImage(imgUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+
+      // 清理
+      URL.revokeObjectURL(imgUrl)
+    }
+
+    // 辅助：重置页面容器（添加页眉页脚）
+    let currentContentWrapper = null
+    let currentGroupedContent = null
+
+    const resetPageContainer = () => {
+      pageContainer.innerHTML = ''
+
+      // 添加 Header
+      if (sourceHeader) {
+        const h = sourceHeader.cloneNode(true)
+        applyForceStyles(h)
+        pageContainer.appendChild(h)
+      }
+
+      // 创建内容区域
+      const cw = applyScopeAttributes(document.createElement('div'))
+      cw.className = scheduleContentClass.value
+
+      cw.style.margin = '0'
+      cw.style.padding = '0'
+      pageContainer.appendChild(cw)
+      currentContentWrapper = cw
+
+      const sourceGrouped = sourceContent?.querySelector('.grouped-content')
+      if (sourceGrouped) {
+        const gw = applyScopeAttributes(document.createElement('div'))
+        gw.className = sourceGrouped.className
+        cw.appendChild(gw)
+        currentGroupedContent = gw
+      } else {
+        currentGroupedContent = cw
+      }
+
+      // 添加 Footer (绝对定位到底部)
+      if (sourceFooter) {
+        const f = sourceFooter.cloneNode(true)
+        applyForceStyles(f)
+        f.style.position = 'absolute'
+        f.style.bottom = '30px'
+        f.style.left = '40px'
+        f.style.right = '40px'
+        f.style.width = 'auto'
+        pageContainer.appendChild(f)
+      }
+    }
+
+    // 分页处理状态
+    let isFirstPage = true
+    resetPageContainer()
+
+    // 检查是否溢出
+    // 我们预留 footer 高度 (约50px)
+    const MAX_CONTENT_HEIGHT = containerHeight - 60 // 简单的缓冲
+    const checkOverflow = () => {
+      return pageContainer.scrollHeight > containerHeight
+    }
+
+    // 递归处理节点
+    // 策略：我们手动遍历主要结构，因为结构是已知的
+    const dateGroups = sourceContent.querySelectorAll('.date-group')
+    const directTableWrapper = sourceContent.querySelector('.schedule-table-wrapper')
+
+    if (dateGroups.length > 0) {
+      for (const group of dateGroups) {
+        // 1. 克隆 Date Group 容器和标题
+        const groupClone = group.cloneNode(false) // shallow
+        const groupTitle = group.querySelector('.group-title').cloneNode(true)
+        groupClone.appendChild(groupTitle)
+
+        currentGroupedContent.appendChild(groupClone)
+
+        // 检查标题是否溢出（极少见）
+        if (checkOverflow()) {
+          currentGroupedContent.removeChild(groupClone)
+          await renderPage(isFirstPage)
+          isFirstPage = false
+          resetPageContainer()
+          currentGroupedContent.appendChild(groupClone)
+        }
+
+        // 2. 遍历 Date Group 的子元素 (Playtime Groups 或 Schedule List)
+        const children = Array.from(group.children).filter(
+          (el) => !el.classList.contains('group-title')
+        )
+
+        for (const child of children) {
+          if (child.classList.contains('playtime-groups')) {
+            // 处理时段组
+            const ptWrapper = applyScopeAttributes(document.createElement('div'))
+            ptWrapper.className = 'playtime-groups'
+            groupClone.appendChild(ptWrapper)
+
+            const ptGroups = child.querySelectorAll('.playtime-group')
+            for (const ptGroup of ptGroups) {
+              const ptGroupClone = ptGroup.cloneNode(false)
+              const ptTitle = ptGroup.querySelector('.playtime-title').cloneNode(true)
+              ptGroupClone.appendChild(ptTitle)
+              ptWrapper.appendChild(ptGroupClone)
+
+              const sourceList = ptGroup.querySelector('.schedule-list')
+
+              if (sourceList) {
+                const listWrapper = applyScopeAttributes(document.createElement('div'))
+                listWrapper.className = 'schedule-list'
+                ptGroupClone.appendChild(listWrapper)
+
+                let currentPtListWrapper = listWrapper
+
+                // 遍历排期项
+                const items = sourceList.querySelectorAll('.schedule-item')
+                for (const item of items) {
+                  const itemClone = item.cloneNode(true)
+                  currentPtListWrapper.appendChild(itemClone)
+
+                  if (checkOverflow()) {
+                    currentPtListWrapper.removeChild(itemClone)
+                    await renderPage(isFirstPage)
+                    isFirstPage = false
+                    resetPageContainer()
+
+                    // 在新页面重建路径
+                    const newGroup = group.cloneNode(false)
+                    newGroup.appendChild(group.querySelector('.group-title').cloneNode(true))
+                    currentGroupedContent.appendChild(newGroup)
+
+                    const newPtWrapper = applyScopeAttributes(document.createElement('div'))
+                    newPtWrapper.className = 'playtime-groups'
+                    newGroup.appendChild(newPtWrapper)
+
+                    const newPtGroup = ptGroup.cloneNode(false)
+                    newPtGroup.appendChild(ptGroup.querySelector('.playtime-title').cloneNode(true))
+                    newPtWrapper.appendChild(newPtGroup)
+
+                    const newListWrapper = applyScopeAttributes(document.createElement('div'))
+                    newListWrapper.className = 'schedule-list'
+                    newPtGroup.appendChild(newListWrapper)
+
+                    // 添加项
+                    newListWrapper.appendChild(itemClone)
+                    currentPtListWrapper = newListWrapper
+                  }
+                }
+              }
+            }
+          } else if (child.classList.contains('schedule-list')) {
+            // 处理直接列表
+            const listWrapper = applyScopeAttributes(document.createElement('div'))
+            listWrapper.className = 'schedule-list'
+            groupClone.appendChild(listWrapper)
+
+            // 我们需要一个可变的引用
+            let currentListWrapper = listWrapper
+
+            const items = child.querySelectorAll('.schedule-item')
+            for (const item of items) {
+              const itemClone = item.cloneNode(true)
+              currentListWrapper.appendChild(itemClone)
+
+              if (checkOverflow()) {
+                currentListWrapper.removeChild(itemClone)
+                await renderPage(isFirstPage)
+                isFirstPage = false
+                resetPageContainer()
+
+                // 重建路径
+                const newGroup = group.cloneNode(false)
+                newGroup.appendChild(group.querySelector('.group-title').cloneNode(true))
+                currentGroupedContent.appendChild(newGroup)
+
+                const newListWrapper = applyScopeAttributes(document.createElement('div'))
+                newListWrapper.className = 'schedule-list'
+                newGroup.appendChild(newListWrapper)
+
+                newListWrapper.appendChild(itemClone)
+                currentListWrapper = newListWrapper
+              }
+            }
+          }
+        }
+      }
+    } else if (directTableWrapper) {
+      // 处理顶层表格（timetable）
+      const tableWrapper = applyScopeAttributes(document.createElement('div'))
+      tableWrapper.className = 'schedule-table-wrapper'
+      currentContentWrapper.appendChild(tableWrapper)
+
+      const sourceTable = directTableWrapper.querySelector('.schedule-timetable')
+      if (sourceTable) {
+        const tableClone = sourceTable.cloneNode(false)
+        tableWrapper.appendChild(tableClone)
+
+        const thead = sourceTable.querySelector('thead')
+        if (thead) tableClone.appendChild(thead.cloneNode(true))
+
+        const tbodies = sourceTable.querySelectorAll('tbody')
+        for (const sourceTbody of tbodies) {
+          const tbodyClone = applyScopeAttributes(document.createElement('tbody'))
+          tableClone.appendChild(tbodyClone)
+          let currentTbody = tbodyClone
+
+          const rows = sourceTbody.querySelectorAll('tr')
+          for (const row of rows) {
+            const rowClone = row.cloneNode(true)
+            currentTbody.appendChild(rowClone)
+
+            if (checkOverflow()) {
+              currentTbody.removeChild(rowClone)
+              await renderPage(isFirstPage)
+              isFirstPage = false
+              resetPageContainer()
+
+              // 重建路径
+              const newTableWrapper = applyScopeAttributes(document.createElement('div'))
+              newTableWrapper.className = 'schedule-table-wrapper'
+              currentContentWrapper.appendChild(newTableWrapper)
+
+              const newTable = sourceTable.cloneNode(false)
+              newTableWrapper.appendChild(newTable)
+              if (thead) newTable.appendChild(thead.cloneNode(true))
+
+              const newTbody = applyScopeAttributes(document.createElement('tbody'))
+              newTable.appendChild(newTbody)
+
+              newTbody.appendChild(rowClone)
+              currentTbody = newTbody
+            }
+          }
+        }
+      }
+    }
+
+    // 渲染最后一页
+    await renderPage(isFirstPage)
+
+    if (action === 'print') {
+      pdf.autoPrint()
+      const blobUrl = pdf.output('bloburl')
+
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'
+      iframe.style.bottom = '0'
+      iframe.style.width = '1px'
+      iframe.style.height = '1px'
+      iframe.style.opacity = '0.01'
+      iframe.style.border = 'none'
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus()
+            iframe.contentWindow?.print()
+          } catch (e) {
+            console.warn('iframe 显式打印失败，依赖 autoPrint 或降级', e)
+          }
+        }, 500)
+      }
+
+      iframe.src = blobUrl
+      document.body.appendChild(iframe)
+
+      // 清理资源
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe)
+        }
+        URL.revokeObjectURL(blobUrl)
+      }, 300000)
+    } else {
+      const filename =
+        customFilename ||
+        `广播排期表_${formatDateRange().replace(/\n/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`
+      pdf.save(filename)
+      if (notify && window.$showNotification) {
+        window.$showNotification(locale.value.pdfExported, 'success')
+      }
+    }
+  } finally {
+    if (document.body.contains(pageContainer)) {
+      document.body.removeChild(pageContainer)
+    }
+  }
+}
+
+// 预处理所有图片
+const preprocessImages = async (element) => {
+  const TRANSPARENT_PIXEL =
+    'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+  const images = element.querySelectorAll('img')
+  const imagePromises = Array.from(images).map(async (img) => {
+    if (img.src && !img.src.startsWith('data:')) {
+      try {
+        const base64 = await downloadImageAsBase64(img.dataset.originalSrc || img.src)
+        if (base64) {
+          img.src = base64
+        } else {
+          // 如果代理下载失败，使用透明像素并尝试显示占位图，防止 html-to-image 报错
+          img.src = TRANSPARENT_PIXEL
+          if (img.classList.contains('song-cover')) {
+            const placeholder = img.parentElement?.querySelector('.cover-placeholder')
+            if (placeholder) placeholder.classList.add('show')
+            img.style.display = 'none'
+          }
+        }
+      } catch (error) {
+        console.warn('处理图片失败:', img.src, error)
+        img.src = TRANSPARENT_PIXEL
+        if (img.classList.contains('song-cover')) {
+          const placeholder = img.parentElement?.querySelector('.cover-placeholder')
+          if (placeholder) placeholder.classList.add('show')
+          img.style.display = 'none'
+        }
+      }
+    }
+
+    // 等待图片实际解码完成，替代固定延时（缓存命中时远快于盲等）
+    try {
+      await img.decode()
+    } catch {
+      // 解码失败由透明像素/占位图兜底
+    }
+
+    // 确保图片元素在打印时保持正确的样式
+    if (img.classList.contains('school-logo-print')) {
+      // 学校Logo保持原始比例，设置最大尺寸
+      img.style.setProperty('max-width', '70px', 'important')
+      img.style.setProperty('max-height', '60px', 'important')
+      img.style.setProperty('width', 'auto', 'important')
+      img.style.setProperty('height', 'auto', 'important')
+      img.style.setProperty('object-fit', 'contain', 'important')
+      img.style.setProperty('border-radius', '4px', 'important')
+      img.style.setProperty('flex-shrink', '0', 'important')
+    } else if (img.classList.contains('logo')) {
+      // 系统Logo按原尺寸显示
+      img.style.setProperty('width', '70px', 'important')
+      img.style.setProperty('height', 'auto', 'important')
+      img.style.setProperty('object-fit', 'contain', 'important')
+      img.style.setProperty('border-radius', '4px', 'important')
+    } else if (img.classList.contains('song-cover')) {
+      // 仅经典样式封面跟随 .cover-section 容器尺寸（硬写 40px 会被全局 img max-width 夹窄导致非正方形）；
+      // 表格样式封面无容器包装，必须保持固定尺寸，100% 会占满单元格挤掉文字
+      if (img.closest('.cover-section')) {
+        img.style.setProperty('width', '100%', 'important')
+        img.style.setProperty('height', '100%', 'important')
+      } else {
+        img.style.setProperty('width', '36px', 'important')
+        img.style.setProperty('height', '36px', 'important')
+      }
+      img.style.setProperty('object-fit', 'cover', 'important')
+      img.style.setProperty('border-radius', '4px', 'important')
+    }
+  })
+
+  await Promise.all(imagePromises)
+  // 解码已逐张等待完成，这里仅短暂缓冲布局稳定
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+
+const generateAndDownloadImage = async (sourceElement, filename, preProcessCallback = null) => {
+  // 根据设置计算固定宽度，而不是依赖 offsetWidth (在移动端可能受屏幕宽度限制而不准确)
+  const s = settings.value
+  const targetWidth = getPaperWidth(s.paperSize, s.orientation)
+
+  const imageContainer = document.createElement('div')
+  imageContainer.style.cssText = `
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: -9999;
+      opacity: 0;
+      background: #ffffff;
+      color: #1a1a1a;
+      width: ${targetWidth}px;
+      padding: 40px;
+      box-sizing: border-box;
+      height: auto;
+      pointer-events: none;
+    `
+
+  const clonedPage = sourceElement.cloneNode(true)
+
+  // 强制应用当前的横竖排样式，防止因为源节点（可能是响应式的）没有这个类名
+  clonedPage.classList.add(`orientation-${s.orientation}`)
+
+  const scheduleContent = clonedPage.querySelector('.schedule-content')
+  if (scheduleContent) {
+    scheduleContent.className = scheduleContentClass.value
+  }
+
+  // 使用 setProperty 避免覆盖其他重要样式
+  clonedPage.style.setProperty('background', 'white', 'important')
+  clonedPage.style.setProperty('color', 'black', 'important')
+  clonedPage.style.setProperty('box-sizing', 'border-box', 'important')
+  clonedPage.style.setProperty('width', `${targetWidth - 80}px`, 'important') // 减去 padding (40px * 2)
+  clonedPage.style.setProperty('margin', '0 auto', 'important')
+  clonedPage.style.setProperty('padding', '0', 'important')
+  clonedPage.style.setProperty('height', 'auto', 'important')
+  clonedPage.style.setProperty('min-height', 'auto', 'important')
+  clonedPage.style.setProperty('box-shadow', 'none', 'important')
+
+  if (preProcessCallback) {
+    const shouldProceed = preProcessCallback(clonedPage)
+    if (shouldProceed === false) {
+      return
+    }
+  }
+
+  const allElements = clonedPage.querySelectorAll('*')
+  allElements.forEach((el) => {
+    if (el.style) {
+      el.style.color = '#1a1a1a !important'
+      el.style.background = '#ffffff !important'
+      el.style.backgroundColor = '#ffffff !important'
+    }
+
+    if (
+      el.classList &&
+      (el.classList.contains('print-page') ||
+        el.classList.contains('page-header') ||
+        el.classList.contains('page-footer') ||
+        el.classList.contains('schedule-content'))
+    ) {
+      el.style.setProperty('background', '#ffffff', 'important')
+      el.style.setProperty('background-color', '#ffffff', 'important')
+    }
+  })
+
+  imageContainer.appendChild(clonedPage)
+  document.body.appendChild(imageContainer)
+
+  await preprocessImages(clonedPage)
+
+  try {
+    // 图片解码已在 preprocessImages 中逐张等待，这里仅短暂缓冲渲染稳定
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const contentHeight = imageContainer.offsetHeight || imageContainer.scrollHeight
+
+    // 动态调整像素比
+    let pixelRatio = 2
+    if (contentHeight > 10000) {
+      pixelRatio = 1
+    } else if (contentHeight > 5000) {
+      pixelRatio = 1.5
+    }
+
+    const blob = await toBlob(imageContainer, {
+      quality: 0.9,
+      backgroundColor: '#ffffff',
+      width: targetWidth,
+      height: contentHeight,
+      pixelRatio: pixelRatio,
+      skipAutoScale: true,
+      style: {
+        visibility: 'visible',
+        opacity: '1'
+      }
+    })
+
+    if (!blob) throw new Error('生成图片失败')
+
+    const dataUrl = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.download = filename
+    link.href = dataUrl
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    setTimeout(() => URL.revokeObjectURL(dataUrl), 60000)
+  } catch (error) {
+    console.error(`生成图片失败 (${filename}):`, error)
+    throw error
+  } finally {
+    if (document.body.contains(imageContainer)) {
+      document.body.removeChild(imageContainer)
+    }
+  }
+}
+
+const exportSingleImage = async (printPage, filenameBase) => {
+  await generateAndDownloadImage(printPage, `${filenameBase}.png`)
+}
+
+const exportSplitImages = async (printPage, filenameBase, silent = false) => {
+  const dateGroups = printPage.querySelectorAll('.date-group')
+  const months = new Set()
+
+  dateGroups.forEach((group) => {
+    const date = group.getAttribute('data-date')
+    if (date) {
+      months.add(date.substring(0, 7))
+    }
+  })
+
+  const sortedMonths = Array.from(months).sort()
+
+  if (sortedMonths.length === 0) {
+    await exportSingleImage(printPage, filenameBase)
+    return
+  }
+
+  for (const month of sortedMonths) {
+    await generateAndDownloadImage(printPage, `${filenameBase}_${month}.png`, (clonedPage) => {
+      const groups = clonedPage.querySelectorAll('.date-group')
+      let hasContent = false
+
+      groups.forEach((group) => {
+        const date = group.getAttribute('data-date')
+        if (!date || !date.startsWith(month)) {
+          group.remove()
+        } else {
+          hasContent = true
+        }
+      })
+
+      return hasContent
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+
+  if (!silent && window.$showNotification) {
+    window.$showNotification(locale.value.segmentedExport(sortedMonths.length), 'success')
+  }
+}
+
+const defaultImageFilenameBase = () =>
+  `广播排期表_${formatDateRange().replace(/\n/g, '_')}_${new Date().toISOString().split('T')[0]}`
+
+// 从当前预览生成长图并下载；silent 模式（批量导出）跳过移动端确认与过程提示
+// 返回 false 表示用户在移动端确认弹窗中取消
+const exportPreviewAsImage = async (filenameBase, { silent = false } = {}) => {
+  if (!previewContent.value) {
+    throw new Error(locale.value.previewNotFound)
+  }
+
+  const printPage = previewContent.value.querySelector('.print-page') || previewContent.value
+
+  // 获取实际内容高度
+  const fullHeight = printPage.scrollHeight
+  const MAX_HEIGHT = 15000
+
+  // 检查设备是否为移动端
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  )
+
+  // 如果是移动端且内容过长，建议使用PDF导出
+  if (!silent && isMobile && fullHeight > 5000) {
+    if (
+      confirm(
+        '当前排期内容较长，在移动设备上生成长图可能会导致卡顿或失败。建议使用"导出PDF"功能，是否继续尝试生成长图？'
+      )
+    ) {
+      // 用户坚持要生成，继续
+    } else {
+      return false
+    }
+  }
+
+  if (fullHeight > MAX_HEIGHT) {
+    if (!silent && window.$showNotification) {
+      window.$showNotification(locale.value.autoSegmenting, 'info')
+    }
+    await exportSplitImages(printPage, filenameBase, silent)
+  } else {
+    await generateAndDownloadImage(printPage, `${filenameBase}.png`)
+  }
+  return true
+}
+
+const exportPDF = async () => {
+  if (isExporting.value || isBatchExporting.value) return
+
+  isExporting.value = true
+  try {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.preparingPdf, 'info')
+    }
+
+    // 复用 DOM 分页逻辑导出 PDF，避免长图导致内存溢出
+    await exportPDFForPrint('download')
+  } catch (error) {
+    console.error('导出PDF失败:', error)
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.pdfExportFailed(error.message), 'error')
+    }
+  } finally {
+    isExporting.value = false
+  }
+}
+
+const exportImage = async () => {
+  if (isExportingImage.value || isBatchExporting.value) return
+
+  isExportingImage.value = true
+
+  try {
+    const completed = await exportPreviewAsImage(defaultImageFilenameBase())
+    if (completed && window.$showNotification) {
+      window.$showNotification(locale.value.imageExported, 'success')
+    }
+  } catch (error) {
+    console.error('导出长图失败:', error)
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.imageExportFailed(error.message), 'error')
+    }
+  } finally {
+    isExportingImage.value = false
+  }
+}
+
+// ===== 导出方案 =====
+const PRESETS_STORAGE_KEY = 'voicehub_print_presets'
+
+// 方案仅快照排版样式；日期范围与备注在批量导出时共用面板当前值
+const PRESET_FIELDS = [
+  'paperSize',
+  'orientation',
+  'layoutStyle',
+  'listColumns',
+  'showCover',
+  'showTitle',
+  'showArtist',
+  'showRequester',
+  'showVotes',
+  'showSequence',
+  'showSchoolLogo',
+  'showPlayTime'
+]
+
+const presets = ref([])
+const newPresetName = ref('')
+const batchFormat = ref('pdf')
+const isBatchExporting = ref(false)
+const batchProgress = ref(null)
+
+const batchFormatOptions = computed(() => [
+  { label: locale.value?.batchFormatPdf || 'PDF', value: 'pdf' },
+  { label: locale.value?.batchFormatImage || 'PNG', value: 'image' }
+])
+
+const selectedPresetCount = computed(() => presets.value.filter((p) => p.selected).length)
+
+const batchExportButtonText = computed(() => {
+  if (isBatchExporting.value && batchProgress.value) {
+    return formatLocale(
+      locale.value?.batchExporting,
+      '',
+      batchProgress.value.index,
+      batchProgress.value.total
+    )
+  }
+  return formatLocale(locale.value?.batchExportSelected, '', selectedPresetCount.value)
+})
+
+// 方案摘要：纸张 · 排版 · 方向（· 两列）
+const presetSummary = (preset) => {
+  const s = preset.settings
+  const parts = [
+    s.paperSize,
+    s.layoutStyle === 'table' ? locale.value.tableLayout : locale.value.classicList,
+    s.orientation === 'landscape' ? locale.value.landscape : locale.value.portrait
+  ]
+  if (s.layoutStyle === 'classic' && s.orientation === 'portrait' && s.listColumns === 2) {
+    parts.push(locale.value.twoColumns)
+  }
+  return parts.filter(Boolean).join(' · ')
+}
+
+// 从 localStorage 加载导出方案（字段逐项类型校验，异常值回退当前默认值）
+const loadPresets = () => {
+  try {
+    const saved = localStorage.getItem(PRESETS_STORAGE_KEY)
+    if (!saved) return
+    const parsed = JSON.parse(saved)
+    if (!Array.isArray(parsed)) return
+    presets.value = parsed
+      .filter((item) => item && typeof item === 'object' && typeof item.name === 'string')
+      .map((item) => {
+        const presetSettings = {}
+        PRESET_FIELDS.forEach((key) => {
+          const value = item.settings?.[key]
+          presetSettings[key] =
+            typeof value === typeof settings.value[key] ? value : settings.value[key]
+        })
+        return {
+          id: String(item.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+          name: item.name,
+          settings: presetSettings,
+          selected: true
+        }
+      })
+  } catch (error) {
+    console.warn('加载导出方案失败:', error)
+  }
+}
+
+const persistPresets = () => {
+  try {
+    const data = presets.value.map((p) => ({ id: p.id, name: p.name, settings: p.settings }))
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(data))
+  } catch (error) {
+    console.warn('保存导出方案失败:', error)
+  }
+}
+
+const saveCurrentAsPreset = () => {
+  const name = newPresetName.value.trim()
+  if (!name) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.presetNameRequired, 'warning')
+    }
+    return
+  }
+  if (presets.value.some((p) => p.name === name)) {
+    if (window.$showNotification) {
+      window.$showNotification(locale.value.presetNameDuplicated, 'warning')
+    }
+    return
+  }
+  const presetSettings = {}
+  PRESET_FIELDS.forEach((key) => {
+    presetSettings[key] = settings.value[key]
+  })
+  presets.value.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    settings: presetSettings,
+    selected: true
+  })
+  newPresetName.value = ''
+  persistPresets()
+  if (window.$showNotification) {
+    window.$showNotification(locale.value.presetSaved, 'success')
+  }
+}
+
+// 点击方案名应用回当前设置（可微调后另存）
+const applyPreset = (preset) => {
+  Object.assign(settings.value, preset.settings)
+}
+
+const removePreset = (preset) => {
+  presets.value = presets.value.filter((p) => p.id !== preset.id)
+  persistPresets()
+  if (window.$showNotification) {
+    window.$showNotification(locale.value.presetDeleted, 'success')
+  }
+}
+
+// 方案名会拼进下载文件名，替换文件系统非法字符
+const sanitizeFilename = (name) => name.replace(/[\\/:*?"<>|]/g, '_')
+
+// 批量导出：预热图片缓存后按方案顺序逐个切换排版导出
+// 光栅化在主线程且内存开销大，必须顺序执行；图片网络请求已由缓存并发化
+const batchExport = async () => {
+  const selected = presets.value.filter((p) => p.selected)
+  if (selected.length === 0 || isBatchExporting.value) return
+  if (isPrinting.value || isExporting.value || isExportingImage.value) return
+
+  isBatchExporting.value = true
+  const originalSettings = JSON.parse(JSON.stringify(settings.value))
+  const dateTag = new Date().toISOString().split('T')[0]
+  // 与单次导出命名保持一致，文件名包含所选日期范围
+  const rangeTag = formatDateRange().replace(/\n/g, '_')
+
+  try {
+    // 收集预览内全部图片原始地址，一次性并发拉取填充缓存
+    const imageUrls = Array.from(
+      previewContent.value?.querySelectorAll('img[data-original-src], img[src]') || []
+    ).map((img) => img.dataset.originalSrc || img.getAttribute('src'))
+    await warmupPrintImages(imageUrls)
+
+    for (let i = 0; i < selected.length; i += 1) {
+      const preset = selected[i]
+      batchProgress.value = { index: i + 1, total: selected.length }
+      Object.assign(settings.value, preset.settings)
+      await nextTick()
+      // 等待排版切换后的重排与封面渲染稳定
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      const baseName = `广播排期表_${sanitizeFilename(preset.name)}_${rangeTag}_${dateTag}`
+      if (batchFormat.value === 'pdf') {
+        await exportPDFForPrint('download', `${baseName}.pdf`, { notify: false })
+      } else {
+        await exportPreviewAsImage(baseName, { silent: true })
+      }
+    }
+
+    if (window.$showNotification) {
+      window.$showNotification(
+        formatLocale(locale.value.batchExportCompleted, '', selected.length),
+        'success'
+      )
+    }
+  } catch (error) {
+    console.error('批量导出失败:', error)
+    if (window.$showNotification) {
+      window.$showNotification(
+        formatLocale(
+          locale.value.batchExportFailed,
+          '',
+          error?.message || locale.value.unknownError
+        ),
+        'error'
+      )
+    }
+  } finally {
+    // 还原用户当前设置（deep watch 防抖保存最终落回原值）
+    Object.assign(settings.value, originalSettings)
+    await nextTick()
+    batchProgress.value = null
+    isBatchExporting.value = false
+  }
+}
+
+// localStorage 键名
+const SETTINGS_STORAGE_KEY = 'voicehub_print_settings'
+
+// 排除不保存的字段
+const EXCLUDED_FIELDS = ['startDate', 'endDate', 'remark', 'currentSemester']
+
+// 防抖保存设置（500ms 延迟，避免频繁写入）
+const debouncedSaveSettings = debounce(() => {
+  saveSettings()
+}, 500)
+
+// 从 localStorage 加载保存的设置
+const loadSavedSettings = () => {
+  try {
+    const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings)
+      if (parsed && typeof parsed === 'object') {
+        Object.keys(parsed).forEach((key) => {
+          if (key in settings.value && !EXCLUDED_FIELDS.includes(key)) {
+            // 类型校验：只在存储的值与默认值类型相同时才赋值
+            if (typeof parsed[key] === typeof settings.value[key]) {
+              settings.value[key] = parsed[key]
+            }
+          }
+        })
+      }
+    }
+  } catch (error) {
+    console.warn('加载保存的打印设置失败:', error)
+  }
+}
+
+// 将设置保存到 localStorage
+const saveSettings = () => {
+  try {
+    const settingsToSave = {}
+    Object.keys(settings.value).forEach((key) => {
+      if (!EXCLUDED_FIELDS.includes(key)) {
+        settingsToSave[key] = settings.value[key]
+      }
+    })
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsToSave))
+  } catch (error) {
+    console.warn('保存打印设置失败:', error)
+  }
+}
+
+// 生命周期
+onMounted(async () => {
+  await fetchCurrentSemester()
+  settings.value.currentSemester = currentSemester.value?.name
+  loadSavedSettings()
+  loadPresets()
+  if (settings.value.dateRangePreset) {
+    const { startDate, endDate } = calculateDateRange(settings.value.dateRangePreset)
+    settings.value.startDate = startDate
+    settings.value.endDate = endDate
+  } else {
+    setDateRange('today')
+  }
+  loadSchedules()
+})
+
+// 监听设置变化，自动保存到 localStorage
+watch(
+  () => [settings.value.startDate, settings.value.endDate],
+  ([newStart, newEnd]) => {
+    // 如果日期与当前预设不匹配，则清除预设状态
+    if (settings.value.dateRangePreset) {
+      const { startDate, endDate } = calculateDateRange(settings.value.dateRangePreset)
+      if (newStart !== startDate || newEnd !== endDate) {
+        settings.value.dateRangePreset = ''
+      }
+    }
+  }
+)
+
+watch(
+  settings,
+  () => {
+    debouncedSaveSettings()
+  },
+  { deep: true }
+)
+</script>
+
+<style scoped>
+/* 预览区域和打印样式的核心CSS - 保持原生CSS以确保精确控制 */
+
+.preview-content {
+  background: #ffffff;
+  padding: 0;
+  position: relative;
+}
+
+/* 打印页面样式 */
+.print-page {
+  background: #ffffff;
+  color: #1a1a1a;
+  width: 100%;
+  margin: 0 auto;
+  padding: 30px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+  overflow: visible;
+  position: relative;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #d1d5db;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo {
+  width: 70px;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.logo-divider {
+  width: 2px;
+  height: 60px;
+  background: linear-gradient(to bottom, #d1d5db, #636366, #d1d5db);
+  border-radius: 1px;
+  margin: 0 4px;
+}
+
+.school-logo-print {
+  max-width: 70px;
+  max-height: 60px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.title-section h1 {
+  font-size: 24px;
+  font-weight: normal;
+  margin: 0 0 4px 0;
+  color: #1a1a1a;
+}
+
+.title-section h2 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0;
+  color: #636366;
+}
+
+.date-info {
+  font-size: 14px;
+  color: #636366;
+  text-align: right;
+  display: flex;
+  align-items: flex-start;
+}
+
+.date-range-display {
+  white-space: pre-line;
+  line-height: 1.4;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.schedule-content {
+  margin-bottom: 32px;
+}
+
+.no-data-message {
+  text-align: center;
+  padding: 60px 20px;
+  color: #636366;
+  column-span: all;
+}
+
+.no-data-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 20px;
+  color: #d1d5db;
+}
+
+.no-data-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.no-data-message h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 12px 0;
+  color: #1a1a1a;
+}
+
+.no-data-message p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.date-group {
+  margin-bottom: 24px;
+}
+
+.group-title {
+  font-size: 16px;
+  font-weight: bold;
+  margin: 0 0 12px 0;
+  padding: 8px 12px;
+  border-bottom: 2px solid #d1d5db;
+  background: #f3f4f6;
+  color: #1a1a1a;
+  border-radius: 4px 4px 0 0;
+}
+
+.playtime-group .group-title {
+  background: #f8f9fa;
+  border-bottom-color: #0b5afe;
+  color: #2563eb;
+}
+
+.date-group .group-title {
+  background: #f8f9fa;
+  border-bottom-color: #8b5cf6;
+  color: #7c3aed;
+}
+
+.group-count {
+  font-size: 14px;
+  font-weight: normal;
+  color: #636366;
+  margin-left: 8px;
+}
+
+.playtime-groups {
+  margin-left: 20px;
+}
+
+.playtime-group {
+  margin-bottom: 16px;
+}
+
+.playtime-title {
+  font-size: 14px;
+  font-weight: bold;
+  margin: 0 0 8px 0;
+  padding: 6px 10px;
+  background: #f8f9fa;
+  border-left: 3px solid #0b5afe;
+  color: #2563eb;
+  border-radius: 0 4px 4px 0;
+}
+
+.playtime-count {
+  font-size: 12px;
+  font-weight: normal;
+  color: #636366;
+  margin-left: 6px;
+}
+
+.schedule-list {
+  margin-bottom: 24px;
+}
+
+.schedule-table-wrapper {
+  margin-bottom: 24px;
+}
+
+.page-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-top: 16px;
+  border-top: 1px solid #d1d5db;
+  font-size: 12px;
+  color: #636366;
+}
+
+.footer-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.footer-right {
+  align-self: flex-end;
+}
+
+.remark-text {
+  font-size: 11px;
+  color: #636366;
+  max-width: 400px;
+  word-wrap: break-word;
+  line-height: 1.3;
+  white-space: pre-wrap;
+}
+
+/* 纸张大小 - 固定尺寸预览 */
+.paper-a4 {
+  width: 800px;
+  min-height: 1132px;
+  flex-shrink: 0;
+}
+
+.paper-a4.orientation-landscape {
+  width: 1132px;
+  min-height: 800px;
+}
+
+.paper-a3 {
+  width: 1132px;
+  min-height: 1600px;
+  flex-shrink: 0;
+}
+
+.paper-a3.orientation-landscape {
+  width: 1600px;
+  min-height: 1132px;
+}
+
+.paper-letter {
+  width: 800px;
+  min-height: 1034px;
+  flex-shrink: 0;
+}
+
+.paper-letter.orientation-landscape {
+  width: 1034px;
+  min-height: 800px;
+}
+
+.paper-legal {
+  width: 800px;
+  min-height: 1318px;
+  flex-shrink: 0;
+}
+
+.paper-legal.orientation-landscape {
+  width: 1318px;
+  min-height: 800px;
+}
+
+/* 横向布局调整 */
+.orientation-landscape .page-header {
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.orientation-landscape .schedule-content.layout-classic {
+  columns: 2;
+  column-gap: 32px;
+}
+
+.orientation-landscape .date-group,
+.orientation-landscape .playtime-group {
+  break-inside: avoid;
+  margin-bottom: 20px;
+}
+
+/* 纵向经典列表两列分栏：相邻序号左右成对 */
+.schedule-content.layout-classic.is-two-column .schedule-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 28px;
+}
+
+.schedule-content.layout-classic.is-two-column .schedule-item {
+  display: flex;
+}
+
+.schedule-content.layout-classic.is-two-column .schedule-item > .schedule-item-print {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-content.layout-classic.is-two-column .playtime-groups {
+  margin-left: 12px;
+}
+
+/* 打印样式 */
+@media print {
+  .settings-panel {
+    display: none !important;
+  }
+
+  .print-page {
+    box-shadow: none !important;
+    padding: 20mm !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }
+}
+</style>

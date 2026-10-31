@@ -1,0 +1,279 @@
+import bcrypt from 'bcryptjs'
+import { getRequestHeader } from 'h3'
+import { db, eq, users, userIdentities, and } from '~/drizzle/db'
+import { JWTEnhanced } from '~~/server/utils/jwt-enhanced'
+import {
+  getIPBlockRemainingTime,
+  isIPBlocked,
+  recordLoginFailure,
+  recordLoginSuccess,
+  recordAccountIpLogin,
+  blockUser,
+  getUserBlockRemainingTime,
+  resolveCaptchaSettings,
+  isPasswordLoginCaptchaRequired
+} from '../../services/securityService'
+import { getBeijingTime } from '~/utils/timeUtils'
+import { getClientIP } from '~~/server/utils/ip-utils'
+import { resolveRequirePasswordChange } from '~~/server/utils/system-settings-helper'
+import { verifyEsaCaptchaPass } from '~~/server/utils/esa-captcha-pass'
+import { getPasswordSetupState } from '~~/server/utils/initial-password-policy'
+
+// 导入验证码校验函数
+import { verifyAndConsumeCaptcha } from '~~/server/utils/captcha'
+import { createApiError } from '~~/server/utils/apiError'
+import { createAuthSession } from '~~/server/utils/auth-session'
+
+export default defineEventHandler(async (event) => {
+  const startTime = Date.now()
+
+  try {
+    const body = await readBody(event)
+    const clientIp = getClientIP(event)
+
+    let captchaId = ''
+    let captchaInput = ''
+
+    if (!body.username || !body.password) {
+      throw createApiError(400, 'AUTH_USERNAME_PASSWORD_REQUIRED', '用户名和密码不能为空')
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET environment variable is not set')
+      throw createApiError(500, 'AUTH_SERVER_CONFIG_ERROR', '服务器配置错误')
+    }
+
+    // 数据库连接检查 - 使用简单的查询测试连接
+    try {
+      await db.select().from(users).limit(1)
+    } catch (error) {
+      console.error('Database connection error:', error)
+      throw createApiError(503, 'AUTH_DATABASE_UNAVAILABLE', '数据库服务暂时不可用')
+    }
+
+    // 检查IP是否被限制
+    if (await isIPBlocked(clientIp)) {
+      const remainingTime = await getIPBlockRemainingTime(clientIp)
+      throw createApiError(423, 'AUTH_IP_BLOCKED_RETRY_MINUTES', `您的IP地址已被限制访问，请在 ${remainingTime} 分钟后重试`, { params: [remainingTime] })
+    }
+
+    // 读取验证码配置并判断是否需要验证码（阈值 0 = 每次必验；用户名/IP 任一维度达标即要求）
+    const captchaSettings = await resolveCaptchaSettings()
+    const needCaptcha = await isPasswordLoginCaptchaRequired(body.username, clientIp, captchaSettings)
+
+    // 验证码校验
+    if (needCaptcha) {
+      if (captchaSettings.provider === 'turnstile') {
+        const turnstileToken = body.turnstileToken
+
+        if (!captchaSettings.turnstileSecretKey) {
+          console.error('Turnstile is enabled but secret key is missing!')
+          throw createApiError(500, 'AUTH_CODE_SERVICE_CONFIG_ERROR', '验证码服务配置错误，请联系管理员')
+        }
+
+        if (!turnstileToken) {
+          throw createApiError(400, 'AUTH_CAPTCHA_REQUIRED', '请完成人机验证', { captchaRequired: true, captchaProvider: 'turnstile' })
+        }
+
+        const verifyUrl = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+        const formData = new URLSearchParams()
+        formData.append('secret', captchaSettings.turnstileSecretKey)
+        formData.append('response', turnstileToken)
+        formData.append('remoteip', clientIp)
+
+        try {
+          const result: any = await $fetch(verifyUrl, {
+            method: 'POST',
+            body: formData,
+            timeout: 5000
+          })
+
+          if (!result.success) {
+            console.error('Turnstile verification failed:', result['error-codes'])
+            throw createApiError(400, 'AUTH_CAPTCHA_FAILED_OR_EXPIRED', '人机验证失败或已过期，请重试', { captchaRequired: true, captchaProvider: 'turnstile' })
+          }
+        } catch (err: any) {
+          if (err.statusCode === 400) throw err
+          console.error('Turnstile verification error:', err)
+          throw createApiError(500, 'AUTH_CAPTCHA_SERVICE_UNAVAILABLE', '人机验证服务暂时不可用')
+        }
+      } else if (captchaSettings.provider === 'esa') {
+        // ESA 验签在边缘对公共验证接口 /api/captcha/verify 完成，通过后源站签发短期凭证；
+        // 此处校验凭证（绑定用途与签发域名）。当前域名无可用场景 ID 时视为未开启人机验证，不拦截登录
+        verifyEsaCaptchaPass(event, captchaSettings.esaScenes, 'login')
+      } else {
+        captchaId = body.captchaId
+        captchaInput = body.captchaInput
+        if (!captchaId || !captchaInput) {
+          throw createApiError(400, 'AUTH_IMAGE_CAPTCHA_REQUIRED', '请完成图形验证码', { captchaRequired: true, captchaProvider: 'graphic' })
+        }
+
+        const isValid = await verifyAndConsumeCaptcha(captchaId, captchaInput)
+        if (!isValid) {
+          throw createApiError(400, 'AUTH_CODE_INVALID_OR_EXPIRED', '验证码错误或已过期，请重新输入', { captchaRequired: true, captchaProvider: 'graphic' })
+        }
+      }
+    }
+
+    // 查找用户
+    const userResult = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        name: users.name,
+        grade: users.grade,
+        class: users.class,
+        password: users.password,
+        role: users.role,
+        lastLogin: users.lastLogin,
+        lastLoginIp: users.lastLoginIp,
+        passwordChangedAt: users.passwordChangedAt,
+        forcePasswordChange: users.forcePasswordChange,
+        tokenVersion: users.tokenVersion,
+        status: users.status,
+        email: users.email,
+        emailVerified: users.emailVerified
+      })
+      .from(users)
+      .where(eq(users.username, body.username))
+      .limit(1)
+
+    const user = userResult[0] || null
+
+    if (!user) {
+      // 记录登录失败（用户不存在）
+      await recordLoginFailure(body.username, clientIp)
+      throw createApiError(401, 'AUTH_INVALID_CREDENTIALS', '用户名或密码错误')
+    }
+
+    // 验证密码
+    const isPasswordValid = await bcrypt.compare(body.password, user.password)
+    if (!isPasswordValid) {
+      // 记录登录失败（密码错误）
+      await recordLoginFailure(body.username, clientIp)
+      throw createApiError(401, 'AUTH_INVALID_CREDENTIALS', '用户名或密码错误')
+    }
+
+    // 检查用户状态 (移到2FA之前，防止已退学用户进行2FA验证)
+    if (user.status === 'withdrawn') {
+      throw createApiError(403, 'AUTH_ACCOUNT_WITHDRAWN', '该账号已退学，限制访问')
+    } else if (user.status === 'graduate') {
+      throw createApiError(403, 'AUTH_ACCOUNT_GRADUATED', '该账号已毕业，限制访问')
+    } else if (user.status === 'pending') {
+      throw createApiError(403, 'AUTH_USER_PENDING_APPROVAL', '账号待管理员审核，请耐心等待')
+    } else if (user.status === 'rejected') {
+      throw createApiError(403, 'AUTH_ACCOUNT_CURRENTLY_UNAVAILABLE', '该账号当前不可用')
+    }
+
+    // 普通登录不延续绑定流程，避免残留绑定令牌被后续 2FA 校验意外消费
+    deleteCookie(event, 'binding-token')
+
+    // 检查是否开启2FA
+    const totpIdentity = await db.query.userIdentities.findFirst({
+      where: and(eq(userIdentities.userId, user.id), eq(userIdentities.provider, 'totp'))
+    })
+
+    if (totpIdentity) {
+      // 生成预认证临时令牌
+      const tempToken = JWTEnhanced.sign(
+        {
+          userId: user.id,
+          tokenVersion: user.tokenVersion,
+          type: 'pre-auth',
+          scope: '2fa_pending'
+        },
+        { expiresIn: '5m' }
+      ) // 动态构建验证方式列表
+      const methods = ['totp']
+      let maskedEmail = ''
+      if (user.email && user.emailVerified) {
+        methods.push('email')
+        // 生成脱敏邮箱提示
+        const [local, domain] = user.email.split('@')
+        if (local && domain) {
+          maskedEmail = local.length <= 2 ? `***@${domain}` : `${local.slice(0, 2)}****@${domain}`
+        }
+      }
+      return {
+        success: true,
+        requires2FA: true,
+        userId: user.id,
+        methods,
+        maskedEmail,
+        tempToken
+      }
+    }
+
+    await recordLoginSuccess(body.username, clientIp)
+
+    const ipSwitchExceeded = await recordAccountIpLogin(body.username, clientIp)
+    if (ipSwitchExceeded) {
+      blockUser(user.id)
+      const ipRemain = await getIPBlockRemainingTime(clientIp)
+      const userRemain = getUserBlockRemainingTime(user.id)
+      throw createApiError(423, 'AUTH_MULTI_IP_PROTECTION', `检测到同一账号短期多IP登录，当前IP限制 ${ipRemain} 分钟，账户保护 ${userRemain} 分钟`, { params: [ipRemain, userRemain] })
+    }
+
+    // 更新登录信息
+    await db
+      .update(users)
+      .set({
+        lastLogin: getBeijingTime(),
+        lastLoginIp: clientIp
+      })
+      .where(eq(users.id, user.id))
+      .catch((err) => console.error('Error updating user login info:', err))
+
+    // 生成JWT
+    const { token } = await createAuthSession(event, user, 'password')
+
+    // 自动判断是否需要secure
+    const isSecure =
+      getRequestURL(event).protocol === 'https:' ||
+      getRequestHeader(event, 'x-forwarded-proto') === 'https'
+
+    // 设置cookie
+    setCookie(event, 'auth-token', token, {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7天
+      path: '/'
+    })
+
+    const processingTime = Date.now() - startTime
+    console.log(`Login for ${user.username} processed in ${processingTime}ms`)
+
+    const requirePasswordChange = await resolveRequirePasswordChange(user)
+    const passwordSetupState = getPasswordSetupState(user, requirePasswordChange)
+
+    return {
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        grade: user.grade,
+        class: user.class,
+        role: user.role,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        forcePasswordChange: user.forcePasswordChange,
+        passwordChangedAt: user.passwordChangedAt,
+        requirePasswordChange,
+        // 兼容旧客户端字段名
+        needsPasswordChange: requirePasswordChange,
+        ...passwordSetupState
+      }
+    }
+  } catch (error: any) {
+    const errorTime = Date.now() - startTime
+    console.error(`Login error after ${errorTime}ms:`, error)
+
+    if (error.statusCode) {
+      throw error
+    }
+
+    throw createApiError(500, 'AUTH_LOGIN_UNKNOWN_ERROR', '登录过程中发生未知错误')
+  }
+})

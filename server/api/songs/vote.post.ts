@@ -1,0 +1,172 @@
+import { db } from '~/drizzle/db'
+import { schedules, semesters, songs, votes } from '~/drizzle/schema'
+import { and, count, eq } from 'drizzle-orm'
+import { createSongVotedNotification } from '../../services/notificationService'
+import {
+  isSongProtected,
+  getSongProtectRemainingSeconds,
+  recordSongVote,
+  recordUserVoteActivity
+} from '~~/server/services/securityService'
+import { getClientIP } from '~~/server/utils/ip-utils'
+import { createApiError } from '~~/server/utils/apiError'
+
+export default defineEventHandler(async (event) => {
+  // 检查用户认证
+  const user = event.context.user
+
+  if (!user) {
+    throw createApiError(401, 'SONG_LOGIN_REQUIRED_VOTE', '需要登录才能投票')
+  }
+
+  const body = await readBody(event)
+  const clientIP = getClientIP(event)
+
+  if (!body.songId) {
+    throw createApiError(400, 'SONG_ID_REQUIRED', '歌曲ID不能为空')
+  }
+
+  const isUnvote = body.unvote === true
+
+  try {
+    // 检查歌曲是否存在
+    const songResult = await db.select().from(songs).where(eq(songs.id, body.songId)).limit(1)
+
+    const song = songResult[0]
+
+    if (!song) {
+      throw createApiError(404, 'SONG_NOT_FOUND', '歌曲不存在')
+    }
+
+    // 检查学期
+    const currentSemesterResult = await db
+      .select()
+      .from(semesters)
+      .where(eq(semesters.isActive, true))
+      .limit(1)
+    const currentSemester = currentSemesterResult[0]
+
+    if (!currentSemester) {
+      throw createApiError(400, 'SONG_NO_ACTIVE_SEMESTER_VOTE', '未设置活跃学期，无法进行投票操作')
+    }
+
+    if (song.semester !== currentSemester.name) {
+      throw createApiError(400, 'SONG_INACTIVE_SEMESTER_VOTE', '非活跃学期，无法进行投票操作')
+    }
+
+    // 检查歌曲是否已播放
+    if (song.played) {
+      throw createApiError(400, 'SONG_PLAYED_NO_VOTE', '该歌曲已播放，无法进行投票操作')
+    }
+
+    // 检查歌曲是否已排期（只检查已发布的排期，草稿不算）
+    const schedulesResult = await db
+      .select()
+      .from(schedules)
+      .where(and(eq(schedules.songId, body.songId), eq(schedules.isDraft, false)))
+      .limit(1)
+
+    if (schedulesResult.length > 0) {
+      throw createApiError(400, 'SONG_SCHEDULED_NO_VOTE', '该歌曲已排期，无法进行投票操作')
+    }
+
+    // 检查是否是自己的歌曲
+    if (song.requesterId === user.id) {
+      throw createApiError(400, 'SONG_CANNOT_SELF_VOTE', '不允许自己给自己投票')
+    }
+
+    if (isSongProtected(body.songId)) {
+      const remain = getSongProtectRemainingSeconds(body.songId)
+      throw createApiError(423, 'SONG_TEMP_PROTECTED_SECONDS', `该歌曲处于临时保护期，剩余 ${Math.max(remain, 1)} 秒`, { params: [Math.max(remain, 1)] })
+    }
+
+    // 检查用户是否已经投过票
+    const existingVoteResult = await db
+      .select()
+      .from(votes)
+      .where(and(eq(votes.songId, body.songId), eq(votes.userId, user.id)))
+      .limit(1)
+
+    const existingVote = existingVoteResult[0]
+
+    if (isUnvote) {
+      // 撤销投票逻辑
+      if (!existingVote) {
+        throw createApiError(400, 'SONG_VOTE_NOT_FOUND', '你尚未为这首歌投票，无法取消')
+      }
+
+      // 删除投票
+      await db.delete(votes).where(eq(votes.id, existingVote.id))
+
+      // 获取投票总数
+      const voteCountResult = await db
+        .select({ count: count() })
+        .from(votes)
+        .where(eq(votes.songId, body.songId))
+
+      const voteCount = voteCountResult[0].count
+
+      return {
+        success: true,
+        message: '取消投票成功',
+        song: {
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          voteCount
+        }
+      }
+    } else {
+      // 正常投票逻辑
+      if (existingVote) {
+        throw createApiError(409, 'SONG_ALREADY_VOTED', '你已经为这首歌投过票了')
+      }
+
+      // 创建新的投票
+      const newVote = await db
+        .insert(votes)
+        .values({
+          songId: body.songId,
+          userId: user.id
+        })
+        .returning()
+
+      // 获取投票总数
+      const voteCountResult = await db
+        .select({ count: count() })
+        .from(votes)
+        .where(eq(votes.songId, body.songId))
+
+      const voteCount = voteCountResult[0].count
+
+      // 发送通知（异步，不阻塞响应）
+      if (song.requesterId !== user.id) {
+        createSongVotedNotification(body.songId, user.id).catch(() => {
+          // 发送通知失败不影响主流程
+        })
+      }
+
+      const protectedTriggered = recordSongVote(body.songId, clientIP, user.id)
+      recordUserVoteActivity(user.id, song.title)
+
+      return {
+        success: true,
+        message: '投票成功',
+        song: {
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          voteCount
+        }
+      }
+    }
+  } catch (error: any) {
+    if (error.statusCode) {
+      throw error
+    } else if (error.code === '23505') {
+      throw createApiError(409, 'SONG_ALREADY_VOTED', '你已经为这首歌投过票了')
+    } else {
+      throw createApiError(500, 'SONG_OPERATION_FAILED', '操作失败，请稍后重试')
+    }
+  }
+})

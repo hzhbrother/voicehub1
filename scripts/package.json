@@ -1,0 +1,23 @@
+{
+  "name": "voicehub-scripts",
+  "version": "1.0.0",
+  "description": "VoiceHub管理脚本",
+  "packageManager": "pnpm@10.29.3",
+  "type": "module",
+  "scripts": {
+    "create-admin": "pnpm exec tsx create-admin.js",
+    "clear-db": "pnpm exec tsx clear-database.js",
+    "safe-migrate": "pnpm exec tsx safe-migrate.js",
+    "db:generate": "cd .. && pnpm exec drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "cd .. && pnpm exec drizzle-kit migrate --config=drizzle.config.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "prompts": "^2.4.2",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^3.4.5",
+    "tsx": "^4.7.0"
+  }
+}

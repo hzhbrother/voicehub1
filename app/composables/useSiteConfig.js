@@ -1,0 +1,370 @@
+import { computed, ref, readonly } from 'vue'
+import { getAggregateOAuthLoginTypesOrDefault, getProviderDisplayName } from '~/utils/oauth'
+import { parseEsaCaptchaScenes } from '~/utils/esaCaptcha'
+import { applyThemeConfig, useTheme } from '~/composables/useTheme'
+
+const THEME_LOGO_SEPARATOR = '||'
+
+// 兼容旧配置：没有分隔符时，地址只归入深色；浅色运行时回退到深色。
+export const splitThemeLogoUrl = (value) => {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) return { dark: '', light: '' }
+
+  const separatorIndex = normalized.indexOf(THEME_LOGO_SEPARATOR)
+  if (separatorIndex < 0) return { dark: normalized, light: '' }
+
+  const dark = normalized.slice(0, separatorIndex).trim()
+  const light = normalized.slice(separatorIndex + THEME_LOGO_SEPARATOR.length).trim()
+  return {
+    dark: dark || light,
+    light: light || dark
+  }
+}
+
+export const joinThemeLogoUrl = (dark, light) => {
+  const normalizedDark = typeof dark === 'string' ? dark.trim() : ''
+  const normalizedLight = typeof light === 'string' ? light.trim() : ''
+  if (!normalizedDark && !normalizedLight) return ''
+  if (!normalizedLight || normalizedLight === normalizedDark) return normalizedDark || normalizedLight
+  return `${normalizedDark}||${normalizedLight}`
+}
+
+const defaultSubmissionGuidelines = `1. 投稿时无需加入书名号
+2. 除DJ外，其他类型歌曲均接收（包括小语种）
+3. 禁止投递含有违规内容的歌曲
+4. 点播的歌曲将由管理员进行审核
+5. 审核通过后将安排在播放时段播出
+6. 提交即表明我已阅读投稿须知并已知该歌曲有概率无法播出
+7. 本系统仅提供音乐搜索和播放管理功能，不存储任何音乐文件。所有音乐内容均来自第三方音乐平台，版权归原平台及版权方所有。用户点歌时请确保遵守相关音乐平台的服务条款，尊重音乐作品版权。我们鼓励用户支持正版音乐，在官方平台购买和收听喜爱的音乐作品。
+8. 最终解释权归广播站所有`
+
+// 站点配置状态
+const siteConfig = ref({
+  siteTitle: '',
+  siteLogoUrl: '',
+  schoolLogoHomeUrl: '',
+  schoolLogoPrintUrl: '',
+  siteDescription: '',
+  submissionGuidelines: '',
+  announcement: '',
+  announcementTitle: '',
+  announcementDisplayMode: 'static',
+  announcementScrollSpeed: 30,
+  icpNumber: '',
+  gonganNumber: '',
+  captchaEnabled: false,
+  captchaProvider: 'graphic',
+  captchaMaxFailures: 3,
+  turnstileSiteKey: '',
+  esaCaptchaPrefix: '',
+  esaCaptchaScenes: '[]',
+  esaCaptchaRegion: 'cn',
+  enableSubmissionLimit: false,
+  enableCardCodeRequests: false,
+  requireCardCodeForRequests: false,
+  enableCardCodeLimitBypass: false,
+  githubOAuthEnabled: false,
+  casdoorOAuthEnabled: false,
+  googleOAuthEnabled: false,
+  aggregateOAuthEnabled: false,
+  aggregateOAuthLoginType: 'qq',
+  customOAuthEnabled: false,
+  customOAuthDisplayName: '',
+  allowRegister: false,
+  submissionNoteRequiresApproval: false,
+  registerEmailRequired: false,
+  registerRequiresGradeClass: false,
+  legalConsentEnabled: false,
+  legalConsentDisplayMode: 'modal',
+  legalConsentUpdatedDate: '',
+  legalConsentDocuments: '[]',
+  legalConsentVersion: '',
+  defaultTheme: 'System',
+  enabledThemes: JSON.stringify(['System', 'ClassicDark', 'ClassicLight', 'ModernLight'])
+})
+
+const isLoaded = ref(false)
+const isLoading = ref(false)
+
+const getImageDisplayUrl = (url) => {
+  const normalizedUrl = typeof url === 'string' ? url.trim() : ''
+  if (!normalizedUrl) return ''
+
+  // HTTP 图片通过同源代理加载，避免在 HTTPS 页面中被浏览器按混合内容拦截
+  if (/^http:\/\//i.test(normalizedUrl)) {
+    return `/api/proxy/image?url=${encodeURIComponent(normalizedUrl)}`
+  }
+
+  return normalizedUrl
+}
+
+// 供 SSR 预取灌入站点配置（主题应用受 applyThemeConfig 的 import.meta.server 守卫，须在客户端单独触发）
+export const setSiteConfigData = (data) => {
+  if (!data || typeof data !== 'object') return
+  siteConfig.value = { ...siteConfig.value, ...data }
+  isLoaded.value = true
+}
+
+export const useSiteConfig = () => {
+  const { isDark } = useTheme()
+  // 获取站点配置
+  const fetchSiteConfig = async () => {
+    if (isLoading.value) return
+
+    try {
+      isLoading.value = true
+
+      const response = await fetch('/api/site-config')
+      if (!response.ok) {
+        throw new Error('获取站点配置失败')
+      }
+
+      const data = await response.json()
+      siteConfig.value = data
+      try {
+        applyThemeConfig(
+          data.defaultTheme,
+          typeof data.enabledThemes === 'string' ? JSON.parse(data.enabledThemes) : data.enabledThemes
+        )
+      } catch {
+        applyThemeConfig('System', null)
+      }
+      isLoaded.value = true
+    } catch (error) {
+      console.error('获取站点配置失败:', error)
+
+      // 使用默认配置
+      siteConfig.value = {
+        siteTitle: '校园广播站点歌系统',
+        siteLogoUrl: '/favicon.ico',
+        schoolLogoHomeUrl: '',
+        schoolLogoPrintUrl: '',
+        siteDescription: '校园广播站点歌系统 - 让你的声音被听见',
+        submissionGuidelines: defaultSubmissionGuidelines,
+        announcement: '',
+        announcementTitle: '',
+        announcementDisplayMode: 'static',
+        announcementScrollSpeed: 30,
+        icpNumber: '',
+        gonganNumber: '',
+        enableReplayRequests: false,
+        enableSubmissionRestriction: false,
+        enableCollaborativeSubmission: true,
+        enableSubmissionRemarks: false,
+        allowAnonymousSubmission: false,
+        allowOAuthRegistration: false,
+        captchaEnabled: false,
+        captchaProvider: 'graphic',
+        turnstileSiteKey: '',
+        esaCaptchaPrefix: '',
+        esaCaptchaScenes: '[]',
+        esaCaptchaRegion: 'cn',
+        enableSubmissionLimit: false,
+        enableCardCodeRequests: false,
+        requireCardCodeForRequests: false,
+        enableCardCodeLimitBypass: false,
+        githubOAuthEnabled: false,
+        casdoorOAuthEnabled: false,
+        googleOAuthEnabled: false,
+        aggregateOAuthEnabled: false,
+        aggregateOAuthLoginType: 'qq',
+        customOAuthEnabled: false,
+        customOAuthDisplayName: '',
+        allowRegister: false,
+        submissionNoteRequiresApproval: false,
+        registerEmailRequired: false,
+        registerRequiresGradeClass: false,
+        defaultTheme: 'System',
+        enabledThemes: JSON.stringify(['System', 'ClassicDark', 'ClassicLight', 'ModernLight'])
+      }
+      isLoaded.value = true
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // 计算属性
+  const siteTitle = computed(() => siteConfig.value.siteTitle || '校园广播站点歌系统')
+  const logoUrl = computed(() => siteConfig.value.siteLogoUrl || '/favicon.ico')
+  const schoolLogoHomeUrl = computed(() => {
+    const logos = splitThemeLogoUrl(siteConfig.value.schoolLogoHomeUrl)
+    return (isDark.value ? logos.dark : logos.light) || logos.dark || logos.light || ''
+  })
+  const schoolLogoPrintUrl = computed(() => siteConfig.value.schoolLogoPrintUrl || '')
+  const schoolLogoHomeDisplayUrl = computed(() => getImageDisplayUrl(schoolLogoHomeUrl.value))
+  const schoolLogoPrintDisplayUrl = computed(() => getImageDisplayUrl(schoolLogoPrintUrl.value))
+  const description = computed(
+    () => siteConfig.value.siteDescription || '校园广播站点歌系统 - 让你的声音被听见'
+  )
+  const guidelines = computed(
+    () => siteConfig.value.submissionGuidelines || defaultSubmissionGuidelines
+  )
+  const announcement = computed(() => siteConfig.value.announcement || '')
+  const announcementTitle = computed(() => siteConfig.value.announcementTitle || '')
+  const announcementDisplayMode = computed(() =>
+    siteConfig.value.announcementDisplayMode === 'scroll' ? 'scroll' : 'static'
+  )
+  const announcementScrollSpeed = computed(() => {
+    const speed = Number(siteConfig.value.announcementScrollSpeed)
+    if (!Number.isFinite(speed)) return 30
+    return Math.min(120, Math.max(8, speed))
+  })
+  const icp = computed(() => siteConfig.value.icpNumber || '')
+  const gonganNumber = computed(() => siteConfig.value.gonganNumber || '')
+  const showBeianIcon = computed(() => siteConfig.value.showBeianIcon || false)
+  const enableReplayRequests = computed(() => siteConfig.value.enableReplayRequests || false)
+  const enableSubmissionRestriction = computed(
+    () => siteConfig.value.enableSubmissionRestriction === true
+  )
+  const enableCollaborativeSubmission = computed(
+    () => siteConfig.value.enableCollaborativeSubmission !== false
+  )
+  const enableSubmissionRemarks = computed(() => siteConfig.value.enableSubmissionRemarks === true)
+  const allowAnonymousSubmission = computed(() => siteConfig.value.allowAnonymousSubmission === true)
+  const enableSubmissionLimit = computed(() => siteConfig.value.enableSubmissionLimit === true)
+  const enableCardCodeRequests = computed(() => siteConfig.value.enableCardCodeRequests === true)
+  const requireCardCodeForRequests = computed(
+    () =>
+      enableCardCodeRequests.value && siteConfig.value.requireCardCodeForRequests === true
+  )
+  const enableCardCodeLimitBypass = computed(
+    () => siteConfig.value.enableCardCodeLimitBypass === true
+  )
+  const allowOAuthRegistration = computed(() => siteConfig.value.allowOAuthRegistration === true)
+  const allowRegister = computed(() => siteConfig.value.allowRegister === true)
+  const registerEmailRequired = computed(() => siteConfig.value.registerEmailRequired === true)
+  const registerRequiresGradeClass = computed(
+    () => siteConfig.value.registerRequiresGradeClass === true
+  )
+  const legalConsentEnabled = computed(() => siteConfig.value.legalConsentEnabled === true)
+  const legalConsentDisplayMode = computed(() => siteConfig.value.legalConsentDisplayMode || 'modal')
+  const legalConsentUpdatedDate = computed(() => siteConfig.value.legalConsentUpdatedDate || '')
+  const legalConsentDocuments = computed(() => {
+    try {
+      const docs = typeof siteConfig.value.legalConsentDocuments === 'string' ? JSON.parse(siteConfig.value.legalConsentDocuments) : siteConfig.value.legalConsentDocuments
+      return Array.isArray(docs) ? docs.filter((doc) => doc?.name && doc?.slug) : []
+    } catch { return [] }
+  })
+  // 条款内容版本指纹（服务端派生），登录页据此判定是否需重新同意，随文档内容变化而变化
+  const legalConsentVersion = computed(() => siteConfig.value.legalConsentVersion || '')
+  const submissionNoteRequiresApproval = computed(
+    () => siteConfig.value.submissionNoteRequiresApproval === true
+  )
+  const captchaEnabled = computed(() => siteConfig.value.captchaEnabled === true)
+  const captchaProvider = computed(() => siteConfig.value.captchaProvider || 'graphic')
+  // 触发图形验证码的失败阈值：0 = 每次必验，空值/非法回退 3
+  const captchaMaxFailures = computed(() => {
+    const raw = siteConfig.value.captchaMaxFailures
+    if (raw === null || raw === undefined || raw === '') return 3
+    const value = Number(raw)
+    return Number.isInteger(value) && value >= 0 ? value : 3
+  })
+  const turnstileSiteKey = computed(() => siteConfig.value.turnstileSiteKey || '')
+  // ESA 场景 ID 规则列表（域名→场景，统一验证接口），旧版按接口存储的条目会被过滤作废
+  const esaCaptchaScenes = computed(() => parseEsaCaptchaScenes(siteConfig.value.esaCaptchaScenes))
+  const smtpEnabled = computed(() => !!siteConfig.value.smtpEnabled)
+  const oauth = computed(() => ({
+    github: !!siteConfig.value.githubOAuthEnabled,
+    casdoor: !!siteConfig.value.casdoorOAuthEnabled,
+    google: !!siteConfig.value.googleOAuthEnabled,
+    aggregate: !!siteConfig.value.aggregateOAuthEnabled,
+    oauth2: !!siteConfig.value.customOAuthEnabled
+  }))
+
+  const oauthProviders = computed(() => {
+    const providers = []
+    if (siteConfig.value.githubOAuthEnabled) {
+      providers.push({ key: 'github', name: 'GitHub' })
+    }
+    if (siteConfig.value.casdoorOAuthEnabled) {
+      providers.push({ key: 'casdoor', name: 'Casdoor' })
+    }
+    if (siteConfig.value.googleOAuthEnabled) {
+      providers.push({ key: 'google', name: 'Google' })
+    }
+    if (siteConfig.value.aggregateOAuthEnabled) {
+      const enabledLoginTypes = getAggregateOAuthLoginTypesOrDefault(
+        siteConfig.value.aggregateOAuthLoginType
+      )
+      enabledLoginTypes.forEach((loginType) => {
+        providers.push({
+          key: `aggregate:${loginType}`,
+          routeProvider: 'aggregate',
+          loginType,
+          name: getProviderDisplayName(`aggregate:${loginType}`)
+        })
+      })
+    }
+    if (siteConfig.value.customOAuthEnabled) {
+      providers.push({
+        key: 'oauth2',
+        name: siteConfig.value.customOAuthDisplayName || '第三方 OAuth'
+      })
+    }
+    return providers
+  })
+
+  // 初始化配置（仅在客户端执行）
+  const initSiteConfig = async () => {
+    if (typeof window !== 'undefined' && !isLoaded.value) {
+      await fetchSiteConfig()
+    }
+  }
+
+  // 刷新配置
+  const refreshSiteConfig = async () => {
+    isLoaded.value = false
+    await fetchSiteConfig()
+  }
+
+  return {
+    siteConfig: readonly(siteConfig),
+    isLoaded: readonly(isLoaded),
+    isLoading: readonly(isLoading),
+    siteTitle,
+    logoUrl,
+    schoolLogoHomeUrl,
+    schoolLogoPrintUrl,
+    schoolLogoHomeDisplayUrl,
+    schoolLogoPrintDisplayUrl,
+    description,
+    guidelines,
+    announcement,
+    announcementTitle,
+    announcementDisplayMode,
+    announcementScrollSpeed,
+    icp,
+    gonganNumber,
+    showBeianIcon,
+    enableReplayRequests,
+    enableSubmissionRestriction,
+    enableCollaborativeSubmission,
+    enableSubmissionRemarks,
+    allowAnonymousSubmission,
+    enableSubmissionLimit,
+    enableCardCodeRequests,
+    requireCardCodeForRequests,
+    enableCardCodeLimitBypass,
+    allowOAuthRegistration,
+    allowRegister,
+    submissionNoteRequiresApproval,
+    registerEmailRequired,
+    registerRequiresGradeClass,
+    legalConsentEnabled,
+    legalConsentDisplayMode,
+    legalConsentUpdatedDate,
+    legalConsentDocuments,
+    legalConsentVersion,
+    captchaEnabled,
+    captchaProvider,
+    captchaMaxFailures,
+    turnstileSiteKey,
+    esaCaptchaScenes,
+    smtpEnabled,
+    oauth,
+    oauthProviders,
+    fetchSiteConfig,
+    initSiteConfig,
+    refreshSiteConfig
+  }
+}

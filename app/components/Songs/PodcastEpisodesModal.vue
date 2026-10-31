@@ -1,0 +1,481 @@
+<template>
+  <Teleport to="body">
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="opacity-0 scale-95"
+      enter-to-class="opacity-100 scale-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100 scale-100"
+      leave-to-class="opacity-0 scale-95"
+    >
+      <div
+        v-if="show"
+        class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
+        @click.self="close"
+      >
+        <div class="absolute inset-0 bg-bg-primary-60 backdrop-blur-sm" />
+
+        <div
+          class="relative w-full max-w-2xl bg-bg-secondary border border-border-secondary rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+          @click.stop
+        >
+          <!-- 头部 -->
+          <div class="flex items-center justify-between p-8 pb-4">
+            <div class="flex items-center gap-4 min-w-0">
+              <div
+                class="w-12 h-12 rounded-2xl bg-primary-hover-10 flex items-center justify-center text-primary flex-shrink-0"
+              >
+                <Icon name="mic" :size="24" />
+              </div>
+              <h3 class="text-xl font-black text-text-primary tracking-tight truncate">
+                {{ formatLocale(locale.programListTitle, radioName) }}
+              </h3>
+            </div>
+            <button
+              class="w-10 h-10 flex items-center justify-center rounded-xl bg-bg-tertiary-50 text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary transition-all flex-shrink-0"
+              @click="close"
+            >
+              <Icon name="x" :size="20" />
+            </button>
+          </div>
+
+          <!-- 主体 -->
+          <div class="flex-1 overflow-y-auto p-8 pt-4 custom-scrollbar">
+            <div
+              v-if="loading"
+              class="flex flex-col items-center justify-center py-20 text-text-tertiary"
+            >
+              <Icon name="refresh" :size="48" class="animate-spin mb-4 text-primary" />
+              <p class="font-black uppercase tracking-widest text-[10px]">{{ locale.loadingPrograms }}</p>
+            </div>
+
+            <div
+              v-else-if="error"
+              class="flex flex-col items-center justify-center py-20 text-center px-8"
+            >
+              <div
+                class="w-16 h-16 rounded-2xl bg-error-10 flex items-center justify-center text-error mb-4"
+              >
+                <Icon name="alert-triangle" :size="32" />
+              </div>
+              <p class="text-sm text-text-tertiary mb-6">{{ error }}</p>
+              <button
+                class="px-8 py-3 bg-bg-tertiary hover:bg-bg-quaternary text-text-primary text-xs font-black rounded-xl transition-all uppercase tracking-widest"
+                @click="fetchPrograms(false)"
+              >
+                {{ locale.retry }}
+              </button>
+            </div>
+
+            <div
+              v-else-if="programs.length === 0"
+              class="flex flex-col items-center justify-center py-12 text-text-tertiary"
+            >
+              <div
+                class="w-16 h-16 rounded-3xl bg-bg-tertiary-50 flex items-center justify-center mb-4"
+              >
+                <Icon name="mic" :size="32" class="opacity-20" />
+              </div>
+              <p class="text-sm font-bold uppercase tracking-widest">{{ locale.noPrograms }}</p>
+            </div>
+
+            <div v-else class="program-list space-y-3">
+              <div
+                v-for="program in programs"
+                :key="program.id"
+                class="group flex items-center p-4 bg-bg-tertiary-30 border border-border-secondary-50 rounded-3xl hover:bg-bg-tertiary-50 hover:border-border-tertiary transition-all"
+              >
+                <!-- 封面与播放叠加层 -->
+                <div
+                  class="relative w-14 h-14 rounded-2xl overflow-hidden bg-bg-tertiary mr-4 flex-shrink-0 group/cover cursor-pointer"
+                  @click.stop="playProgram(program)"
+                >
+                  <img
+                    :src="getCoverThumbUrl(program.coverUrl || program.mainSong?.album?.picUrl)"
+                    alt="cover"
+                    class="w-full h-full object-cover"
+                    loading="lazy"
+                  >
+                  <div
+                    class="absolute inset-0 bg-bg-primary-40 flex items-center justify-center opacity-0 group-hover/cover:opacity-100 transition-opacity"
+                  >
+                    <div
+                      class="w-8 h-8 rounded-full bg-bg-secondary-20 backdrop-blur-md flex items-center justify-center"
+                    >
+                      <Icon name="play" :size="16" class="text-text-primary fill-current" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 节目信息 -->
+                <div class="flex-1 min-w-0">
+                  <h4
+                    class="font-bold text-text-primary truncate group-hover:text-text-primary transition-colors"
+                  >
+                    {{ program.name }}
+                  </h4>
+                  <div
+                    class="flex items-center gap-3 mt-1 text-[10px] text-text-tertiary font-bold uppercase tracking-wider"
+                  >
+                    <span class="flex items-center">
+                      {{ formatDate(program.createTime) }}
+                    </span>
+                    <span class="flex items-center">
+                      <span class="w-1 h-1 rounded-full bg-current mr-1.5 opacity-40" />
+                      {{ formatDuration(program.duration) }}
+                    </span>
+                    <span class="flex items-center">
+                      <span class="w-1 h-1 rounded-full bg-current mr-1.5 opacity-40" />
+                      🎧 {{ formatCount(program.listenerCount) }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="ml-4 shrink-0 flex items-center gap-3">
+                  <div
+                    v-if="songsLoadingForSimilar"
+                    class="text-[10px] font-black text-text-disabled animate-pulse uppercase tracking-widest"
+                  >
+                    {{ locale.processing }}
+                  </div>
+                  <div v-else-if="getSimilarSong(program)" class="flex flex-col items-end gap-1.5">
+                    <span
+                      v-if="getSimilarSong(program)?.played"
+                      class="px-2 py-0.5 rounded-md bg-error-10 text-error text-[10px] font-black uppercase tracking-wider"
+                    >
+                      {{ locale.played }}
+                    </span>
+                    <span
+                      v-else-if="getSimilarSong(program)?.scheduled"
+                      class="px-2 py-0.5 rounded-md bg-warning-10 text-warning text-[10px] font-black uppercase tracking-wider"
+                    >
+                      {{ locale.scheduled }}
+                    </span>
+                    <span
+                      v-else
+                      class="px-2 py-0.5 rounded-md bg-bg-quaternary-50 text-text-tertiary text-[10px] font-black uppercase tracking-wider"
+                    >
+                      {{ locale.existing }}
+                    </span>
+
+                    <div class="flex gap-2">
+                      <button
+                        v-if="getSimilarSong(program)?.played && isSuperAdmin"
+                        :disabled="submitting"
+                        class="px-3 py-1.5 rounded-xl bg-primary-hover hover:bg-primary text-text-primary text-[10px] font-black disabled:opacity-50 transition-all active:scale-95 uppercase tracking-widest"
+                        @click.stop="selectProgram(program)"
+                      >
+                        {{ submitting && selectedProgramId === program.id ? '...' : locale.continueSubmit }}
+                      </button>
+                      <button
+                        v-else
+                        class="px-3 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 disabled:cursor-not-allowed uppercase tracking-widest"
+                        :class="[
+                          getSimilarSong(program)?.voted
+                            ? 'bg-error-10 text-error border border-error-20'
+                            : 'bg-bg-tertiary text-text-tertiary hover:bg-bg-quaternary hover:text-text-primary border border-border-tertiary-50 hover:border-border-tertiary'
+                        ]"
+                        :disabled="
+                          getSimilarSong(program)?.played ||
+                          getSimilarSong(program)?.scheduled ||
+                          getSimilarSong(program)?.voted ||
+                          submitting
+                        "
+                        @click.stop="handleLikeFromProgram(getSimilarSong(program))"
+                      >
+                        {{ getSimilarSong(program)?.voted ? locale.liked : locale.like }}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    v-else
+                    :disabled="submitting"
+                    class="px-4 py-2 rounded-xl bg-primary-hover hover:bg-primary text-text-primary text-xs font-black disabled:opacity-50 transition-all active:scale-95 shrink-0 uppercase tracking-widest shadow-lg shadow-[var(--primary-glow)]"
+                    @click="selectProgram(program)"
+                  >
+                    {{ submitting && selectedProgramId === program.id ? locale.submitLoading : locale.selectSubmit }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="hasMore" class="pt-6 pb-2 flex justify-center">
+                <button
+                  :disabled="loadingMore"
+                  class="px-8 py-3 rounded-xl bg-bg-tertiary hover:bg-bg-quaternary text-text-secondary text-xs font-black disabled:opacity-50 transition-all flex items-center gap-2 uppercase tracking-widest"
+                  @click="loadMore"
+                >
+                  <Icon v-if="loadingMore" name="loader" :size="16" class="animate-spin" />
+                  {{ loadingMore ? locale.loadingMore : locale.loadMore }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+</template>
+
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { useMusicSources } from '~/composables/useMusicSources'
+import { useSongs } from '~/composables/useSongs'
+import { useAuth } from '~/composables/useAuth'
+import { useSemesters } from '~/composables/useSemesters'
+import { useLocale } from '~/utils/locale'
+const { songs: songsLocale } = useLocale()
+const locale = computed(() => songsLocale.value?.mediaModals || {})
+import { getCoverThumbUrl } from '~/utils/url'
+import Icon from '~/components/UI/Icon.vue'
+import { normalizeForMatch as normalizeString } from '~/utils/song-name-normalize'
+
+const props = defineProps({
+  show: Boolean,
+  radioId: [String, Number],
+  radioName: String,
+  cookie: String
+})
+
+const emit = defineEmits(['close', 'submit', 'play'])
+
+const musicSources = useMusicSources()
+const songService = useSongs({ compact: true })
+const auth = useAuth()
+const isSuperAdmin = computed(() => auth.user.value?.role === 'SUPER_ADMIN')
+const { currentSemester, fetchCurrentSemester } = useSemesters()
+
+const programs = ref([])
+const loading = ref(false)
+const error = ref('')
+const hasMore = ref(false)
+const offset = ref(0)
+const loadingMore = ref(false)
+const submitting = ref(false)
+const selectedProgramId = ref(null)
+const songsLoadingForSimilar = ref(false)
+
+// 检查是否已存在相似歌曲
+const getSimilarSong = (program) => {
+  if (!program) return null
+
+  const tempSong = createSongObject(program)
+  const title = tempSong.title
+  const artist = tempSong.artist
+
+  if (!title || !artist) return null
+
+  const normalizedTitle = normalizeString(title)
+  const normalizedArtist = normalizeString(artist)
+  const currentSemesterName = currentSemester.value?.name
+
+  // 如果没有获取到当前学期信息，暂时不进行检查，避免误报
+  if (!currentSemesterName) return null
+
+  return songService.songs.value.find((song) => {
+    const songTitle = normalizeString(song.title)
+    const songArtist = normalizeString(song.artist)
+    const titleMatch = songTitle === normalizedTitle && songArtist === normalizedArtist
+
+    // 必须匹配当前学期
+    return titleMatch && song.semester === currentSemesterName
+  })
+}
+
+const fetchPrograms = async (isLoadMore = false) => {
+  if (!props.radioId) return
+
+  if (isLoadMore) {
+    loadingMore.value = true
+  } else {
+    loading.value = true
+    programs.value = []
+    offset.value = 0
+  }
+
+  error.value = ''
+
+  try {
+    const result = await musicSources.getDjPrograms(props.radioId, 20, offset.value, props.cookie)
+
+    if (result.success) {
+      if (isLoadMore) {
+        programs.value = [...programs.value, ...result.programs]
+      } else {
+        programs.value = result.programs
+      }
+
+      hasMore.value = result.more
+      offset.value += result.programs.length
+    } else {
+      error.value = result.error || locale.value.fetchProgramsFailed
+    }
+  } catch (err) {
+    error.value = locale.value.networkFailed
+    console.error(err)
+  } finally {
+    loading.value = false
+    loadingMore.value = false
+  }
+}
+
+const loadMore = () => {
+  fetchPrograms(true)
+}
+
+const close = () => {
+  emit('close')
+  // 重置状态
+  submitting.value = false
+  selectedProgramId.value = null
+}
+
+const createSongObject = (program) => {
+  // 构造提交数据
+  // 使用 mainSong.id 作为唯一标识，因为 getSongUrl 需要它
+  const songId = program.mainSong?.id || program.mainTrackId || program.id
+
+  return {
+    id: songId,
+    title: program.name,
+    artist: program.dj?.nickname || locale.value.unknownDj,
+    cover: program.coverUrl || program.cover,
+    album: props.radioName, // 使用电台名作为专辑名
+    duration: program.duration,
+    musicPlatform: 'netease-podcast',
+    musicId: songId.toString(),
+    sourceInfo: {
+      source: 'netease-backup',
+      originalId: songId.toString(),
+      fetchedAt: new Date(),
+      type: 'voice',
+      programId: program.id
+    }
+  }
+}
+
+const selectProgram = async (program) => {
+  selectedProgramId.value = program.id
+  submitting.value = true
+
+  const song = createSongObject(program)
+
+  emit('submit', song)
+  // 不立即关闭，等待父组件处理
+  // 父组件处理成功后应该关闭此弹窗
+}
+
+const handleLikeFromProgram = async (song) => {
+  if (!song || song.voted) {
+    return
+  }
+
+  if (song.played || song.scheduled) {
+    if (window.$showNotification) {
+      const message = song.played
+        ? (locale.value.playedCannotLike || '已播放的歌曲不能点赞')
+        : (locale.value.scheduledCannotLike || '已排期的歌曲不能点赞')
+      window.$showNotification(message, 'warning')
+    }
+    return
+  }
+
+  try {
+    await songService.voteSong(song.id)
+  } catch (error) {
+    console.error('点赞失败:', error)
+  }
+}
+
+const playProgram = (program) => {
+  const song = createSongObject(program)
+  // 添加播放需要的额外字段
+  song.musicUrl = '' // 将由 RequestForm 处理获取
+  emit('play', song)
+}
+
+watch(
+  () => props.show,
+  async (val) => {
+    if (val) {
+      // 确保当前学期已加载，用于正确检查歌曲状态
+      if (!currentSemester.value) {
+        await fetchCurrentSemester()
+      }
+
+      submitting.value = false
+      selectedProgramId.value = null
+      if (
+        auth.isAuthenticated.value &&
+        (!songService.songs.value || songService.songs.value.length === 0)
+      ) {
+        const currentSemesterName = currentSemester.value?.name
+        songsLoadingForSimilar.value = true
+        songService
+          .fetchSongs({ silent: true, semester: currentSemesterName })
+          .catch((err) => {
+            console.error('加载歌曲列表失败:', err)
+          })
+          .finally(() => {
+            songsLoadingForSimilar.value = false
+          })
+      } else {
+        songsLoadingForSimilar.value = false
+      }
+      fetchPrograms()
+    } else {
+      programs.value = []
+      offset.value = 0
+      submitting.value = false
+      selectedProgramId.value = null
+      songsLoadingForSimilar.value = false
+    }
+  }
+)
+
+const formatDate = (timestamp) => {
+  if (!timestamp) return ''
+  return new Date(timestamp).toLocaleDateString()
+}
+
+const formatDuration = (ms) => {
+  if (!ms) return '00:00'
+  const minutes = Math.floor(ms / 60000)
+  const seconds = Math.floor((ms % 60000) / 1000)
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+}
+
+const formatCount = (count) => {
+  if (!count) return '0'
+  if (count > 10000) {
+    return (count / 10000).toFixed(1) + locale.value.tenThousand
+  }
+  return count
+}
+
+defineExpose({
+  resetSubmissionState: () => {
+    submitting.value = false
+    selectedProgramId.value = null
+  }
+})
+</script>
+
+<style scoped>
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--overlay-10);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--overlay-20);
+}
+</style>

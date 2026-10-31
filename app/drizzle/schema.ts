@@ -1,0 +1,997 @@
+import {bigint, boolean, check, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, uuid, varchar, unique} from 'drizzle-orm/pg-core';
+import {relations, sql} from 'drizzle-orm';
+
+// 枚举定义
+export const blacklistTypeEnum = pgEnum('BlacklistType', ['SONG', 'KEYWORD', 'LANGUAGE', 'GENRE']);
+export const userStatusEnum = pgEnum('user_status', ['active', 'pending', 'withdrawn', 'graduate', 'rejected']);
+export const collaboratorStatusEnum = pgEnum('collaborator_status', ['PENDING', 'ACCEPTED', 'REJECTED']);
+export const replayRequestStatusEnum = pgEnum('replay_request_status', ['PENDING', 'FULFILLED', 'REJECTED']);
+export const cardCodeStatusEnum = pgEnum('card_code_status', [
+  'AVAILABLE',
+  'ASSIGNED',
+  'LOCKED',
+  'REDEEMED',
+  'INVALID'
+]);
+
+// 用户表
+export const users = pgTable('User', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  username: text('username').notNull(),
+  name: text('name'),
+  grade: text('grade'),
+  class: text('class'),
+  role: text('role').default('USER').notNull(),
+  password: text('password').notNull(),
+  email: text('email'),
+  emailVerified: boolean('emailVerified').default(false),
+  lastLogin: timestamp('lastLogin'),
+  lastLoginIp: text('lastLoginIp'),
+  passwordChangedAt: timestamp('passwordChangedAt'),
+  forcePasswordChange: boolean('forcePasswordChange').default(false).notNull(),
+  tokenVersion: integer('tokenVersion').default(0).notNull(),
+  meowNickname: text('meowNickname'),
+  meowBoundAt: timestamp('meowBoundAt'),
+  avatarProvider: text('avatarProvider'),
+  avatarProviderUserId: text('avatarProviderUserId'),
+  status: userStatusEnum('status').default('active').notNull(),
+  statusChangedAt: timestamp('statusChangedAt').defaultNow(),
+  statusChangedBy: integer('statusChangedBy'),
+  // 注册时可选填写的备注，管理员审核时可修改
+  remark: text('remark'),
+  legalConsentVersion: text('legal_consent_version'),
+  legalConsentAt: timestamp('legal_consent_at'),
+}, (table) => [uniqueIndex('User_username_unique').on(table.username)]);
+
+// 登录会话表，id 与 JWT 的 jti 一致
+export const authSessions = pgTable('auth_sessions', {
+  id: uuid('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastActiveAt: timestamp('last_active_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  browser: text('browser'),
+  operatingSystem: text('operating_system'),
+  device: text('device'),
+  loginMethod: text('login_method').default('password').notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  revokedReason: text('revoked_reason')
+}, (table) => [
+  index('auth_sessions_user_active_idx').on(table.userId, table.revokedAt, table.expiresAt),
+  index('auth_sessions_last_active_idx').on(table.lastActiveAt)
+]);
+
+export type AuthSession = typeof authSessions.$inferSelect;
+export type NewAuthSession = typeof authSessions.$inferInsert;
+
+// 播出时段表
+export const playTimes = pgTable(
+  'PlayTime',
+  {
+    id: serial('id').primaryKey(),
+    createdAt: timestamp('createdAt').defaultNow().notNull(),
+    updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+    name: text('name').notNull(),
+    startTime: text('startTime'),
+    endTime: text('endTime'),
+    enabled: boolean('enabled').default(true).notNull(),
+    description: text('description'),
+    // 适用星期（0=周日, 1=周一 … 6=周六）；NULL/空数组 = 每天均可选（兼容历史数据）
+    weekdays: jsonb('weekdays').$type<number[]>(),
+    // 默认播出时段：用户投稿未选择时段时自动预选。同一时间最多一个，
+    // 由下方部分唯一索引在数据库层兜底，不依赖调用方自觉。
+    isDefault: boolean('isDefault').default(false).notNull(),
+  },
+  (table) => [
+    uniqueIndex('play_time_single_default_unique')
+      .on(table.isDefault)
+      .where(sql`${table.isDefault} = true`),
+  ],
+);
+
+// 年级班级配置表（选择器选项来源，优先于从用户提取）
+export const gradeClass = pgTable(
+  'GradeClass',
+  {
+    id: serial('id').primaryKey(),
+    createdAt: timestamp('createdAt').defaultNow().notNull(),
+    updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+    grade: text('grade').notNull(),
+    class: text('class').notNull(),
+  },
+  (table) => [unique('GradeClass_grade_class_unique').on(table.grade, table.class)],
+);
+
+// 歌曲表
+export const songs = pgTable('Song', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  title: text('title').notNull(),
+  artist: text('artist').notNull(),
+  requesterId: integer('requesterId').notNull(),
+  // 逐条投稿的匿名标记：true = 对其他同学显示「匿名投稿」（管理员与投稿人本人仍可见真实姓名）
+  submissionAnonymous: boolean('submissionAnonymous').default(false).notNull(),
+  played: boolean('played').default(false).notNull(),
+  playedAt: timestamp('playedAt').defaultNow(),
+  semester: text('semester'),
+  preferredPlayTimeId: integer('preferredPlayTimeId'),
+  cover: text('cover'),
+  playUrl: text('playUrl'),
+  musicPlatform: text('musicPlatform'),
+  musicId: text('musicId'),
+  musicSourceData: jsonb('musicSourceData'),
+  durationSeconds: integer('durationSeconds'),
+  submissionNote: text('submissionNote'),
+  submissionNotePublic: boolean('submissionNotePublic').default(false).notNull(),
+  // 公开留言审核状态：'pending' | 'approved' | 'rejected' | null（null 表示未启用审核或不涉及）
+  submissionNotePublicStatus: text('submissionNotePublicStatus'),
+  hitRequestId: integer(),
+  cardCodeId: integer('cardCodeId').references(() => cardCodes.id, { onDelete: 'set null' }),
+  // 用户选择的期望播出日期（北京时间 YYYY-MM-DD），与 preferredPlayTimeId 共同构成「日期 + 时段」
+  preferredPlayDate: date('preferredPlayDate', { mode: 'string' }),
+}, (table) => [
+  index('song_card_code_id_idx').on(table.cardCodeId),
+  index('song_semester_created_at_idx').on(table.semester, table.createdAt),
+  // 全站投稿总量限额只按 createdAt 窗口计数，缺少以 createdAt 为前导列的索引会退化成全表扫
+  index('song_created_at_idx').on(table.createdAt),
+  index('song_requester_id_idx').on(table.requesterId)
+]);
+
+// 插件配置与不可变历史分开保存，部署快照引用精确版本。
+export const musicSourcePlugins = pgTable('MusicSourcePlugin', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  priority: integer('priority').default(0).notNull(),
+  desiredRevision: integer('desiredRevision').default(1).notNull(),
+  activeRevision: integer('activeRevision'),
+  activeHash: text('activeHash'),
+  legacyPlatformKey: text('legacyPlatformKey'),
+  lastError: text('lastError'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  deletedAt: timestamp('deletedAt'),
+}, (table) => [uniqueIndex('music_source_legacy_key').on(table.legacyPlatformKey)]);
+
+export const musicSourcePluginRevisions = pgTable('MusicSourcePluginRevision', {
+  pluginId: uuid('pluginId').notNull().references(() => musicSourcePlugins.id),
+  revision: integer('revision').notNull(),
+  scriptUrl: text('scriptUrl').notNull(),
+  protocol: text('protocol').notNull(),
+  variables: text('variables').notNull(),
+  catalog: text('catalog'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.pluginId, table.revision] })]);
+
+export const musicSourceConfigState = pgTable('MusicSourceConfigState', {
+  id: integer('id').primaryKey(),
+  revision: integer('revision').default(0).notNull(),
+});
+
+// 投票表
+export const votes = pgTable('Vote', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  songId: integer('songId').notNull(),
+  userId: integer('userId').notNull(),
+}, (table) => [
+  unique('vote_song_user_unique').on(table.songId, table.userId),
+  index('vote_user_song_idx').on(table.userId, table.songId)
+]);
+
+// 排期表
+export const schedules = pgTable('Schedule', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  songId: integer('songId').notNull(),
+  playDate: timestamp('playDate').notNull(),
+  played: boolean('played').default(false).notNull(),
+  sequence: integer('sequence').default(1).notNull(),
+  playTimeId: integer('playTimeId'),
+  // 草稿支持字段
+  isDraft: boolean('isDraft').default(false).notNull(),
+  publishedAt: timestamp('publishedAt'),
+  replayRequestId: integer('replay_request_id'),
+}, (table) => [
+  index('schedule_published_song_idx').on(table.isDraft, table.songId, table.playDate),
+  index('schedule_published_date_idx').on(table.isDraft, table.playDate)
+]);
+
+// 排期备选池表
+export const scheduleSongPool = pgTable('ScheduleSongPool', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  songId: integer('songId').notNull().references(() => songs.id, { onDelete: 'cascade' }),
+  addedBy: integer('addedBy').references(() => users.id, { onDelete: 'set null' })
+}, (table) => [
+  unique('schedule_song_pool_song_unique').on(table.songId)
+]);
+
+export type ScheduleSongPool = typeof scheduleSongPool.$inferSelect;
+export type NewScheduleSongPool = typeof scheduleSongPool.$inferInsert;
+
+// 通知表
+export const notifications = pgTable('Notification', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  type: text('type').notNull(),
+  batchId: text('batchId'),
+  source: text('source').default('SYSTEM').notNull(),
+  senderId: integer('senderId'),
+  senderName: text('senderName'),
+  senderUsername: text('senderUsername'),
+  title: text('title'),
+  message: text('message').notNull(),
+  important: boolean('important').default(false).notNull(),
+  read: boolean('read').default(false).notNull(),
+  userDeleted: boolean('userDeleted').default(false).notNull(),
+  userId: integer('userId').notNull(),
+  songId: integer('songId'),
+}, (table) => [
+  index('notification_user_important_read_created_idx').on(
+    table.userId,
+    table.userDeleted,
+    table.important,
+    table.read,
+    table.createdAt
+  ),
+  index('notification_batch_id_idx').on(table.batchId)
+]);
+
+// 首页公告发布历史表：每次发布只记一条，不按用户展开
+export const announcementHistory = pgTable('AnnouncementHistory', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  title: text('title'),
+  content: text('content').notNull(),
+  // static = 静态一行展示，scroll = 横向滚动展示
+  displayMode: varchar('displayMode', { length: 16 }).default('static').notNull(),
+  // 滚动模式下滚动一轮所需秒数
+  scrollSpeed: integer('scrollSpeed').default(30).notNull(),
+  // 是否为当前正在首页展示的公告，编辑/删除需要据此同步 SystemSettings
+  isActive: boolean('isActive').default(false).notNull(),
+  senderId: integer('senderId'),
+  senderName: text('senderName'),
+  senderUsername: text('senderUsername'),
+  broadcastToGroups: boolean('broadcastToGroups').default(false).notNull()
+}, (table) => [
+  index('announcement_history_created_at_idx').on(table.createdAt)
+]);
+
+// 通知设置表
+export const notificationSettings = pgTable('NotificationSettings', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  userId: integer('userId').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  songRequestEnabled: boolean('songRequestEnabled').default(true).notNull(),
+  songVotedEnabled: boolean('songVotedEnabled').default(true).notNull(),
+  songPlayedEnabled: boolean('songPlayedEnabled').default(true).notNull(),
+  refreshInterval: integer('refreshInterval').default(60).notNull(),
+  songVotedThreshold: integer('songVotedThreshold').default(1).notNull(),
+});
+
+// AstrBot 绑定码持久化，避免 serverless 多实例内存状态不一致。
+export const astrbotBindingCodes = pgTable('AstrbotBindingCode', {
+  userId: integer('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  platform: text('platform').notNull(),
+  codeHash: text('codeHash').notNull(),
+  expiresAt: timestamp('expiresAt', { withTimezone: true }).notNull(),
+  consumedAt: timestamp('consumedAt', { withTimezone: true })
+}, (table) => [primaryKey({ columns: [table.userId, table.platform] }),
+  uniqueIndex('AstrbotBindingCode_hash_unique').on(table.codeHash)]);
+
+// 每个用户每个平台一条绑定；适配器名与 UMO 实例名分离存储。
+export const astrbotBindings = pgTable('AstrbotBinding', {
+  userId: integer('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  platform: text('platform').notNull(),
+  adapter: text('adapter').notNull(),
+  umo: text('umo').notNull(),
+  boundAt: timestamp('boundAt').defaultNow().notNull()
+}, (table) => [primaryKey({ columns: [table.userId, table.platform] }), uniqueIndex('AstrbotBinding_umo_unique').on(table.umo)]);
+
+// AstrBot 待投递队列：插件无法被 VoiceHub 访问（内网/NAT）时，由插件主动轮询取件。
+// 目标在入队时即由绑定表解析完毕，插件只按队列内容投递。
+export const astrbotOutbox = pgTable('AstrbotOutbox', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  title: text('title'),
+  message: text('message').notNull(),
+  url: text('url'),
+  umos: jsonb('umos').$type<string[]>().default([]).notNull(),
+  // NULL 为迁移前队列：无法确认原绑定主体，领取时必须丢弃。
+  targetOwners: jsonb('targetOwners').$type<Record<string, { userId: number; boundAt: string }>>(),
+  broadcast: boolean('broadcast').default(false).notNull(),
+  // 群事件类型（新点歌投稿 / 注册待审核 / 备份失败…）。私聊通知为 NULL。
+  // 合并与冷却都以它 + 目标会话为键，避免把不同类型的事件混进同一条。
+  eventKey: text('eventKey'),
+  // 冷却闸门：早于该时刻不得投递。同群同类型事件在冷却期内合并为一条，
+  // 由领取逻辑与冲刷逻辑共同遵守。
+  notifyAfter: timestamp('notifyAfter', { withTimezone: true }),
+  attempts: integer('attempts').default(0).notNull(),
+  leasedUntil: timestamp('leasedUntil', { withTimezone: true }),
+  claimToken: text('claimToken'),
+  deliveredAt: timestamp('deliveredAt', { withTimezone: true }),
+  failedAt: timestamp('failedAt', { withTimezone: true }),
+  lastError: text('lastError')
+}, (table) => [index('astrbot_outbox_pending_idx').on(table.deliveredAt, table.failedAt, table.id)]);
+
+// 学期表
+export const semesters = pgTable('Semester', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  name: text('name').notNull(),
+  isActive: boolean('isActive').default(false).notNull(),
+});
+
+// 系统设置表
+export const systemSettings = pgTable('SystemSettings', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  instanceId: text('instance_id'),
+  telemetryEnabled: boolean('telemetryEnabled').default(true).notNull(),
+  enablePlayTimeSelection: boolean('enablePlayTimeSelection').default(false).notNull(),
+  // 点歌时播出日期+时段是否强制必选（全局总开关，依赖 enablePlayTimeSelection）
+  playSlotRequired: boolean('playSlotRequired').default(false).notNull(),
+  siteTitle: text('siteTitle'),
+  siteLogoUrl: text('siteLogoUrl'),
+  schoolLogoHomeUrl: text('schoolLogoHomeUrl'),
+  schoolLogoPrintUrl: text('schoolLogoPrintUrl'),
+  siteDescription: text('siteDescription'),
+  submissionGuidelines: text('submissionGuidelines'),
+  announcement: text('announcement'),
+  announcementTitle: text('announcementTitle'),
+  // 首页公告展示方式：static / scroll
+  announcementDisplayMode: varchar('announcementDisplayMode', { length: 16 }).default('static').notNull(),
+  // 滚动模式下一轮滚动所需秒数
+  announcementScrollSpeed: integer('announcementScrollSpeed').default(30).notNull(),
+  icpNumber: text('icpNumber'),
+  gonganNumber: text('gonganNumber'),
+  showBeianIcon: boolean('showBeianIcon').default(false).notNull(),
+  enableSubmissionLimit: boolean('enableSubmissionLimit').default(false).notNull(),
+  dailySubmissionLimit: integer('dailySubmissionLimit'),
+  weeklySubmissionLimit: integer('weeklySubmissionLimit'),
+  monthlySubmissionLimit: integer('monthlySubmissionLimit'),
+  // 全站投稿总量上限（按北京时间周期统计所有用户），三个周期可同时生效
+  enableGlobalSubmissionLimit: boolean('enableGlobalSubmissionLimit').default(false).notNull(),
+  globalDailySubmissionLimit: integer('globalDailySubmissionLimit'),
+  globalWeeklySubmissionLimit: integer('globalWeeklySubmissionLimit'),
+  globalMonthlySubmissionLimit: integer('globalMonthlySubmissionLimit'),
+  // 用户可见播出排期范围
+  scheduleDaysBeforeEnabled: boolean('scheduleDaysBeforeEnabled').default(false).notNull(),
+  scheduleDaysBefore: integer('scheduleDaysBefore').default(1).notNull(),
+  scheduleDaysAfterEnabled: boolean('scheduleDaysAfterEnabled').default(false).notNull(),
+  scheduleDaysAfter: integer('scheduleDaysAfter').default(1).notNull(),
+  showBlacklistKeywords: boolean('showBlacklistKeywords').default(false).notNull(),
+  hideStudentInfo: boolean('hideStudentInfo').default(true).notNull(),
+  // 是否允许投稿人逐条选择匿名投稿（默认关闭）
+  allowAnonymousSubmission: boolean('allowAnonymousSubmission').default(false).notNull(),
+  // SMTP 邮件配置
+  smtpEnabled: boolean('smtpEnabled').default(false).notNull(),
+  smtpHost: text('smtpHost'),
+  smtpPort: integer('smtpPort').default(587),
+  smtpSecure: boolean('smtpSecure').default(false),
+  smtpUsername: text('smtpUsername'),
+  smtpPassword: text('smtpPassword'),
+  smtpFromEmail: text('smtpFromEmail'),
+  smtpFromName: text('smtpFromName').default('校园广播站'),
+  astrbotEnabled: boolean('astrbotEnabled').default(false).notNull(),
+  astrbotPlatforms: jsonb('astrbotPlatforms').$type<{ qq: boolean; wecom: boolean; dingtalk: boolean; lark: boolean }>()
+    .default({ qq: false, wecom: false, dingtalk: false, lark: false }).notNull(),
+  astrbotBaseUrl: text('astrbotBaseUrl'),
+  astrbotToken: text('astrbotToken'),
+  astrbotBroadcastEnabled: boolean('astrbotBroadcastEnabled').default(false).notNull(),
+  // 群广播目标：UMO 前缀是 AstrBot 平台实例 ID（可被改名），无法从会话串推断平台，
+  // 因此每条目标显式记录所属平台与备注，投递与校验都以本列白名单为准。
+  astrbotGroupTargets: jsonb('astrbotGroupTargets').$type<Array<{ umo: string; platform: string; label: string }>>()
+    .default(sql`'[]'::jsonb`).notNull(),
+  // 群事件开关与防刷屏参数，均由后台按需配置。
+  astrbotGroupEvents: jsonb('astrbotGroupEvents').$type<Record<string, boolean>>(),
+  astrbotGroupThrottle: jsonb('astrbotGroupThrottle').$type<{ mergeWindowSeconds: number; minIntervalSeconds: number }>(),
+  // 推送方向：push = VoiceHub 主动 POST 到插件（需插件可被访问）；
+  // pull = 通知入队，由插件主动轮询领取（插件在内网/NAT 后时使用）。
+  astrbotPushMode: text('astrbotPushMode').default('push').notNull(),
+  astrbotWeeklyConfig: jsonb('astrbotWeeklyConfig').$type<{
+    layoutStyle?: 'classic' | 'table'
+    listColumns?: 1 | 2
+    showLogo?: boolean
+    showSchoolLogo?: boolean
+    showCover?: boolean
+    showTitle?: boolean
+    showArtist?: boolean
+    showRequester?: boolean
+    showVotes?: boolean
+    showSequence?: boolean
+    showPlayTime?: boolean
+    showDate?: boolean
+  }>()
+    .default({ showCover: true, showSequence: true, showRequester: true, showVotes: false, showPlayTime: true, showDate: true }).notNull(),
+  enableRequestTimeLimitation: boolean('enableRequestTimeLimitation').default(false).notNull(),
+  forceBlockAllRequests: boolean().default(false).notNull(),
+  forcePasswordChangeOnFirstLogin: boolean('forcePasswordChangeOnFirstLogin').default(false).notNull(),
+  enableReplayRequests: boolean('enableReplayRequests').default(false).notNull(),
+  enableCollaborativeSubmission: boolean('enableCollaborativeSubmission').default(true).notNull(),
+  enableSubmissionRemarks: boolean('enableSubmissionRemarks').default(false).notNull(),
+  // 卡密点歌相关开关（用于允许用户使用卡密或强制使用卡密投稿）
+  enableCardCodeRequests: boolean('enableCardCodeRequests').default(false).notNull(),
+  requireCardCodeForRequests: boolean('requireCardCodeForRequests').default(false).notNull(),
+  enableCardCodeLimitBypass: boolean('enableCardCodeLimitBypass').default(false).notNull(),
+  // 重复投稿限制：对同一首歌/同一歌手，在其进入排期后的设定时间窗口内禁止再次投稿
+  enableSubmissionRestriction: boolean('enableSubmissionRestriction').default(false).notNull(),
+  submissionRestrictionScope: text('submissionRestrictionScope').default('all').notNull(),
+  sameSongRestrictionHours: integer('sameSongRestrictionHours'),
+  sameArtistRestrictionHours: integer('sameArtistRestrictionHours'),
+  
+  // 验证码配置
+  captchaProvider: text('captchaProvider').default('graphic').notNull(),
+  turnstileSiteKey: text('turnstileSiteKey'),
+  turnstileSecretKey: text('turnstileSecretKey'),
+  // 阿里云 ESA AI 验证码：身份标 / 场景 ID 规则列表（JSON：接口 + 域名 → 场景 ID）/ 部署区域（cn=中国内地，sgp=新加坡）
+  esaCaptchaPrefix: text('esaCaptchaPrefix'),
+  esaCaptchaScenes: text('esaCaptchaScenes').default('[]').notNull(),
+  esaCaptchaRegion: text('esaCaptchaRegion').default('cn').notNull(),
+  
+  // 注册配置
+  allowRegister: boolean('allowRegister').default(false).notNull(),
+  registerRequiresApproval: boolean('registerRequiresApproval').default(true).notNull(),
+  oauthRegisterRequiresApproval: boolean('oauthRegisterRequiresApproval').default(true).notNull(),
+  // 注册邮箱（选填→管理员开关控制；需 SMTP 已配置）
+  registerEmailRequired: boolean('registerEmailRequired').default(false).notNull(),
+  // 注册时必须选择年级班级（本地注册与第三方创建账户均强制）
+  registerRequiresGradeClass: boolean('registerRequiresGradeClass').default(false).notNull(),
+  // 投稿公开留言审核
+  submissionNoteRequiresApproval: boolean('submissionNoteRequiresApproval').default(false).notNull(),
+
+  // OAuth 配置
+  allowOAuthRegistration: boolean('allowOAuthRegistration').default(false).notNull(),
+  oauthRedirectUri: text('oauthRedirectUri'),
+  oauthStateSecret: text('oauthStateSecret'),
+  oauthProviders: text('oauthProviders').default('[]'),
+  // GitHub OAuth
+  githubOAuthEnabled: boolean('githubOAuthEnabled').default(false).notNull(),
+  githubClientId: text('githubClientId'),
+  githubClientSecret: text('githubClientSecret'),
+  // Casdoor OAuth
+  casdoorOAuthEnabled: boolean('casdoorOAuthEnabled').default(false).notNull(),
+  casdoorServerUrl: text('casdoorServerUrl'),
+  casdoorClientId: text('casdoorClientId'),
+  casdoorClientSecret: text('casdoorClientSecret'),
+  casdoorOrganizationName: text('casdoorOrganizationName'),
+  // Google OAuth
+  googleOAuthEnabled: boolean('googleOAuthEnabled').default(false).notNull(),
+  googleClientId: text('googleClientId'),
+  googleClientSecret: text('googleClientSecret'),
+  // 聚合登陆
+  aggregateOAuthEnabled: boolean('aggregateOAuthEnabled').default(false).notNull(),
+  aggregateOAuthAppId: text('aggregateOAuthAppId'),
+  aggregateOAuthAppKey: text('aggregateOAuthAppKey'),
+  aggregateOAuthLoginType: text('aggregateOAuthLoginType').default('qq'),
+  aggregateOAuthEndpoint: text('aggregateOAuthEndpoint'),
+  // Custom OAuth2
+  customOAuthEnabled: boolean('customOAuthEnabled').default(false).notNull(),
+  customOAuthDisplayName: text('customOAuthDisplayName'),
+  customOAuthAuthorizeUrl: text('customOAuthAuthorizeUrl'),
+  customOAuthTokenUrl: text('customOAuthTokenUrl'),
+  customOAuthUserInfoUrl: text('customOAuthUserInfoUrl'),
+  customOAuthScope: text('customOAuthScope'),
+  customOAuthClientId: text('customOAuthClientId'),
+  customOAuthClientSecret: text('customOAuthClientSecret'),
+  customOAuthUserIdField: text('customOAuthUserIdField'),
+  customOAuthUsernameField: text('customOAuthUsernameField'),
+  customOAuthNameField: text('customOAuthNameField'),
+  customOAuthEmailField: text('customOAuthEmailField'),
+  customOAuthAvatarField: text('customOAuthAvatarField'),
+  // 图形验证码
+  captchaEnabled: boolean('captchaEnabled').default(false).notNull(),
+  captchaMaxFailures: integer('captchaMaxFailures').default(3).notNull(),
+
+  // 自动备份配置
+  autoBackupEnabled: boolean('autoBackupEnabled').default(false).notNull(),
+  autoBackupConfig: text('autoBackupConfig'),
+
+  // 站点统计代码（任意站点统计平台的 HTML/JS 片段，注入 SSR 页面 <head>）
+  statisticsCodeEnabled: boolean('statisticsCodeEnabled').default(false).notNull(),
+  statisticsCode: text('statisticsCode'),
+  legalConsentEnabled: boolean('legalConsentEnabled').default(false).notNull(),
+  legalConsentDisplayMode: text('legalConsentDisplayMode').default('modal').notNull(),
+  legalConsentUpdatedDate: text('legalConsentUpdatedDate'),
+  legalConsentDocuments: text('legalConsentDocuments').default('[]').notNull(),
+
+  // 主题管理配置
+  defaultTheme: text('defaultTheme').default('System').notNull(),
+  enabledThemes: text('enabledThemes').default('["System","ClassicDark","ClassicLight","ModernLight"]').notNull(),
+  // 平台管理配置（仅内置音源；插件音源由插件管理的启用状态与排序控制，不入库）
+  enabledPlatforms: text('enabledPlatforms').default('["netease","tencent","bilibili","migu"]'),
+  platformOrder: text('platformOrder').default('["netease","tencent","bilibili","migu"]'),
+});
+
+// 歌曲黑名单表
+export const songBlacklists = pgTable('SongBlacklist', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  type: blacklistTypeEnum('type').notNull(),
+  value: text('value').notNull(),
+  reason: text('reason'),
+  isActive: boolean('isActive').default(true).notNull(),
+  createdBy: integer('createdBy'),
+});
+
+// API Keys表
+export const apiKeys = pgTable('api_keys', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  keyHash: varchar('key_hash', { length: 255 }).notNull().unique(),
+  keyPrefix: varchar('key_prefix', { length: 10 }).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  createdByUserId: integer('created_by_user_id').notNull(),
+  usageCount: integer('usage_count').default(0).notNull(),
+
+});
+
+// API Key权限表
+export const apiKeyPermissions = pgTable('api_key_permissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  apiKeyId: uuid('api_key_id').notNull(),
+  permission: varchar('permission', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// API访问日志表
+export const apiLogs = pgTable('api_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  apiKeyId: uuid('api_key_id'),
+  endpoint: varchar('endpoint', { length: 500 }).notNull(),
+  method: varchar('method', { length: 10 }).notNull(),
+  ipAddress: text('ip_address').notNull(),
+  userAgent: text('user_agent'),
+  statusCode: integer('status_code').notNull(),
+  responseTimeMs: integer('response_time_ms').notNull(),
+  requestBody: text('request_body'),
+  responseBody: text('response_body'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  errorMessage: text('error_message'),
+});
+
+// 用户状态变更日志表
+export const userStatusLogs = pgTable('user_status_logs', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull(),
+  // 审计快照：用户被删除后仍可追溯（如注册审核拒绝）
+  username: text('username'),
+  name: text('name'),
+  oldStatus: userStatusEnum('old_status'),
+  newStatus: userStatusEnum('new_status').notNull(),
+  reason: text('reason'),
+  operatorId: integer('operator_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const requestTimes = pgTable("RequestTime", {
+  id: serial().primaryKey().notNull(),
+  createdAt: timestamp({ precision: 6, mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp({ precision: 6, mode: 'string' }).defaultNow().notNull(),
+  name: text().notNull(),
+  startTime: timestamp({ mode: 'string' }).notNull(),
+  endTime: timestamp({ mode: 'string' }).notNull(),
+  enabled: boolean().default(true).notNull(),
+  description: text(),
+  // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+  expected: bigint({ mode: "number" }).default(0).notNull(),
+  // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+  accepted: bigint({ mode: "number" }).default(0).notNull(),
+  past: boolean().default(false).notNull(),
+});
+
+// 联合投稿人表
+export const songCollaborators = pgTable('song_collaborators', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    songId: integer('song_id').notNull(),
+    userId: integer('user_id').notNull(),
+    status: collaboratorStatusEnum('status').default('PENDING').notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
+}, (table) => [
+    index('song_collaborators_song_status_idx').on(table.songId, table.status),
+    index('song_collaborators_user_status_idx').on(table.userId, table.status)
+]);
+
+// 联合投稿审计日志表
+export const collaborationLogs = pgTable('collaboration_logs', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    collaboratorId: uuid('collaborator_id').notNull(),
+    action: varchar('action', {length: 50}).notNull(), // INVITE, ACCEPT, REJECT, REMOVE
+    operatorId: integer('operator_id').notNull(),
+    ipAddress: text('ip_address'),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+});
+
+// 歌曲重播申请表
+export const songReplayRequests = pgTable('song_replay_requests', {
+  id: serial('id').primaryKey(),
+  songId: integer('song_id').notNull(),
+  userId: integer('user_id').notNull(),
+  createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
+  status: replayRequestStatusEnum('status').default('PENDING').notNull(),
+  preferredPlayTimeId: integer('preferred_play_time_id'),
+  submissionNote: text('submission_note'),
+  submissionNotePublic: boolean('submission_note_public').default(false).notNull(),
+  submissionNotePublicStatus: text('submission_note_public_status'),
+}, (table) => [
+  // 同一用户对同一首歌同时最多一条待处理申请；历史申请（FULFILLED/REJECTED）允许多条
+  uniqueIndex('song_replay_requests_pending_song_user_unique')
+    .on(table.songId, table.userId)
+    .where(sql`${table.status} = 'PENDING'`),
+  index('song_replay_requests_user_status_song_idx').on(table.userId, table.status, table.songId)
+]);
+
+// 第三方身份关联表
+export const userIdentities = pgTable('UserIdentity', {
+  id: serial('id').primaryKey(),
+  userId: integer('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  providerUserId: text('providerUserId').notNull(),
+  providerUsername: text('providerUsername'),
+  avatar: text('avatar'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.provider, t.providerUserId),
+}));
+
+export const passwordAuditLogs = pgTable('PasswordAuditLog', {
+  id: serial('id').primaryKey(),
+  userId: integer('userId').notNull(),
+  actorId: integer('actorId'),
+  action: text('action').notNull(),
+  success: boolean('success').notNull(),
+  ipAddress: text('ipAddress'),
+  userAgent: text('userAgent'),
+  failureReason: text('failureReason'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  userCreatedIdx: index('PasswordAuditLog_user_created_idx').on(table.userId, table.createdAt)
+}));
+
+export const passwordRateLimits = pgTable('PasswordRateLimit', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull(),
+  resetAt: timestamp('resetAt', { withTimezone: true }).notNull()
+}, (table) => ({
+  resetIdx: index('PasswordRateLimit_reset_idx').on(table.resetAt)
+}));
+
+// 关系定义
+export const usersRelations = relations(users, ({ many, one }) => ({
+  songs: many(songs),
+  votes: many(votes),
+  notifications: many(notifications),
+  identities: many(userIdentities),
+  notificationSettings: one(notificationSettings, {
+    fields: [users.id],
+    references: [notificationSettings.userId],
+  }),
+  apiKeys: many(apiKeys),
+  sessions: many(authSessions),
+  statusLogs: many(userStatusLogs),
+    collaborations: many(songCollaborators),
+  replayRequests: many(songReplayRequests),
+  statusChangedByUser: one(users, {
+    fields: [users.statusChangedBy],
+    references: [users.id],
+  }),
+}));
+
+export const userIdentitiesRelations = relations(userIdentities, ({ one }) => ({
+  user: one(users, {
+    fields: [userIdentities.userId],
+    references: [users.id],
+  }),
+}));
+
+export const songsRelations = relations(songs, ({ one, many }) => ({
+  requester: one(users, {
+    fields: [songs.requesterId],
+    references: [users.id],
+  }),
+  preferredPlayTime: one(playTimes, {
+    fields: [songs.preferredPlayTimeId],
+    references: [playTimes.id],
+  }),
+  votes: many(votes),
+  schedules: many(schedules),
+  notifications: many(notifications),
+    collaborators: many(songCollaborators),
+    replayRequests: many(songReplayRequests),
+}));
+
+export const votesRelations = relations(votes, ({ one }) => ({
+  song: one(songs, {
+    fields: [votes.songId],
+    references: [songs.id],
+  }),
+  user: one(users, {
+    fields: [votes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const schedulesRelations = relations(schedules, ({ one }) => ({
+  song: one(songs, {
+    fields: [schedules.songId],
+    references: [songs.id],
+  }),
+  playTime: one(playTimes, {
+    fields: [schedules.playTimeId],
+    references: [playTimes.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+  song: one(songs, {
+    fields: [notifications.songId],
+    references: [songs.id],
+  }),
+}));
+
+export const notificationSettingsRelations = relations(notificationSettings, ({ one }) => ({
+  user: one(users, {
+    fields: [notificationSettings.userId],
+    references: [users.id],
+  }),
+}));
+
+export const playTimesRelations = relations(playTimes, ({ many }) => ({
+  songs: many(songs),
+  schedules: many(schedules),
+}));
+
+// API框架关系定义
+export const apiKeysRelations = relations(apiKeys, ({ one, many }) => ({
+  createdByUser: one(users, {
+    fields: [apiKeys.createdByUserId],
+    references: [users.id],
+  }),
+  permissions: many(apiKeyPermissions),
+  logs: many(apiLogs),
+}));
+
+export const apiKeyPermissionsRelations = relations(apiKeyPermissions, ({ one }) => ({
+  apiKey: one(apiKeys, {
+    fields: [apiKeyPermissions.apiKeyId],
+    references: [apiKeys.id],
+  }),
+}));
+
+export const apiLogsRelations = relations(apiLogs, ({ one }) => ({
+  apiKey: one(apiKeys, {
+    fields: [apiLogs.apiKeyId],
+    references: [apiKeys.id],
+  }),
+}));
+
+export const userStatusLogsRelations = relations(userStatusLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [userStatusLogs.userId],
+    references: [users.id],
+  }),
+  operator: one(users, {
+    fields: [userStatusLogs.operatorId],
+    references: [users.id],
+  }),
+}));
+
+export const songCollaboratorsRelations = relations(songCollaborators, ({one, many}) => ({
+    song: one(songs, {
+        fields: [songCollaborators.songId],
+        references: [songs.id],
+    }),
+    user: one(users, {
+        fields: [songCollaborators.userId],
+        references: [users.id],
+    }),
+    logs: many(collaborationLogs),
+}));
+
+export const collaborationLogsRelations = relations(collaborationLogs, ({one}) => ({
+    collaborator: one(songCollaborators, {
+        fields: [collaborationLogs.collaboratorId],
+        references: [songCollaborators.id],
+    }),
+    operator: one(users, {
+        fields: [collaborationLogs.operatorId],
+        references: [users.id],
+    }),
+}));
+
+export const songReplayRequestsRelations = relations(songReplayRequests, ({one}) => ({
+    song: one(songs, {
+        fields: [songReplayRequests.songId],
+        references: [songs.id],
+    }),
+    user: one(users, {
+        fields: [songReplayRequests.userId],
+        references: [users.id],
+    }),
+}));
+
+// 邮件模板表（仅存储自定义覆盖，内置模板在代码中定义）
+export const emailTemplates = pgTable('EmailTemplate', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  key: varchar('key', { length: 100 }).notNull(),
+  name: varchar('name', { length: 200 }).notNull(),
+  subject: varchar('subject', { length: 300 }).notNull(),
+  html: text('html').notNull(),
+  updatedByUserId: integer('updatedByUserId'),
+});
+
+// 导出所有表的类型
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Song = typeof songs.$inferSelect;
+export type NewSong = typeof songs.$inferInsert;
+export type Vote = typeof votes.$inferSelect;
+export type NewVote = typeof votes.$inferInsert;
+export type Schedule = typeof schedules.$inferSelect;
+export type NewSchedule = typeof schedules.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
+export type NewNotificationSettings = typeof notificationSettings.$inferInsert;
+export type PlayTime = typeof playTimes.$inferSelect;
+export type NewPlayTime = typeof playTimes.$inferInsert;
+export type Semester = typeof semesters.$inferSelect;
+export type NewSemester = typeof semesters.$inferInsert;
+export type SystemSettings = typeof systemSettings.$inferSelect;
+export type NewSystemSettings = typeof systemSettings.$inferInsert;
+export type SongBlacklist = typeof songBlacklists.$inferSelect;
+export type NewSongBlacklist = typeof songBlacklists.$inferInsert;
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
+export type ApiKeyPermission = typeof apiKeyPermissions.$inferSelect;
+export type NewApiKeyPermission = typeof apiKeyPermissions.$inferInsert;
+export type ApiLog = typeof apiLogs.$inferSelect;
+export type NewApiLog = typeof apiLogs.$inferInsert;
+export type UserStatusLog = typeof userStatusLogs.$inferSelect;
+export type NewUserStatusLog = typeof userStatusLogs.$inferInsert;
+export type SongCollaborator = typeof songCollaborators.$inferSelect;
+export type NewSongCollaborator = typeof songCollaborators.$inferInsert;
+export type CollaborationLog = typeof collaborationLogs.$inferSelect;
+export type NewCollaborationLog = typeof collaborationLogs.$inferInsert;
+export type SongReplayRequest = typeof songReplayRequests.$inferSelect;
+export type NewSongReplayRequest = typeof songReplayRequests.$inferInsert;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type NewEmailTemplate = typeof emailTemplates.$inferInsert;export type RequestTime = typeof requestTimes.$inferSelect;
+export type NewRequestTime = typeof requestTimes.$inferInsert;
+export type UserIdentity = typeof userIdentities.$inferSelect;
+export type NewUserIdentity = typeof userIdentities.$inferInsert;
+// 卡密表
+export const cardCodes = pgTable('CardCode', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  code: text('code').notNull().unique(),
+  status: cardCodeStatusEnum('status').default('AVAILABLE').notNull(),
+  lockedBy: integer('lockedBy').references(() => users.id, { onDelete: 'set null' }),
+  lockedAt: timestamp('lockedAt'),
+  redeemedBy: integer('redeemedBy').references(() => users.id, { onDelete: 'set null' }),
+  redeemedAt: timestamp('redeemedAt'),
+  // 派发给用户后归属的持有人；回收后置空
+  assignedTo: integer('assignedTo').references(() => users.id, { onDelete: 'set null' }),
+  assignedAt: timestamp('assignedAt'),
+  note: text('note'),
+}, (table) => [
+  // 用户端「我的点歌券」按持有人 + 活跃状态查询
+  index('card_code_assigned_to_status_idx').on(table.assignedTo, table.status),
+  // 持有权与状态必须自洽：ASSIGNED 一定有持有人，回到可用池/作废一定解除持有人
+  // 用文本比较而非枚举字面量：同一迁移里刚 ADD VALUE 的新枚举值事务内不可引用
+  check('card_code_assigned_status_has_holder', sql`CAST(${table.status} AS text) <> 'ASSIGNED' OR ${table.assignedTo} IS NOT NULL`),
+  check('card_code_unassigned_status_no_holder', sql`CAST(${table.status} AS text) NOT IN ('AVAILABLE', 'INVALID') OR ${table.assignedTo} IS NULL`),
+]);
+
+// 卡密兑换日志表
+export const cardCodeRedeemLogs = pgTable('CardCodeRedeemLog', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  cardCodeId: integer('cardCodeId').references(() => cardCodes.id, { onDelete: 'set null' }),
+  codeSnapshot: text('codeSnapshot').notNull(),
+  redeemedBy: integer('redeemedBy').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  redeemedAt: timestamp('redeemedAt').defaultNow().notNull(),
+  source: text('source').default('UNKNOWN').notNull(),
+  songId: integer('songId').references(() => songs.id, { onDelete: 'set null' })
+}, (table) => [
+  index('card_code_redeem_log_card_code_id_idx').on(table.cardCodeId)
+]);
+
+export type CardCode = typeof cardCodes.$inferSelect;
+export type NewCardCode = typeof cardCodes.$inferInsert;
+
+// 点歌券派发状态
+export const cardCodeAssignmentStatusEnum = pgEnum('card_code_assignment_status', [
+  'ASSIGNED',   // 已派发给用户，尚未使用
+  'USED',       // 用户已使用
+  'RECYCLED',   // 已被管理员回收
+  'FAILED'      // 派发失败
+]);
+
+// 点歌券派发记录表：记录派发时间、派发人员、接收人、回收与失败原因
+export const cardCodeAssignments = pgTable('CardCodeAssignment', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  // 删券不销毁审计流水，与 CardCodeRedeemLog 一致靠 codeSnapshot 追溯
+  cardCodeId: integer('cardCodeId').references(() => cardCodes.id, { onDelete: 'set null' }),
+  codeSnapshot: text('codeSnapshot').notNull(),
+  // 接收人（被派发用户）
+  userId: integer('userId').references(() => users.id, { onDelete: 'set null' }),
+  userNameSnapshot: text('userNameSnapshot'),
+  // 派发人员
+  assignedBy: integer('assignedBy').references(() => users.id, { onDelete: 'set null' }),
+  assignedByName: text('assignedByName'),
+  // 派发时间
+  assignedAt: timestamp('assignedAt').defaultNow().notNull(),
+  status: cardCodeAssignmentStatusEnum('status').default('ASSIGNED').notNull(),
+  // 使用时间
+  usedAt: timestamp('usedAt'),
+  // 回收信息
+  recycledAt: timestamp('recycledAt'),
+  recycledBy: integer('recycledBy').references(() => users.id, { onDelete: 'set null' }),
+  recycledByName: text('recycledByName'),
+  recycleReason: text('recycleReason'),
+  // 失败原因（派发过程出错时写入）
+  failureReason: text('failureReason'),
+  // 通知发送结果：SENT 成功 / FAILED 失败 / SKIPPED 未发送
+  notifyStatus: text('notifyStatus').default('SKIPPED').notNull(),
+  notifyError: text('notifyError'),
+  note: text('note')
+}, (table) => [
+  index('card_code_assignment_card_code_id_idx').on(table.cardCodeId),
+  // 一张券同时只能有一条活跃派发记录
+  uniqueIndex('card_code_assignment_active_per_card_unique')
+    .on(table.cardCodeId)
+    .where(sql`${table.status} = 'ASSIGNED'`),
+  index('card_code_assignment_user_status_idx').on(table.userId, table.status),
+  index('card_code_assignment_status_assigned_at_idx').on(table.status, table.assignedAt),
+  index('card_code_assignment_assigned_at_idx').on(table.assignedAt)
+]);
+
+export type CardCodeAssignment = typeof cardCodeAssignments.$inferSelect;
+export type NewCardCodeAssignment = typeof cardCodeAssignments.$inferInsert;
+
+// 自动备份历史记录表
+export const backupHistory = pgTable('BackupHistory', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  filename: text('filename').notNull(),
+  totalRecords: integer('totalRecords').default(0).notNull(),
+  backupSize: integer('backupSize').default(0).notNull(),
+  methods: text('methods').notNull(), // JSON: { method: string; success: boolean; error?: string }[]
+  success: boolean('success').default(false).notNull(),
+  triggeredBy: text('triggeredBy'), // 'api' | 'manual'
+}, (table) => [
+  index('backup_history_created_at_idx').on(table.createdAt)
+]);
+
+export type BackupHistory = typeof backupHistory.$inferSelect;
+export type NewBackupHistory = typeof backupHistory.$inferInsert;

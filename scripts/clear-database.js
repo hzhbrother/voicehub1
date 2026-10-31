@@ -1,0 +1,204 @@
+/**
+ * 数据库清空脚本
+ * 这个脚本会清空所有表的数据，但保留表结构
+ */
+import { sql } from 'drizzle-orm'
+import {
+  apiKeyPermissions,
+  apiKeys,
+  apiLogs,
+  cardCodeRedeemLogs,
+  cardCodes,
+  collaborationLogs,
+  db,
+  emailTemplates,
+  notifications,
+  notificationSettings,
+  passwordAuditLogs,
+  passwordRateLimits,
+  playTimes,
+  requestTimes,
+  scheduleSongPool,
+  schedules,
+  semesters,
+  songBlacklists,
+  songCollaborators,
+  songReplayRequests,
+  songs,
+  systemSettings,
+  userIdentities,
+  users,
+  userStatusLogs,
+  votes
+} from '../app/drizzle/db.ts'
+import bcrypt from 'bcryptjs'
+import { closeConnection } from '../app/drizzle/db.ts'
+
+function getFirstRow(result) {
+  return result?.rows?.[0] ?? result?.[0]
+}
+
+function quoteIdentifierPart(value) {
+  const normalized =
+    value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1).replace(/""/g, '"') : value
+
+  return `"${normalized.replace(/"/g, '""')}"`
+}
+
+function toQualifiedIdentifier(value) {
+  return sql.raw(value.split('.').map(quoteIdentifierPart).join('.'))
+}
+
+function toPgRelationName(value) {
+  return value.split('.').map(quoteIdentifierPart).join('.')
+}
+
+function toRegclass(value) {
+  return sql.raw(`'${value.replace(/'/g, "''")}'::regclass`)
+}
+
+// 重置所有表的自增序列
+async function resetAutoIncrementSequences() {
+  const tables = [
+    'User',
+    'Song',
+    'Vote',
+    'Schedule',
+    'Notification',
+    'NotificationSettings',
+    'PlayTime',
+    'Semester',
+    'SystemSettings',
+    'SongBlacklist',
+    'CardCode',
+    'CardCodeRedeemLog',
+    'SongCollaborator',
+    'CollaborationLog',
+    'SongReplayRequest',
+    'RequestTime',
+    'ScheduleSongPool',
+    'UserIdentity',
+    'PasswordAuditLog',
+    'PasswordRateLimit',
+    'EmailTemplate',
+    'user_status_logs'
+  ]
+
+  console.log('重置自增序列...')
+
+  for (const table of tables) {
+    try {
+      const maxIdResult = await db.execute(
+        sql`SELECT MAX(id) as max_id FROM ${toQualifiedIdentifier(table)}`
+      )
+      const maxId = Number(getFirstRow(maxIdResult)?.max_id || 0)
+
+      const sequenceNameResult = await db.execute(
+        sql`SELECT pg_get_serial_sequence(${toPgRelationName(table)}, 'id') as sequence_name`
+      )
+      const sequenceName = getFirstRow(sequenceNameResult)?.sequence_name
+
+      if (sequenceName) {
+        if (maxId === 0) {
+          await db.execute(sql`ALTER SEQUENCE ${toQualifiedIdentifier(sequenceName)} RESTART WITH 1`)
+        } else {
+          const newSequenceValue = maxId
+          await db.execute(sql`SELECT setval(${toRegclass(sequenceName)}, ${newSequenceValue})`)
+        }
+      } else {
+        console.warn(`未找到表 ${table} 的序列`)
+      }
+    } catch (error) {
+      console.warn(`重置 ${table} 表序列失败: ${error.message}`)
+    }
+  }
+}
+
+async function main() {
+  console.log('开始清空数据库...')
+
+  // 清空所有表数据
+  try {
+    // 按照关联关系顺序删除数据
+    await db.delete(notifications)
+    await db.delete(notificationSettings)
+    await db.delete(votes)
+    await db.delete(collaborationLogs)
+    await db.delete(schedules)
+    await db.delete(scheduleSongPool)
+    await db.delete(songCollaborators)
+    await db.delete(songReplayRequests)
+    await db.delete(requestTimes)
+    await db.delete(cardCodeRedeemLogs)
+    await db.delete(userIdentities)
+    await db.delete(passwordAuditLogs)
+    await db.delete(passwordRateLimits)
+    await db.delete(songs)
+    await db.delete(cardCodes)
+    await db.delete(playTimes)
+    await db.delete(semesters)
+    await db.delete(systemSettings)
+    await db.delete(songBlacklists)
+    await db.delete(apiLogs)
+    await db.delete(apiKeyPermissions)
+    await db.delete(apiKeys)
+    await db.delete(userStatusLogs)
+    await db.delete(emailTemplates)
+    await db.delete(users)
+
+    console.log('数据库已清空，开始重置自增序列...')
+
+    // 先重置所有自增序列
+    await resetAutoIncrementSequences()
+
+    console.log('开始创建默认超级管理员账户...')
+
+    // 创建默认管理员账户
+    const hashedPassword = await bcrypt.hash('admin123', 10)
+
+    // 创建超级管理员用户（默认口令按临时密码对待，首次登录强制设置新密码）
+    const [admin] = await db
+      .insert(users)
+      .values({
+        name: '超级管理员',
+        username: 'admin',
+        password: hashedPassword,
+        role: 'SUPER_ADMIN',
+        forcePasswordChange: true
+      })
+      .returning()
+
+    console.log('默认超级管理员账户已创建:')
+    console.log('用户名: admin')
+    console.log('密码: admin123')
+    console.log('首次登录需设置新密码')
+    console.log(`管理员ID: ${admin.id}`)
+
+    // 调整User表的自增序列，确保下一个用户从admin.id + 1开始
+    try {
+      const sequenceNameResult = await db.execute(
+        sql`SELECT pg_get_serial_sequence(${toPgRelationName('User')}, 'id') as sequence_name`
+      )
+      const sequenceName = getFirstRow(sequenceNameResult)?.sequence_name
+
+      if (sequenceName) {
+        const nextId = admin.id
+        await db.execute(sql`SELECT setval(${toRegclass(sequenceName)}, ${nextId})`)
+      }
+    } catch (error) {
+      console.warn(`调整User表序列失败: ${error.message}`)
+    }
+
+    console.log('🎉 数据库清空、初始化和序列重置全部完成!')
+  } catch (error) {
+    console.error('清空数据库时出错:', error)
+    process.exit(1)
+  } finally {
+    await closeConnection()
+  }
+}
+
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

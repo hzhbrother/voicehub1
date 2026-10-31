@@ -1,0 +1,156 @@
+/* 全局样式与媒体查询（设计变量已拆分到 themes/ClassicDark/ 和 themes/ClassicLight/ 子目录） */
+
+/* 品牌色 RGB 值（用于 rgba() 动态组合） */
+:root {
+  --color-indigo-rgb: 99 102 241;
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+  :root {
+    --border-primary: #444444;
+    --border-secondary: #555555;
+    --border-tertiary: #666666;
+    --text-tertiary: #aaaaaa;
+    --text-quaternary: #888888;
+  }
+}
+
+/* 减少动画模式支持 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0s;
+    --transition-normal: 0s;
+    --transition-slow: 0s;
+  }
+}
+
+/* 全局滚动条样式 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-md);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* 全局选择文本样式 */
+::selection {
+  background: var(--primary-light);
+  color: var(--text-primary);
+}
+
+/* 全局焦点样式 */
+*:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* 全局禁用状态样式 */
+*:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 全局链接样式 */
+a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--transition-normal);
+}
+
+a:hover {
+  color: var(--primary-hover);
+}
+
+/* 全局按钮重置 */
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  *:focus {
+    outline: none !important;
+  }
+  button,
+  a {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* 全局输入框重置 */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 全局图片样式 */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 全局表格样式 */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* 全局代码样式 */
+code,
+pre {
+  font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+code {
+  padding: 2px 4px;
+  font-size: 0.875em;
+}
+
+pre {
+  padding: var(--spacing-lg);
+  overflow-x: auto;
+}
+
+pre code {
+  padding: 0;
+  background: none;
+}

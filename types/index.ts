@@ -1,0 +1,191 @@
+export interface User {
+  id: number
+  username: string
+  name: string | null
+  grade?: string | null
+  class?: string | null
+  role: 'USER' | 'ADMIN' | 'SUPER_ADMIN' | 'SONG_ADMIN'
+  lastLoginAt?: Date | null
+  lastLoginIp?: string | null
+  forcePasswordChange?: boolean
+  passwordChangedAt?: Date | string | null
+  requirePasswordChange?: boolean
+  hasSetPassword?: boolean
+  needsInitialPasswordSetup?: boolean
+  avatar?: string | null
+  has2FA?: boolean
+  email?: string | null
+  emailVerified?: boolean
+  identities?: Array<{
+    id: number
+    provider: string
+    providerUsername?: string | null
+    providerUserId?: string | null
+    avatar?: string | null
+    isAvatarSource?: boolean
+  }>
+}
+
+export interface Song {
+  id: number
+  title: string
+  artist: string
+  requester: string
+  requesterId?: number
+  voteCount: number
+  played: boolean
+  playedAt: string | null
+  semester: string | null
+  preferredPlayTimeId?: number | null
+  preferredPlayTime?: PlayTime | null
+  // 点歌时选定的期望播出日期（YYYY-MM-DD），与 preferredPlayTime 共同构成「日期 + 时段」
+  preferredPlayDate?: string | null
+  cover?: string | null // 音乐封面URL
+  musicPlatform?: string | null // 音乐平台（netease, tencent等）
+  musicId?: string | null // 平台上的歌曲ID
+  playUrl?: string | null // 播放地址URL
+  requesterGrade?: string | null
+  requesterClass?: string | null
+  hasSubmissionNote?: boolean
+  submissionNote?: string | null
+  submissionNotePublic?: boolean
+  createdAt: string
+  voted?: boolean
+  scheduled?: boolean
+  inPool?: boolean
+  scheduleDate?: string
+  schedulePlayed?: boolean
+  cardCodeId?: number | null
+  usedCardCode?: boolean
+}
+
+export interface Schedule {
+  id: number
+  playDate: string
+  playTimeId?: number | null
+  playTime?: PlayTime | null
+  song: {
+    id: number
+    title: string
+    artist: string
+    requester: string
+    requesterGrade?: string | null
+    requesterClass?: string | null
+    voteCount: number
+    played?: boolean
+    cover?: string | null
+    musicPlatform?: string | null
+    musicId?: string | null
+    playUrl?: string | null
+    hasSubmissionNote?: boolean
+    submissionNote?: string | null
+    submissionNotePublic?: boolean
+    originalSubmissionNote?: string | null
+    originalSubmissionNotePublic?: boolean
+    cardCodeId?: number | null
+    usedCardCode?: boolean
+  }
+}
+
+export type NotificationType = 'SONG_SELECTED' | 'SONG_PLAYED' | 'SONG_VOTED' | 'SYSTEM_NOTICE'
+
+export interface NotificationSender {
+  id: number
+  name: string | null
+  username: string | null
+}
+
+export interface Notification {
+  id: number
+  createdAt: string
+  updatedAt: string
+  userId: number
+  type: string
+  batchId?: string | null
+  source: 'SYSTEM' | 'ADMIN_MANUAL'
+  title?: string | null
+  message: string
+  songId?: number | null
+  important: boolean
+  read: boolean
+  userDeleted: boolean
+  sender: NotificationSender | null
+}
+
+// 前端使用的通知设置接口
+export interface NotificationSettings {
+  id: number
+  userId: number
+  songSelectedNotify: boolean
+  songPlayedNotify: boolean
+  songVotedNotify: boolean
+  systemNotify: boolean
+  refreshInterval: number
+  songVotedThreshold: number
+  meowUserId?: string
+  userEmail?: string
+  emailVerified?: boolean
+}
+
+// 数据库中的通知设置接口
+export interface DBNotificationSettings {
+  id: number
+  userId: number
+  enabled: boolean
+  songRequestEnabled: boolean
+  songVotedEnabled: boolean
+  songPlayedEnabled: boolean
+  refreshInterval: number
+  songVotedThreshold: number
+}
+
+// 播出时段接口
+export interface PlayTime {
+  id: number
+  name: string // 时段名称，如"上午"、"下午"
+  startTime?: string // 开始时间，格式为"HH:MM"，可选
+  endTime?: string // 结束时间，格式为"HH:MM"，可选
+  enabled: boolean // 是否启用
+  description?: string // 描述，可选
+  // 适用星期（0=周日, 1=周一 … 6=周六）；null/undefined = 每天均可选
+  weekdays?: number[] | null
+  // 是否为默认播出时段：用户投稿未选择时段时自动预选，同一时间最多一个
+  isDefault?: boolean
+}
+
+// 学期接口
+export interface Semester {
+  id: number
+  name: string // 学期名称
+  isActive: boolean // 是否为当前活跃学期
+}
+
+// 系统设置接口
+export interface SystemSettings {
+  id: number
+  enablePlayTimeSelection: boolean
+  enableRequestTimeLimitation?: boolean
+  forceBlockAllRequests?: boolean
+  enableReplayRequests?: boolean
+  enableCollaborativeSubmission?: boolean
+  enableSubmissionRemarks?: boolean
+  enableCardCodeRequests?: boolean
+  requireCardCodeForRequests?: boolean
+  enableCardCodeLimitBypass?: boolean
+  defaultTheme?: 'System' | 'ClassicDark' | 'ClassicLight' | 'ModernLight'
+  enabledThemes?: string[] | string
+}
+
+export interface RequestTime {
+  id: number
+  createdAt: string
+  updatedAt: string
+  name: string
+  startTime: string
+  endTime: string
+  enabled: boolean
+  description?: string | null
+  expected: number
+  accepted: number
+  past: boolean
+}

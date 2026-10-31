@@ -1,0 +1,1482 @@
+import { db } from '~/drizzle/db'
+import { systemSettings } from '~/drizzle/schema'
+import { eq } from 'drizzle-orm'
+import { SMTP_PASSWORD_MASK, SECRET_FIELD_MASK, maskSystemSettingsSecrets } from './secretMask'
+import { findSuperAdminOnlySettingFields } from '~/utils/settingsPermissions'
+import { isValidAstrbotWeeklyConfigInput, normalizeAstrbotWeeklyConfig } from '~~/server/utils/astrbot-weekly-config'
+import { SYSTEM_SETTINGS_DEFAULTS } from '~~/server/utils/system-settings-defaults'
+import { isAstrbotPullMode } from '~~/server/utils/astrbot-pull'
+import { parseLegalConsentDocuments } from '~~/server/utils/legal-consent'
+import { formatDateTime, getBeijingTime } from '~/utils/timeUtils'
+import {
+  getAggregateOAuthLoginTypesOrDefault,
+  isSafeAggregateOAuthUrl,
+  normalizeAggregateOAuthLoginTypes
+} from '~~/server/utils/oauth-providers'
+import { createApiError } from '~~/server/utils/apiError'
+import {
+  SERVER_ERROR_CODES,
+  MUSIC_SOURCE_PLATFORMS,
+  DEFAULT_THEMES,
+  CAPTCHA_PROVIDERS,
+  ALIYUN_ESA_CAPTCHA_REGIONS
+} from '~~/server/config/constants'
+import { parseThemeArray, validateThemeConfig } from '~~/server/utils/theme-config'
+import { fetchGradeClassOptions } from '~~/server/utils/grade-class-options'
+import { normalizeAstrbotBaseUrl } from '~~/server/utils/astrbot-notification'
+import {
+  ASTRBOT_GROUP_EVENT_KEYS,
+  normalizeAstrbotGroupEvents,
+  normalizeAstrbotGroupTargets,
+  normalizeAstrbotGroupThrottle
+} from '~~/server/utils/astrbot-group'
+import { ASTRBOT_PLATFORMS } from '~~/server/utils/astrbot-platforms'
+import { ESA_CAPTCHA_ENDPOINTS, parseEsaCaptchaScenes } from '~/utils/esaCaptcha'
+
+/**
+ * 解析数据库中存储的平台数组（历史脏数据/异常写入时回退默认值）
+ */
+const parsePlatformStored = (value: unknown): string[] => {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    return Array.isArray(parsed) && parsed.length > 0 ? (parsed as string[]) : [...MUSIC_SOURCE_PLATFORMS]
+  } catch {
+    return [...MUSIC_SOURCE_PLATFORMS]
+  }
+}
+
+/**
+ * 校验 ESA AI 验证码的场景 ID 规则列表（接口 + 域名 → 场景 ID）
+ * 与前端容错解析不同，后台保存时结构不完整一律拒绝，避免静默丢弃管理员的输入
+ * @param value JSON 字符串或已解析的数组
+ * @returns 规范化（域名小写去空白）后的规则列表
+ */
+const validateEsaCaptchaScenes = (
+  value: unknown
+): Array<{ endpoint: string; host: string; sceneId: string }> => {
+  if (value === undefined || value === null || value === '') return []
+
+  let parsed: unknown
+  try {
+    parsed = typeof value === 'string' ? JSON.parse(value) : value
+  } catch {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_SCENE_INVALID,
+      'esaCaptchaScenes 格式无效，应为合法 JSON 数组'
+    )
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_SCENE_INVALID,
+      'esaCaptchaScenes 必须是数组'
+    )
+  }
+
+  const seen = new Set<string>()
+  return parsed.map((item: unknown) => {
+    const scene = item as { endpoint?: unknown; host?: unknown; sceneId?: unknown }
+    const endpoint = typeof scene?.endpoint === 'string' ? scene.endpoint : ''
+    const host = typeof scene?.host === 'string' ? scene.host.trim().toLowerCase() : ''
+    const sceneId = typeof scene?.sceneId === 'string' ? scene.sceneId.trim() : ''
+
+    if (!(ESA_CAPTCHA_ENDPOINTS as readonly string[]).includes(endpoint)) {
+      throw createApiError(
+        400,
+        SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_SCENE_INVALID,
+        `场景配置的接口必须是 ${ESA_CAPTCHA_ENDPOINTS.join(' 或 ')}`
+      )
+    }
+    if (!host || !sceneId) {
+      throw createApiError(
+        400,
+        SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_SCENE_INVALID,
+        '场景配置的域名与场景 ID 均不能为空'
+      )
+    }
+
+    const uniqueKey = `${endpoint}\u0001${host}`
+    if (seen.has(uniqueKey)) {
+      throw createApiError(
+        400,
+        SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_SCENE_INVALID,
+        `同一接口下域名重复：${endpoint} / ${host}`
+      )
+    }
+    seen.add(uniqueKey)
+
+    return { endpoint, host, sceneId }
+  })
+}
+
+/**
+ * 校验平台数组 JSON 字符串
+ * @param fieldName 字段名（用于错误消息）
+ * @param value 原始值（应为 JSON 字符串）
+ * @param requireUnique 是否要求无重复（仅 platformOrder 需要）
+ * @returns 校验后的数组
+ */
+const validatePlatformArray = (fieldName: string, value: unknown, requireUnique = false): string[] => {
+  if (typeof value !== 'string') {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+      `${fieldName} 必须是 JSON 字符串`
+    )
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+      `${fieldName} 格式无效，应为合法 JSON 数组`
+    )
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+      `${fieldName} 必须是数组`
+    )
+  }
+
+  const invalid = parsed.filter((p: unknown) => !(MUSIC_SOURCE_PLATFORMS as readonly string[]).includes(p as string))
+  if (invalid.length > 0) {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+      `${fieldName} 包含无效的平台: ${(invalid as string[]).join(', ')}`
+    )
+  }
+
+  if (parsed.length === 0) {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+      `${fieldName} 至少保留一个平台`
+    )
+  }
+
+  if (requireUnique && parsed.length !== new Set(parsed as string[]).size) {
+    throw createApiError(
+      400,
+      SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+      `${fieldName} 中不能包含重复的平台`
+    )
+  }
+
+  return parsed as string[]
+}
+
+export default defineEventHandler(async (event) => {
+  // 检查用户认证和权限
+  const user = event.context.user
+
+  if (!user) {
+    throw createError({
+      statusCode: 401,
+      message: '未授权访问'
+    })
+  }
+
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+    throw createError({
+      statusCode: 403,
+      message: '只有管理员才能更新系统设置'
+    })
+  }
+
+  try {
+    const body = await readBody(event)
+
+    // 用户数据、凭据与出站目标类配置仅超级管理员可修改
+    if (user.role !== 'SUPER_ADMIN') {
+      const rejectedFields = findSuperAdminOnlySettingFields(body)
+      if (rejectedFields.length > 0) {
+        console.warn('[SystemSettings] 普通管理员提交超管专属配置已拒绝:', rejectedFields.join(', '))
+        throw createError({
+          statusCode: 403,
+          message: '只有超级管理员可以修改用户数据与凭据相关的配置'
+        })
+      }
+    }
+
+    // 验证请求体
+    const updateData: any = {}
+
+    // 获取当前设置，用于验证依赖配置的完整性
+    const settingsResult = await db.select().from(systemSettings).limit(1)
+    let settings = settingsResult[0]
+
+    if (body.defaultTheme !== undefined || body.enabledThemes !== undefined) {
+      // 普通管理员提交主题字段已由上方守卫拦截，此处仅处理超级管理员请求
+      const enabledThemes = body.enabledThemes !== undefined
+        ? validateThemeConfig(body.defaultTheme ?? settings?.defaultTheme ?? 'System', body.enabledThemes)
+        : parseThemeArray(settings?.enabledThemes, DEFAULT_THEMES)
+      const defaultTheme = body.defaultTheme !== undefined ? body.defaultTheme : settings?.defaultTheme || 'System'
+      validateThemeConfig(defaultTheme, JSON.stringify(enabledThemes))
+      if (body.defaultTheme !== undefined) updateData.defaultTheme = defaultTheme
+      updateData.enabledThemes = JSON.stringify(enabledThemes)
+    }
+
+    if (body.telemetryEnabled !== undefined) {
+      if (typeof body.telemetryEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'telemetryEnabled 必须是布尔值'
+        })
+      }
+      updateData.telemetryEnabled = body.telemetryEnabled
+    }
+
+    if (body.hideStudentInfo !== undefined) {
+      if (typeof body.hideStudentInfo !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'hideStudentInfo 必须是布尔值'
+        })
+      }
+      updateData.hideStudentInfo = body.hideStudentInfo
+    }
+
+    if (body.allowAnonymousSubmission !== undefined) {
+      if (typeof body.allowAnonymousSubmission !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'allowAnonymousSubmission 必须是布尔值'
+        })
+      }
+      updateData.allowAnonymousSubmission = body.allowAnonymousSubmission
+    }
+
+    if (body.enablePlayTimeSelection !== undefined) {
+      if (typeof body.enablePlayTimeSelection !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enablePlayTimeSelection 必须是布尔值'
+        })
+      }
+      updateData.enablePlayTimeSelection = body.enablePlayTimeSelection
+    }
+
+    if (body.playSlotRequired !== undefined) {
+      if (typeof body.playSlotRequired !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'playSlotRequired 必须是布尔值'
+        })
+      }
+      updateData.playSlotRequired = body.playSlotRequired
+    }
+
+    // 交叉校验：「时段必选」依赖「播出时段选择」总开关，提交值与当前持久化值合并后判定
+    const mergedEnablePlayTimeSelection = body.enablePlayTimeSelection !== undefined
+      ? body.enablePlayTimeSelection
+      : settings?.enablePlayTimeSelection === true
+    const mergedPlaySlotRequired = body.playSlotRequired !== undefined
+      ? body.playSlotRequired
+      : settings?.playSlotRequired === true
+    if (mergedPlaySlotRequired && !mergedEnablePlayTimeSelection) {
+      throw createApiError(
+        400,
+        SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+        '启用「时段必选」前需先开启「播出时段选择」'
+      )
+    }
+
+    if (body.siteTitle !== undefined) {
+      updateData.siteTitle = body.siteTitle
+    }
+
+    if (body.siteLogoUrl !== undefined) {
+      updateData.siteLogoUrl = body.siteLogoUrl
+    }
+
+    if (body.schoolLogoHomeUrl !== undefined) {
+      updateData.schoolLogoHomeUrl = body.schoolLogoHomeUrl
+    }
+
+    if (body.schoolLogoPrintUrl !== undefined) {
+      updateData.schoolLogoPrintUrl = body.schoolLogoPrintUrl
+    }
+
+    if (body.siteDescription !== undefined) {
+      updateData.siteDescription = body.siteDescription
+    }
+
+    if (body.submissionGuidelines !== undefined) {
+      updateData.submissionGuidelines = body.submissionGuidelines
+    }
+
+    if (body.icpNumber !== undefined) {
+      updateData.icpNumber = body.icpNumber
+    }
+
+    if (body.gonganNumber !== undefined) {
+      updateData.gonganNumber = body.gonganNumber
+    }
+
+    if (body.statisticsCode !== undefined) {
+      if (body.statisticsCode !== null && typeof body.statisticsCode !== 'string') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'statisticsCode 必须是字符串或 null')
+      }
+      updateData.statisticsCode = body.statisticsCode
+    }
+
+    if (body.legalConsentEnabled !== undefined) {
+      if (typeof body.legalConsentEnabled !== 'boolean') throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '条款确认开关必须是布尔值')
+      updateData.legalConsentEnabled = body.legalConsentEnabled
+    }
+    if (body.legalConsentDisplayMode !== undefined) {
+      if (!['modal', 'checkbox'].includes(body.legalConsentDisplayMode)) throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '展示形式无效')
+      updateData.legalConsentDisplayMode = body.legalConsentDisplayMode
+    }
+    if (body.legalConsentUpdatedDate !== undefined) {
+      const date = body.legalConsentUpdatedDate || null
+      if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '条款更新日期格式无效')
+      updateData.legalConsentUpdatedDate = date
+    }
+    // 协议文档：提交时先做结构校验（非法 JSON / 非数组拒绝），再序列化落库
+    let normalizedLegalConsentDocuments: unknown
+    if (body.legalConsentDocuments !== undefined) {
+      let docs
+      try { docs = typeof body.legalConsentDocuments === 'string' ? JSON.parse(body.legalConsentDocuments) : body.legalConsentDocuments } catch { docs = null }
+      if (!Array.isArray(docs)) throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DOC_INVALID, '协议文档配置无效')
+      normalizedLegalConsentDocuments = docs
+      updateData.legalConsentDocuments = JSON.stringify(docs)
+    }
+
+    // 交叉校验：启用条款确认时（合并提交值与持久化值后）必须存在更新日期与合法的协议文档
+    const legalConsentEffectiveEnabled =
+      body.legalConsentEnabled !== undefined ? body.legalConsentEnabled === true : settings?.legalConsentEnabled === true
+    if (legalConsentEffectiveEnabled) {
+      const finalUpdatedDate =
+        body.legalConsentUpdatedDate !== undefined ? updateData.legalConsentUpdatedDate : settings?.legalConsentUpdatedDate
+      if (!finalUpdatedDate) {
+        // 仅在本次请求显式操作条款字段时才自动补当天（北京时间），避免无关的部分保存静默改写条款版本
+        const explicitLegalConsentSubmit = body.legalConsentEnabled === true || body.legalConsentUpdatedDate !== undefined
+        if (!explicitLegalConsentSubmit) {
+          throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DATE_MISSING, '启用条款确认时必须填写条款更新日期')
+        }
+        updateData.legalConsentUpdatedDate = formatDateTime(getBeijingTime(), 'YYYY-MM-DD')
+      }
+      const finalDocs = parseLegalConsentDocuments(
+        normalizedLegalConsentDocuments !== undefined ? normalizedLegalConsentDocuments : settings?.legalConsentDocuments
+      )
+      const truncateName = (name: unknown): string => {
+        const s = typeof name === 'string' ? name.trim() : ''
+        return s.length > 30 ? `${s.slice(0, 30)}…` : s
+      }
+      if (!finalDocs.length) throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DOC_EMPTY, '启用条款确认时至少需要配置一份协议文档')
+      for (const doc of finalDocs) {
+        if (!doc?.name?.trim()) throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DOC_NAME_MISSING, '协议文档名称不能为空')
+        if (!doc?.content?.trim()) throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DOC_CONTENT_MISSING, `协议文档「${truncateName(doc.name)}」的内容不能为空`, { params: [truncateName(doc.name)] })
+        if (!/^[A-Za-z0-9_-]+$/.test(doc?.slug || '')) throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DOC_SLUG_INVALID, `协议文档「${truncateName(doc.name)}」的标识只能包含字母、数字、下划线和连字符`, { params: [truncateName(doc.name)] })
+      }
+      if (new Set(finalDocs.map((d) => d.slug)).size !== finalDocs.length) throw createApiError(400, SERVER_ERROR_CODES.SETTINGS_LEGAL_CONSENT_DOC_SLUG_DUPLICATE, '协议文档标识不能重复')
+    }
+
+    if (body.statisticsCodeEnabled !== undefined) {
+      if (typeof body.statisticsCodeEnabled !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'statisticsCodeEnabled 必须是布尔值')
+      }
+      updateData.statisticsCodeEnabled = body.statisticsCodeEnabled
+    }
+
+    if (body.showBeianIcon !== undefined) {
+      if (typeof body.showBeianIcon !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'showBeianIcon 必须是布尔值'
+        })
+      }
+      updateData.showBeianIcon = body.showBeianIcon
+    }
+
+    if (body.enableSubmissionLimit !== undefined) {
+      if (typeof body.enableSubmissionLimit !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableSubmissionLimit 必须是布尔值'
+        })
+      }
+      updateData.enableSubmissionLimit = body.enableSubmissionLimit
+    }
+
+    if (body.enableGlobalSubmissionLimit !== undefined) {
+      if (typeof body.enableGlobalSubmissionLimit !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableGlobalSubmissionLimit 必须是布尔值'
+        })
+      }
+      updateData.enableGlobalSubmissionLimit = body.enableGlobalSubmissionLimit
+    }
+
+    // 点歌券点歌相关设置
+    if (body.enableCardCodeRequests !== undefined) {
+      if (typeof body.enableCardCodeRequests !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableCardCodeRequests 必须是布尔值'
+        })
+      }
+      updateData.enableCardCodeRequests = body.enableCardCodeRequests
+    }
+
+    if (body.requireCardCodeForRequests !== undefined) {
+      if (typeof body.requireCardCodeForRequests !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'requireCardCodeForRequests 必须是布尔值'
+        })
+      }
+      updateData.requireCardCodeForRequests = body.requireCardCodeForRequests
+    }
+
+    if (body.enableCardCodeLimitBypass !== undefined) {
+      if (typeof body.enableCardCodeLimitBypass !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableCardCodeLimitBypass 必须是布尔值'
+        })
+      }
+      updateData.enableCardCodeLimitBypass = body.enableCardCodeLimitBypass
+    }
+
+    // 重复投稿限制
+    if (body.enableSubmissionRestriction !== undefined) {
+      if (typeof body.enableSubmissionRestriction !== 'boolean') {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          'enableSubmissionRestriction 必须是布尔值'
+        )
+      }
+      updateData.enableSubmissionRestriction = body.enableSubmissionRestriction
+    }
+
+    if (body.submissionRestrictionScope !== undefined) {
+      if (body.submissionRestrictionScope !== 'self' && body.submissionRestrictionScope !== 'all') {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          'submissionRestrictionScope 必须是 self 或 all'
+        )
+      }
+      updateData.submissionRestrictionScope = body.submissionRestrictionScope
+    }
+
+    if (body.sameSongRestrictionHours !== undefined) {
+      if (
+        body.sameSongRestrictionHours !== null &&
+        (!Number.isInteger(body.sameSongRestrictionHours) || body.sameSongRestrictionHours < 1 || body.sameSongRestrictionHours > 720)
+      ) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          'sameSongRestrictionHours 必须是 1-720 的正整数或 null'
+        )
+      }
+      updateData.sameSongRestrictionHours = body.sameSongRestrictionHours
+    }
+
+    if (body.sameArtistRestrictionHours !== undefined) {
+      if (
+        body.sameArtistRestrictionHours !== null &&
+        (!Number.isInteger(body.sameArtistRestrictionHours) || body.sameArtistRestrictionHours < 1 || body.sameArtistRestrictionHours > 720)
+      ) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          'sameArtistRestrictionHours 必须是 1-720 的正整数或 null'
+        )
+      }
+      updateData.sameArtistRestrictionHours = body.sameArtistRestrictionHours
+    }
+
+    if (body.dailySubmissionLimit !== undefined) {
+      if (
+        body.dailySubmissionLimit !== null &&
+        (!Number.isInteger(body.dailySubmissionLimit) || body.dailySubmissionLimit < 0)
+      ) {
+        throw createError({
+          statusCode: 400,
+          message: 'dailySubmissionLimit 必须是非负整数或null'
+        })
+      }
+      updateData.dailySubmissionLimit = body.dailySubmissionLimit
+    }
+
+    if (body.weeklySubmissionLimit !== undefined) {
+      if (
+        body.weeklySubmissionLimit !== null &&
+        (!Number.isInteger(body.weeklySubmissionLimit) || body.weeklySubmissionLimit < 0)
+      ) {
+        throw createError({
+          statusCode: 400,
+          message: 'weeklySubmissionLimit 必须是非负整数或null'
+        })
+      }
+      updateData.weeklySubmissionLimit = body.weeklySubmissionLimit
+    }
+
+    if (body.monthlySubmissionLimit !== undefined) {
+      if (
+        body.monthlySubmissionLimit !== null &&
+        (!Number.isInteger(body.monthlySubmissionLimit) || body.monthlySubmissionLimit < 0)
+      ) {
+        throw createError({
+          statusCode: 400,
+          message: 'monthlySubmissionLimit 必须是非负整数或null'
+        })
+      }
+      updateData.monthlySubmissionLimit = body.monthlySubmissionLimit
+    }
+
+    // 全站总量限额的三个周期可叠加生效，各自独立校验
+    for (const field of [
+      'globalDailySubmissionLimit',
+      'globalWeeklySubmissionLimit',
+      'globalMonthlySubmissionLimit'
+    ] as const) {
+      if (body[field] === undefined) continue
+      if (body[field] !== null && (!Number.isInteger(body[field]) || body[field] < 0)) {
+        throw createError({
+          statusCode: 400,
+          message: `${field} 必须是非负整数或null`
+        })
+      }
+      updateData[field] = body[field]
+    }
+
+    if (body.scheduleDaysBeforeEnabled !== undefined) {
+      if (typeof body.scheduleDaysBeforeEnabled !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'scheduleDaysBeforeEnabled 必须是布尔值')
+      }
+      updateData.scheduleDaysBeforeEnabled = body.scheduleDaysBeforeEnabled
+    }
+
+    if (body.scheduleDaysAfterEnabled !== undefined) {
+      if (typeof body.scheduleDaysAfterEnabled !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'scheduleDaysAfterEnabled 必须是布尔值')
+      }
+      updateData.scheduleDaysAfterEnabled = body.scheduleDaysAfterEnabled
+    }
+
+    const nextScheduleDaysBeforeEnabled = body.scheduleDaysBeforeEnabled !== undefined
+      ? body.scheduleDaysBeforeEnabled
+      : (settings?.scheduleDaysBeforeEnabled ?? false)
+    const nextScheduleDaysAfterEnabled = body.scheduleDaysAfterEnabled !== undefined
+      ? body.scheduleDaysAfterEnabled
+      : (settings?.scheduleDaysAfterEnabled ?? false)
+
+    if (body.scheduleDaysBefore !== undefined) {
+      if (!Number.isInteger(body.scheduleDaysBefore) || body.scheduleDaysBefore < 1 || body.scheduleDaysBefore > 730) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'scheduleDaysBefore 必须是 1-730 的正整数')
+      }
+      updateData.scheduleDaysBefore = body.scheduleDaysBefore
+    }
+
+    if (body.scheduleDaysAfter !== undefined) {
+      if (!Number.isInteger(body.scheduleDaysAfter) || body.scheduleDaysAfter < 1 || body.scheduleDaysAfter > 730) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'scheduleDaysAfter 必须是 1-730 的正整数')
+      }
+      updateData.scheduleDaysAfter = body.scheduleDaysAfter
+    }
+
+    if (nextScheduleDaysBeforeEnabled && body.scheduleDaysBefore === undefined && !(settings?.scheduleDaysBefore >= 1)) {
+      throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '启用前方排期限制时，必须填写正整数天数')
+    }
+    if (nextScheduleDaysAfterEnabled && body.scheduleDaysAfter === undefined && !(settings?.scheduleDaysAfter >= 1)) {
+      throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '启用后方排期限制时，必须填写正整数天数')
+    }
+
+    if (body.showBlacklistKeywords !== undefined) {
+      if (typeof body.showBlacklistKeywords !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'showBlacklistKeywords 必须是布尔值'
+        })
+      }
+      updateData.showBlacklistKeywords = body.showBlacklistKeywords
+    }
+
+    if (body.enableReplayRequests !== undefined) {
+      if (typeof body.enableReplayRequests !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableReplayRequests 必须是布尔值'
+        })
+      }
+      updateData.enableReplayRequests = body.enableReplayRequests
+    }
+
+    if (body.enableCollaborativeSubmission !== undefined) {
+      if (typeof body.enableCollaborativeSubmission !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableCollaborativeSubmission 必须是布尔值'
+        })
+      }
+      updateData.enableCollaborativeSubmission = body.enableCollaborativeSubmission
+    }
+
+    if (body.enableSubmissionRemarks !== undefined) {
+      if (typeof body.enableSubmissionRemarks !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableSubmissionRemarks 必须是布尔值'
+        })
+      }
+      updateData.enableSubmissionRemarks = body.enableSubmissionRemarks
+    }
+
+    if (body.captchaEnabled !== undefined) {
+      if (typeof body.captchaEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'captchaEnabled 必须是布尔值'
+        })
+      }
+      updateData.captchaEnabled = body.captchaEnabled
+    }
+
+    if (body.captchaMaxFailures !== undefined) {
+      // 0 = 每次登录均需验证码
+      if (!Number.isInteger(body.captchaMaxFailures) || body.captchaMaxFailures < 0) {
+        throw createError({
+          statusCode: 400,
+          message: 'captchaMaxFailures 必须是非负整数'
+        })
+      }
+      updateData.captchaMaxFailures = body.captchaMaxFailures
+    }
+
+    // 生效的服务商：本次提交优先，未提交时回落到已持久化值
+    const effectiveCaptchaProvider = body.captchaProvider ?? settings?.captchaProvider
+
+    if (body.captchaProvider !== undefined) {
+      if (!CAPTCHA_PROVIDERS.includes(body.captchaProvider)) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.SETTINGS_CAPTCHA_PROVIDER_INVALID,
+          `captchaProvider 必须是 ${CAPTCHA_PROVIDERS.join(' 或 ')}`
+        )
+      }
+
+      const nextTurnstileSiteKey =
+        body.turnstileSiteKey !== undefined ? body.turnstileSiteKey : settings?.turnstileSiteKey
+      const nextTurnstileSecretKey =
+        body.turnstileSecretKey !== undefined && body.turnstileSecretKey !== SECRET_FIELD_MASK
+          ? body.turnstileSecretKey
+          : settings?.turnstileSecretKey
+
+      if (
+        body.captchaProvider === 'turnstile' &&
+        (!nextTurnstileSiteKey || !nextTurnstileSecretKey)
+      ) {
+        throw createError({
+          statusCode: 400,
+          message: '启用 Turnstile 验证前，请先配置 Site Key 和 Secret Key'
+        })
+      }
+
+      updateData.captchaProvider = body.captchaProvider
+    }
+
+    // ESA AI 验证码的身份标与场景 ID 由前端 SDK 使用，缺失时页面无法发起验证
+    // 只有 ESA 生效时才做拒绝式校验，其他服务商下未填完的占位行按容错丢弃
+    const nextEsaCaptchaPrefix =
+      body.esaCaptchaPrefix !== undefined ? body.esaCaptchaPrefix : settings?.esaCaptchaPrefix
+    const nextEsaCaptchaScenes =
+      body.esaCaptchaScenes !== undefined
+        ? effectiveCaptchaProvider === 'esa'
+          ? validateEsaCaptchaScenes(body.esaCaptchaScenes)
+          : parseEsaCaptchaScenes(body.esaCaptchaScenes)
+        : parseEsaCaptchaScenes(settings?.esaCaptchaScenes)
+
+    if (effectiveCaptchaProvider === 'esa') {
+      if (!nextEsaCaptchaPrefix) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_CREDENTIALS_MISSING,
+          '启用阿里云 ESA AI 验证码前，请先配置身份标'
+        )
+      }
+
+      // 验证码统一走公共验证接口 /api/captcha/verify，无任何场景 ID 时前端无法初始化验证码
+      if (nextEsaCaptchaScenes.length === 0) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.SETTINGS_ESA_CAPTCHA_SCENE_MISSING,
+          '启用阿里云 ESA AI 验证码前，请先为公共验证接口配置至少一个场景 ID'
+        )
+      }
+    }
+
+    if (body.turnstileSiteKey !== undefined) {
+      updateData.turnstileSiteKey = body.turnstileSiteKey
+    }
+
+    if (body.turnstileSecretKey !== undefined && body.turnstileSecretKey !== SECRET_FIELD_MASK) {
+      updateData.turnstileSecretKey = body.turnstileSecretKey
+    }
+
+    if (body.esaCaptchaPrefix !== undefined) {
+      updateData.esaCaptchaPrefix = body.esaCaptchaPrefix
+    }
+
+    if (body.esaCaptchaScenes !== undefined) {
+      updateData.esaCaptchaScenes = JSON.stringify(nextEsaCaptchaScenes)
+    }
+
+    if (body.esaCaptchaRegion !== undefined) {
+      if (!ALIYUN_ESA_CAPTCHA_REGIONS.includes(body.esaCaptchaRegion)) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          `esaCaptchaRegion 必须是 ${ALIYUN_ESA_CAPTCHA_REGIONS.join(' 或 ')}`
+        )
+      }
+      updateData.esaCaptchaRegion = body.esaCaptchaRegion
+    }
+
+    if (body.enableRequestTimeLimitation !== undefined) {
+      if (typeof body.enableRequestTimeLimitation !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'enableRequestTimeLimitation 必须是布尔值'
+        })
+      }
+      updateData.enableRequestTimeLimitation = body.enableRequestTimeLimitation
+    }
+
+    if (body.forceBlockAllRequests !== undefined) {
+      if (typeof body.forceBlockAllRequests !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'forceBlockAllRequests 必须是布尔值'
+        })
+      }
+      updateData.forceBlockAllRequests = body.forceBlockAllRequests
+    }
+
+    if (body.forcePasswordChangeOnFirstLogin !== undefined) {
+      if (typeof body.forcePasswordChangeOnFirstLogin !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'forcePasswordChangeOnFirstLogin 必须是布尔值'
+        })
+      }
+      updateData.forcePasswordChangeOnFirstLogin = body.forcePasswordChangeOnFirstLogin
+    }
+
+    // 平台管理配置
+    if (body.enabledPlatforms !== undefined || body.platformOrder !== undefined) {
+      const enabled = body.enabledPlatforms !== undefined
+        ? validatePlatformArray('enabledPlatforms', body.enabledPlatforms, true)
+        : parsePlatformStored(settings?.enabledPlatforms)
+      const order = body.platformOrder !== undefined
+        ? validatePlatformArray('platformOrder', body.platformOrder, true)
+        : parsePlatformStored(settings?.platformOrder)
+
+      // 交叉一致性：排序中必须至少包含一个已启用的平台，避免“无可用平台”死锁
+      if (!order.some((p) => enabled.includes(p))) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          'platformOrder 必须包含至少一个已启用的平台'
+        )
+      }
+
+      if (body.enabledPlatforms !== undefined) {
+        updateData.enabledPlatforms = body.enabledPlatforms
+      }
+      if (body.platformOrder !== undefined) {
+        updateData.platformOrder = body.platformOrder
+      }
+    }
+
+    // SMTP配置字段
+    if (body.smtpEnabled !== undefined) {
+      if (typeof body.smtpEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'smtpEnabled 必须是布尔值'
+        })
+      }
+      updateData.smtpEnabled = body.smtpEnabled
+    }
+
+    if (body.smtpHost !== undefined) {
+      updateData.smtpHost = body.smtpHost
+    }
+
+    if (body.smtpPort !== undefined) {
+      if (
+        body.smtpPort !== null &&
+        (!Number.isInteger(body.smtpPort) || body.smtpPort < 1 || body.smtpPort > 65535)
+      ) {
+        throw createError({
+          statusCode: 400,
+          message: 'smtpPort 必须是1-65535之间的整数'
+        })
+      }
+      updateData.smtpPort = body.smtpPort
+    }
+
+    if (body.smtpSecure !== undefined) {
+      if (typeof body.smtpSecure !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'smtpSecure 必须是布尔值'
+        })
+      }
+      updateData.smtpSecure = body.smtpSecure
+    }
+
+    if (body.smtpUsername !== undefined) {
+      updateData.smtpUsername = body.smtpUsername
+    }
+
+    if (body.smtpPassword !== undefined && body.smtpPassword !== SMTP_PASSWORD_MASK) {
+      updateData.smtpPassword = body.smtpPassword
+    }
+
+    if (body.smtpFromEmail !== undefined) {
+      updateData.smtpFromEmail = body.smtpFromEmail
+    }
+
+    if (body.smtpFromName !== undefined) {
+      updateData.smtpFromName = body.smtpFromName
+    }
+
+    // AstrBot 推送通道配置；密钥从不回显明文。
+    if (body.astrbotEnabled !== undefined) {
+      if (typeof body.astrbotEnabled !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'astrbotEnabled 必须是布尔值')
+      }
+      updateData.astrbotEnabled = body.astrbotEnabled
+    }
+    if (body.astrbotPlatforms !== undefined) {
+      const platforms = body.astrbotPlatforms
+      const keys = ASTRBOT_PLATFORMS
+      if (!platforms || typeof platforms !== 'object' || Array.isArray(platforms) ||
+        Object.keys(platforms).length !== keys.length ||
+        !keys.every((key) => typeof platforms[key] === 'boolean')) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '机器人平台开关格式无效')
+      }
+      updateData.astrbotPlatforms = Object.fromEntries(keys.map((key) => [key, platforms[key]]))
+    }
+    if (body.astrbotBroadcastEnabled !== undefined) {
+      if (typeof body.astrbotBroadcastEnabled !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '群聊推送开关必须是布尔值')
+      }
+      updateData.astrbotBroadcastEnabled = body.astrbotBroadcastEnabled
+    }
+    // 群目标白名单：每条显式标注平台归属，逐项规范化后保存（非法项丢弃而非整批拒绝，
+    // 管理员录入的一处笔误不应让整份配置无法保存）。
+    if (body.astrbotGroupTargets !== undefined) {
+      const targets = normalizeAstrbotGroupTargets(body.astrbotGroupTargets)
+      if (!targets) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '群聊推送目标必须是数组')
+      }
+      const dropped = body.astrbotGroupTargets.length - targets.length
+      if (dropped > 0) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          `有 ${dropped} 条群聊目标格式无效（需为「平台实例:GroupMessage:群号」，且平台受支持、不重复）`)
+      }
+      updateData.astrbotGroupTargets = targets
+    }
+    if (body.astrbotGroupEvents !== undefined) {
+      const events = body.astrbotGroupEvents
+      if (!events || typeof events !== 'object' || Array.isArray(events) ||
+        !ASTRBOT_GROUP_EVENT_KEYS.every((key) => typeof (events as Record<string, unknown>)[key] === 'boolean')) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '群聊事件开关格式无效')
+      }
+      updateData.astrbotGroupEvents = normalizeAstrbotGroupEvents(events)
+    }
+    if (body.astrbotGroupThrottle !== undefined) {
+      const throttle = body.astrbotGroupThrottle
+      if (!throttle || typeof throttle !== 'object' || Array.isArray(throttle) ||
+        typeof (throttle as Record<string, unknown>).mergeWindowSeconds !== 'number' ||
+        typeof (throttle as Record<string, unknown>).minIntervalSeconds !== 'number') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '群聊节流参数格式无效')
+      }
+      updateData.astrbotGroupThrottle = normalizeAstrbotGroupThrottle(throttle)
+    }
+    if (body.astrbotPushMode !== undefined) {
+      if (!['push', 'pull'].includes(body.astrbotPushMode)) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '推送方向只能是 push 或 pull')
+      }
+      updateData.astrbotPushMode = body.astrbotPushMode
+    }
+    if (body.astrbotWeeklyConfig !== undefined) {
+      const config = body.astrbotWeeklyConfig
+      if (!isValidAstrbotWeeklyConfigInput(config)) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '本周歌单显示项格式无效')
+      }
+      updateData.astrbotWeeklyConfig = normalizeAstrbotWeeklyConfig(config)
+    }
+    if (body.astrbotBaseUrl !== undefined) {
+      if (typeof body.astrbotBaseUrl !== 'string' || body.astrbotBaseUrl.length > 2048) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '机器人地址无效')
+      }
+      const value = body.astrbotBaseUrl.trim() ? normalizeAstrbotBaseUrl(body.astrbotBaseUrl) : null
+      if (body.astrbotBaseUrl.trim() && !value) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '机器人地址必须为无凭证的 HTTP(S) 根地址')
+      }
+      updateData.astrbotBaseUrl = value || null
+    }
+    if (body.astrbotToken !== undefined && body.astrbotToken !== SECRET_FIELD_MASK) {
+      if (typeof body.astrbotToken !== 'string' || body.astrbotToken.length > 512) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '机器人令牌无效')
+      }
+      updateData.astrbotToken = body.astrbotToken.trim() || null
+    }
+    if (body.astrbotEnabled ?? settings?.astrbotEnabled) {
+      const token = body.astrbotToken !== undefined && body.astrbotToken !== SECRET_FIELD_MASK
+        ? updateData.astrbotToken : settings?.astrbotToken
+      const baseUrl = body.astrbotBaseUrl !== undefined ? updateData.astrbotBaseUrl : settings?.astrbotBaseUrl
+      const mode = body.astrbotPushMode ?? settings?.astrbotPushMode
+      if (!token || (!isAstrbotPullMode(mode) && !baseUrl)) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+          isAstrbotPullMode(mode) ? '请先配置机器人令牌' : '请先配置机器人服务地址和令牌')
+      }
+    }
+
+    // OAuth 配置字段
+    if (body.allowOAuthRegistration !== undefined) {
+      if (typeof body.allowOAuthRegistration !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'allowOAuthRegistration 必须是布尔值'
+        })
+      }
+      updateData.allowOAuthRegistration = body.allowOAuthRegistration
+    }
+
+    // 注册配置字段
+    if (body.allowRegister !== undefined) {
+      if (typeof body.allowRegister !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'allowRegister 必须是布尔值'
+        })
+      }
+      updateData.allowRegister = body.allowRegister
+    }
+
+    if (body.registerRequiresApproval !== undefined) {
+      if (typeof body.registerRequiresApproval !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'registerRequiresApproval 必须是布尔值'
+        })
+      }
+      updateData.registerRequiresApproval = body.registerRequiresApproval
+    }
+
+    if (body.oauthRegisterRequiresApproval !== undefined) {
+      if (typeof body.oauthRegisterRequiresApproval !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'oauthRegisterRequiresApproval 必须是布尔值'
+        })
+      }
+      updateData.oauthRegisterRequiresApproval = body.oauthRegisterRequiresApproval
+    }
+
+    if (body.submissionNoteRequiresApproval !== undefined) {
+      if (typeof body.submissionNoteRequiresApproval !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'submissionNoteRequiresApproval 必须是布尔值'
+        })
+      }
+      updateData.submissionNoteRequiresApproval = body.submissionNoteRequiresApproval
+    }
+
+    // 注册子开关（邮箱必填 / 年级班级必填）以注册入口开启为前提：
+    // 两个入口均关闭时子开关无实际作用，直接落 false，避免整单保存被拒且子开关已隐藏无法取消
+    const registerEntryOpen = Boolean(
+      body.allowRegister ?? settings?.allowRegister
+    ) || Boolean(body.allowOAuthRegistration ?? settings?.allowOAuthRegistration)
+
+    if (body.registerEmailRequired !== undefined) {
+      if (typeof body.registerEmailRequired !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'registerEmailRequired 必须是布尔值')
+      }
+      // 开启时 SMTP 必须已配置并启用（合并提交值校验）
+      const nextEmailRequired = registerEntryOpen && body.registerEmailRequired
+      if (nextEmailRequired) {
+        const smtpEnabled = body.smtpEnabled ?? settings?.smtpEnabled
+        const smtpHost = body.smtpHost ?? settings?.smtpHost
+        if (!smtpEnabled || !smtpHost) {
+          throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '请先配置并开启 SMTP 邮件服务，再启用注册邮箱必填')
+        }
+      }
+      updateData.registerEmailRequired = nextEmailRequired
+    }
+
+    if (body.registerRequiresGradeClass !== undefined) {
+      if (typeof body.registerRequiresGradeClass !== 'boolean') {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, 'registerRequiresGradeClass 必须是布尔值')
+      }
+      // 开启时系统内必须已有可选年级班级组合，否则注册表单无项可选、注册请求全部被拒
+      const nextGradeClassRequired = registerEntryOpen && body.registerRequiresGradeClass
+      if (nextGradeClassRequired && (await fetchGradeClassOptions()).length === 0) {
+        throw createApiError(
+          400,
+          SERVER_ERROR_CODES.SETTINGS_GRADE_CLASS_OPTIONS_MISSING,
+          '请先在年级班级管理中配置年级班级，再启用注册时必须选择年级班级'
+        )
+      }
+      updateData.registerRequiresGradeClass = nextGradeClassRequired
+    }
+
+    if (body.oauthRedirectUri !== undefined) {
+      const normalizedOauthRedirectUri =
+        typeof body.oauthRedirectUri === 'string'
+          ? body.oauthRedirectUri.trim()
+          : body.oauthRedirectUri
+
+      if (normalizedOauthRedirectUri !== null && normalizedOauthRedirectUri !== '') {
+        try {
+          const uri = new URL(normalizedOauthRedirectUri)
+          // 支持 broker 回调 (包含 /callback 或 /api/auth/[provider]/callback 结构)
+          const validPathPattern = /(?:\/api)?\/auth\/[^/]+\/callback\/?$|\/callback\/?$/
+          if (!validPathPattern.test(uri.pathname)) {
+            throw createError({
+              statusCode: 400,
+              message:
+                'oauthRedirectUri 必须是回调地址，例如 https://yourdomain.com/api/auth/[provider]/callback'
+            })
+          }
+        } catch (error: any) {
+          if (error?.statusCode === 400) throw error
+          throw createError({
+            statusCode: 400,
+            message:
+              'oauthRedirectUri 不是合法URL，示例：https://yourdomain.com/api/auth/[provider]/callback'
+          })
+        }
+      }
+      updateData.oauthRedirectUri =
+        normalizedOauthRedirectUri === '' ? null : normalizedOauthRedirectUri
+    }
+
+    if (body.oauthStateSecret !== undefined && body.oauthStateSecret !== SECRET_FIELD_MASK) {
+      updateData.oauthStateSecret = body.oauthStateSecret
+    }
+
+    const nextOauthRedirectUri =
+      body.oauthRedirectUri !== undefined ? updateData.oauthRedirectUri : settings?.oauthRedirectUri
+    const nextOauthStateSecret =
+      body.oauthStateSecret !== undefined && body.oauthStateSecret !== SECRET_FIELD_MASK
+        ? body.oauthStateSecret
+        : settings?.oauthStateSecret
+    const nextGithubOAuthEnabled =
+      body.githubOAuthEnabled !== undefined
+        ? body.githubOAuthEnabled
+        : (settings?.githubOAuthEnabled ?? false)
+    const nextCasdoorOAuthEnabled =
+      body.casdoorOAuthEnabled !== undefined
+        ? body.casdoorOAuthEnabled
+        : (settings?.casdoorOAuthEnabled ?? false)
+    const nextGoogleOAuthEnabled =
+      body.googleOAuthEnabled !== undefined
+        ? body.googleOAuthEnabled
+        : (settings?.googleOAuthEnabled ?? false)
+    const nextAggregateOAuthEnabled =
+      body.aggregateOAuthEnabled !== undefined
+        ? body.aggregateOAuthEnabled
+        : (settings?.aggregateOAuthEnabled ?? false)
+    const nextCustomOAuthEnabled =
+      body.customOAuthEnabled !== undefined
+        ? body.customOAuthEnabled
+        : (settings?.customOAuthEnabled ?? false)
+
+    if (
+      nextGithubOAuthEnabled ||
+      nextCasdoorOAuthEnabled ||
+      nextGoogleOAuthEnabled ||
+      nextAggregateOAuthEnabled ||
+      nextCustomOAuthEnabled
+    ) {
+      if (!nextOauthRedirectUri || !nextOauthStateSecret) {
+        throw createError({
+          statusCode: 400,
+          message:
+            '启用 OAuth 登录方式前，请先在管理员后台配置 OAuth 重定向 URI 和 OAuth State 密钥'
+        })
+      }
+    }
+
+    // GitHub OAuth
+    if (body.githubOAuthEnabled !== undefined) {
+      if (typeof body.githubOAuthEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'githubOAuthEnabled 必须是布尔值'
+        })
+      }
+      if (body.githubOAuthEnabled && !body.githubClientId && !settings?.githubClientId) {
+        throw createError({ statusCode: 400, message: '启用 GitHub 登录时必须提供 Client ID' })
+      }
+      if (body.githubOAuthEnabled && !body.githubClientSecret && !settings?.githubClientSecret) {
+        throw createError({ statusCode: 400, message: '启用 GitHub 登录时必须提供 Client Secret' })
+      }
+      updateData.githubOAuthEnabled = body.githubOAuthEnabled
+    }
+
+    if (body.githubClientId !== undefined) {
+      updateData.githubClientId = body.githubClientId
+    }
+
+    if (body.githubClientSecret !== undefined && body.githubClientSecret !== SECRET_FIELD_MASK) {
+      updateData.githubClientSecret = body.githubClientSecret
+    }
+
+    // Casdoor OAuth
+    if (body.casdoorOAuthEnabled !== undefined) {
+      if (typeof body.casdoorOAuthEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'casdoorOAuthEnabled 必须是布尔值'
+        })
+      }
+      if (body.casdoorOAuthEnabled && !body.casdoorServerUrl && !settings?.casdoorServerUrl) {
+        throw createError({ statusCode: 400, message: '启用 Casdoor 登录时必须提供服务器 URL' })
+      }
+      if (body.casdoorOAuthEnabled && !body.casdoorClientId && !settings?.casdoorClientId) {
+        throw createError({ statusCode: 400, message: '启用 Casdoor 登录时必须提供 Client ID' })
+      }
+      if (body.casdoorOAuthEnabled && !body.casdoorClientSecret && !settings?.casdoorClientSecret) {
+        throw createError({ statusCode: 400, message: '启用 Casdoor 登录时必须提供 Client Secret' })
+      }
+      if (
+        body.casdoorOAuthEnabled &&
+        !body.casdoorOrganizationName &&
+        !settings?.casdoorOrganizationName
+      ) {
+        throw createError({ statusCode: 400, message: '启用 Casdoor 登录时必须提供组织名称' })
+      }
+      updateData.casdoorOAuthEnabled = body.casdoorOAuthEnabled
+    }
+
+    if (body.casdoorServerUrl !== undefined) {
+      updateData.casdoorServerUrl = body.casdoorServerUrl
+    }
+
+    if (body.casdoorClientId !== undefined) {
+      updateData.casdoorClientId = body.casdoorClientId
+    }
+
+    if (body.casdoorClientSecret !== undefined && body.casdoorClientSecret !== SECRET_FIELD_MASK) {
+      updateData.casdoorClientSecret = body.casdoorClientSecret
+    }
+
+    if (body.casdoorOrganizationName !== undefined) {
+      updateData.casdoorOrganizationName = body.casdoorOrganizationName
+    }
+
+    // Google OAuth
+    if (body.googleOAuthEnabled !== undefined) {
+      if (typeof body.googleOAuthEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'googleOAuthEnabled 必须是布尔值'
+        })
+      }
+      if (body.googleOAuthEnabled && !body.googleClientId && !settings?.googleClientId) {
+        throw createError({ statusCode: 400, message: '启用 Google 登录时必须提供 Client ID' })
+      }
+      if (body.googleOAuthEnabled && !body.googleClientSecret && !settings?.googleClientSecret) {
+        throw createError({ statusCode: 400, message: '启用 Google 登录时必须提供 Client Secret' })
+      }
+      updateData.googleOAuthEnabled = body.googleOAuthEnabled
+    }
+
+    if (body.googleClientId !== undefined) {
+      updateData.googleClientId = body.googleClientId
+    }
+
+    if (body.googleClientSecret !== undefined && body.googleClientSecret !== SECRET_FIELD_MASK) {
+      updateData.googleClientSecret = body.googleClientSecret
+    }
+
+    // 聚合登陆
+    const normalizeOptionalText = (value: any) => (typeof value === 'string' ? value.trim() : value)
+    const storedAggregateLoginTypes = getAggregateOAuthLoginTypesOrDefault(
+      settings?.aggregateOAuthLoginType
+    )
+    const nextAggregateLoginTypes =
+      body.aggregateOAuthLoginType !== undefined
+        ? normalizeAggregateOAuthLoginTypes(body.aggregateOAuthLoginType)
+        : storedAggregateLoginTypes
+    const nextAggregateAppId =
+      body.aggregateOAuthAppId !== undefined
+        ? normalizeOptionalText(body.aggregateOAuthAppId)
+        : settings?.aggregateOAuthAppId
+    const nextAggregateAppKey =
+      body.aggregateOAuthAppKey !== undefined && body.aggregateOAuthAppKey !== SECRET_FIELD_MASK
+        ? normalizeOptionalText(body.aggregateOAuthAppKey)
+        : settings?.aggregateOAuthAppKey
+    const nextAggregateEndpoint =
+      body.aggregateOAuthEndpoint !== undefined
+        ? normalizeOptionalText(body.aggregateOAuthEndpoint)
+        : settings?.aggregateOAuthEndpoint || ''
+
+    if (body.aggregateOAuthEnabled !== undefined) {
+      if (typeof body.aggregateOAuthEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'aggregateOAuthEnabled 必须是布尔值'
+        })
+      }
+      updateData.aggregateOAuthEnabled = body.aggregateOAuthEnabled
+    }
+
+    if (nextAggregateOAuthEnabled && !nextAggregateAppId) {
+      throw createError({ statusCode: 400, message: '启用聚合登陆时必须提供 AppID' })
+    }
+    if (nextAggregateOAuthEnabled && !nextAggregateAppKey) {
+      throw createError({ statusCode: 400, message: '启用聚合登陆时必须提供 AppKey' })
+    }
+    if (nextAggregateOAuthEnabled && !nextAggregateEndpoint) {
+      throw createError({ statusCode: 400, message: '启用聚合登陆时必须提供接口地址' })
+    }
+    if (nextAggregateOAuthEnabled && nextAggregateLoginTypes.length === 0) {
+      throw createError({ statusCode: 400, message: '启用聚合登陆时至少选择一种登录方式' })
+    }
+
+    if (body.aggregateOAuthAppId !== undefined) {
+      updateData.aggregateOAuthAppId = nextAggregateAppId || null
+    }
+
+    if (
+      body.aggregateOAuthAppKey !== undefined &&
+      body.aggregateOAuthAppKey !== SECRET_FIELD_MASK
+    ) {
+      updateData.aggregateOAuthAppKey = nextAggregateAppKey || null
+    }
+
+    if (body.aggregateOAuthLoginType !== undefined) {
+      updateData.aggregateOAuthLoginType = JSON.stringify(nextAggregateLoginTypes)
+    }
+
+    if (body.aggregateOAuthEndpoint !== undefined) {
+      if (nextAggregateEndpoint) {
+        if (!isSafeAggregateOAuthUrl(nextAggregateEndpoint)) {
+          throw createError({
+            statusCode: 400,
+            message: 'aggregateOAuthEndpoint 公网地址必须使用 HTTPS，内网地址可使用 HTTP'
+          })
+        }
+      }
+      updateData.aggregateOAuthEndpoint = nextAggregateEndpoint || null
+    }
+
+    // Custom OAuth2
+    if (body.customOAuthEnabled !== undefined) {
+      if (typeof body.customOAuthEnabled !== 'boolean') {
+        throw createError({
+          statusCode: 400,
+          message: 'customOAuthEnabled 必须是布尔值'
+        })
+      }
+      if (body.customOAuthEnabled) {
+        const requiredCustomFields = [
+          { key: 'customOAuthAuthorizeUrl', label: '授权端点 URL' },
+          { key: 'customOAuthTokenUrl', label: 'Token 端点 URL' },
+          { key: 'customOAuthUserInfoUrl', label: '用户信息端点 URL' },
+          { key: 'customOAuthClientId', label: 'Client ID' },
+          { key: 'customOAuthClientSecret', label: 'Client Secret' },
+          { key: 'customOAuthUserIdField', label: '用户 ID 字段名' }
+        ]
+        for (const field of requiredCustomFields) {
+          if (!body[field.key] && !settings?.[field.key]) {
+            throw createError({
+              statusCode: 400,
+              message: `启用自定义 OAuth2 登录时必须提供 ${field.label}`
+            })
+          }
+        }
+      }
+      updateData.customOAuthEnabled = body.customOAuthEnabled
+    }
+
+    if (body.customOAuthDisplayName !== undefined) {
+      updateData.customOAuthDisplayName = body.customOAuthDisplayName
+    }
+
+    if (body.customOAuthAuthorizeUrl !== undefined) {
+      if (body.customOAuthAuthorizeUrl) {
+        try {
+          new URL(body.customOAuthAuthorizeUrl)
+        } catch {
+          throw createError({ statusCode: 400, message: 'customOAuthAuthorizeUrl 不是合法URL' })
+        }
+      }
+      updateData.customOAuthAuthorizeUrl = body.customOAuthAuthorizeUrl
+    }
+
+    if (body.customOAuthTokenUrl !== undefined) {
+      if (body.customOAuthTokenUrl) {
+        try {
+          new URL(body.customOAuthTokenUrl)
+        } catch {
+          throw createError({ statusCode: 400, message: 'customOAuthTokenUrl 不是合法URL' })
+        }
+      }
+      updateData.customOAuthTokenUrl = body.customOAuthTokenUrl
+    }
+
+    if (body.customOAuthUserInfoUrl !== undefined) {
+      if (body.customOAuthUserInfoUrl) {
+        try {
+          new URL(body.customOAuthUserInfoUrl)
+        } catch {
+          throw createError({ statusCode: 400, message: 'customOAuthUserInfoUrl 不是合法URL' })
+        }
+      }
+      updateData.customOAuthUserInfoUrl = body.customOAuthUserInfoUrl
+    }
+
+    if (body.customOAuthScope !== undefined) {
+      updateData.customOAuthScope = body.customOAuthScope
+    }
+
+    if (body.customOAuthClientId !== undefined) {
+      updateData.customOAuthClientId = body.customOAuthClientId
+    }
+
+    if (
+      body.customOAuthClientSecret !== undefined &&
+      body.customOAuthClientSecret !== SECRET_FIELD_MASK
+    ) {
+      updateData.customOAuthClientSecret = body.customOAuthClientSecret
+    }
+
+    if (body.customOAuthUserIdField !== undefined) {
+      updateData.customOAuthUserIdField = body.customOAuthUserIdField
+    }
+
+    if (body.customOAuthUsernameField !== undefined) {
+      updateData.customOAuthUsernameField = body.customOAuthUsernameField
+    }
+
+    if (body.customOAuthNameField !== undefined) {
+      updateData.customOAuthNameField = body.customOAuthNameField
+    }
+
+    if (body.customOAuthEmailField !== undefined) {
+      updateData.customOAuthEmailField = body.customOAuthEmailField
+    }
+
+    if (body.customOAuthAvatarField !== undefined) {
+      updateData.customOAuthAvatarField = body.customOAuthAvatarField
+    }
+
+    // 验证每日、每周和每月限额三选一逻辑
+    const limitSettings = [
+      body.dailySubmissionLimit,
+      body.weeklySubmissionLimit,
+      body.monthlySubmissionLimit
+    ].filter((limit) => limit !== undefined && limit !== null)
+
+    if (body.enableSubmissionLimit && limitSettings.length > 1) {
+      throw createError({
+        statusCode: 400,
+        message: '每日限额、每周限额和每月限额只能选择其中一种，其他必须设置为空'
+      })
+    }
+
+    // 重复投稿限制交叉校验：开关关闭即完全不做限制；开启且未设置时长时沿用本学期同一首歌不可重复投稿的旧规则。
+    const nextSameSongHours = body.sameSongRestrictionHours !== undefined
+      ? body.sameSongRestrictionHours
+      : settings?.sameSongRestrictionHours ?? null
+    const nextSameArtistHours = body.sameArtistRestrictionHours !== undefined
+      ? body.sameArtistRestrictionHours
+      : settings?.sameArtistRestrictionHours ?? null
+
+    const anyRestrictionHoursPositive =
+      (typeof nextSameSongHours === 'number' && nextSameSongHours >= 1) ||
+      (typeof nextSameArtistHours === 'number' && nextSameArtistHours >= 1)
+
+    // 显式关闭但仍有有效时长：拒绝，提示用户先清除时长
+    if (body.enableSubmissionRestriction === false && anyRestrictionHoursPositive) {
+      throw createApiError(
+        400,
+        SERVER_ERROR_CODES.COMMON_INVALID_PARAMS,
+        '关闭重复投稿限制时，同一首歌和同一歌手的限制时间必须同时清空'
+      )
+    }
+    // 时长>0 且 enable 未显式提交 ⇒ 自动开启，维持"时长与开关自洽"不变量
+    if (anyRestrictionHoursPositive && body.enableSubmissionRestriction === undefined) {
+      updateData.enableSubmissionRestriction = true
+    }
+
+    if (!settings) {
+      const newSettingsResult = await db
+        .insert(systemSettings)
+        .values({
+          ...SYSTEM_SETTINGS_DEFAULTS,
+          scheduleDaysBeforeEnabled: SYSTEM_SETTINGS_DEFAULTS.scheduleDaysBeforeEnabled,
+          scheduleDaysBefore: SYSTEM_SETTINGS_DEFAULTS.scheduleDaysBefore,
+          scheduleDaysAfterEnabled: SYSTEM_SETTINGS_DEFAULTS.scheduleDaysAfterEnabled,
+          scheduleDaysAfter: SYSTEM_SETTINGS_DEFAULTS.scheduleDaysAfter,
+          ...updateData
+        })
+        .returning()
+      settings = newSettingsResult[0]
+    } else {
+      // 如果存在，更新设置
+      const updatedSettingsResult = await db
+        .update(systemSettings)
+        .set(updateData)
+        .where(eq(systemSettings.id, settings.id))
+        .returning()
+      settings = updatedSettingsResult[0]
+    }
+
+    if (updateData.telemetryEnabled !== undefined) {
+      try {
+        const { setTelemetryEnabledCache } = await import('~~/server/utils/telemetry')
+        setTelemetryEnabledCache(updateData.telemetryEnabled)
+      } catch (telemetryError) {
+        console.warn('[Telemetry] 遥测开关缓存更新失败:', telemetryError)
+      }
+    }
+
+    try {
+      const { SmtpService } = await import('~~/server/services/smtpService')
+      // 强制刷新：早退检查会导致修改授权码后单例仍持有旧凭据
+      await SmtpService.getInstance().initializeSmtpConfig(true)
+      console.log('[SMTP] SMTP配置已重新加载（更新系统设置）')
+    } catch (smtpError) {
+      console.warn('[SMTP] SMTP配置重载失败:', smtpError)
+    }
+
+    return maskSystemSettingsSecrets(settings)
+  } catch (error) {
+    console.error('更新系统设置失败:', error)
+
+    if (error.statusCode) {
+      throw error
+    }
+
+    throw createError({
+      statusCode: 500,
+      message: '更新系统设置失败'
+    })
+  }
+})
