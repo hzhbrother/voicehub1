@@ -152,16 +152,24 @@
           </button>
         </div>
 
-        <!-- 专题筛选 -->
-        <div v-if="activeTopics.length > 0" class="topic-filter">
-          <CustomSelect
-            v-model="activeTopicId"
-            :label="locale.topicFilter || locale.allTopics"
-            :options="topicFilterOptions"
-            label-key="label"
-            value-key="value"
-            @update:model-value="onTopicChange"
-          />
+        <!-- 专题筛选：普通投稿 / 专题投稿 两档切换 -->
+        <div v-if="activeTopics.length > 0" class="topic-sub-tabs">
+          <button
+            v-ripple
+            :class="['topic-sub-tab', { active: topicView === 'normal' }]"
+            type="button"
+            @click="setTopicView('normal')"
+          >
+            {{ locale.topicSubTabs.normal }}
+          </button>
+          <button
+            v-ripple
+            :class="['topic-sub-tab', { active: topicView === 'topics' }]"
+            type="button"
+            @click="setTopicView('topics')"
+          >
+            {{ locale.topicSubTabs.topic }}
+          </button>
         </div>
 
         <div class="search-actions">
@@ -536,7 +544,6 @@ import Icon from '~/components/UI/Icon.vue'
 import Pagination from '~/components/UI/Common/Pagination.vue'
 import MarqueeText from '~/components/UI/MarqueeText.vue'
 import ConfirmDialog from '~/components/UI/ConfirmDialog.vue'
-import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import { getCoverThumbUrl } from '~/utils/url'
 import { isBilibiliSong } from '~/utils/bilibiliSource'
 import { getMusicUrl as resolveMusicUrl } from '~/utils/musicUrl'
@@ -608,11 +615,8 @@ const searchQuery = ref('') // 搜索查询
 const activeTab = ref('all') // 默认显示全部投稿
 // 专题筛选
 const activeTopics = ref([])
-const activeTopicId = ref('')
-const topicFilterOptions = computed(() => [
-  { label: locale.value.allTopics, value: '' },
-  ...activeTopics.value.map((topic) => ({ label: topic.name, value: topic.id }))
-])
+// normal=普通投稿（无专题），topics=专题投稿（有专题）
+const topicView = ref('normal')
 const topicNameMap = computed(() => {
   const map = {}
   activeTopics.value.forEach((t) => { map[t.id] = t.name })
@@ -671,7 +675,7 @@ const buildListQuery = () => ({
   search: searchQuery.value.trim(),
   sortBy: sortBy.value === 'date' ? 'createdAt' : 'votes',
   sortOrder: sortOrder.value,
-  topicId: activeTopicId.value || ''
+  topicScope: topicView.value
 })
 
 let lastEmittedQueryKey = ''
@@ -690,7 +694,9 @@ const emitListQueryDebounced = debounce((overrides = {}) => {
   emitListQuery(overrides)
 }, 300)
 
-const onTopicChange = () => {
+const setTopicView = (view) => {
+  if (topicView.value === view) return
+  topicView.value = view
   currentPage.value = 1
   emitListQuery({ page: 1 })
 }
@@ -924,9 +930,11 @@ const clientDisplayedSongs = computed(() => {
     result = result.filter((song) => song.replayRequested)
   }
 
-  // 应用专题过滤器
-  if (activeTopicId.value) {
-    result = result.filter((song) => song.topicId === activeTopicId.value)
+  // 应用专题筛选：normal=无专题，topics=有专题
+  if (topicView.value === 'normal') {
+    result = result.filter((song) => !song.topicId)
+  } else if (topicView.value === 'topics') {
+    result = result.filter((song) => !!song.topicId)
   }
 
   // 应用搜索过滤器
@@ -2553,9 +2561,42 @@ const vRipple = {
   white-space: nowrap;
 }
 
-.topic-filter {
+.topic-sub-tabs {
   display: flex;
   align-items: center;
+  gap: 1px;
+  padding: 3px;
+  background: var(--surface-card-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+
+.topic-sub-tab {
+  padding: 0.35rem 0.9rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.topic-sub-tab:hover {
+  color: var(--text-primary);
+}
+
+.topic-sub-tab.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.topic-sub-tab.active[class*='topics'],
+.topic-sub-tabs .topic-sub-tab:nth-child(2).active {
+  background: #8b5cf6;
 }
 
 

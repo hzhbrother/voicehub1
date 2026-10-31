@@ -296,6 +296,7 @@ export default defineEventHandler(async (event) => {
     const grade = String(query.grade || '').trim()
     const scope = String(query.scope || '').trim()
     const topicId = parseInt(String(query.topicId || ''), 10)
+    const topicScope = String(query.topicScope || '').trim()
     // 投稿页/相似歌曲检查只需要匹配与状态字段，不拉取完整歌曲详情
     const compact = ['1', 'true'].includes(String(query.compact || '').toLowerCase())
     const sortBy = String(query.sortBy || 'createdAt')
@@ -350,6 +351,12 @@ export default defineEventHandler(async (event) => {
       }
       if (Number.isFinite(topicId) && topicId > 0) {
         list.push(`s."topicId" = ${bind(topicId)}`)
+      }
+      // 专题归属二选一：normal=普通投稿（无专题），topics=专题投稿（有专题）
+      if (topicScope === 'normal') {
+        list.push(`s."topicId" IS NULL`)
+      } else if (topicScope === 'topics') {
+        list.push(`s."topicId" IS NOT NULL`)
       }
       return list
     }

@@ -1675,6 +1675,10 @@ export const pages = {
       searchPlaceholder: '输入想要搜索的歌曲',
       allTopics: '全部专题',
       topicFilter: '专题筛选',
+      topicSubTabs: {
+        normal: '普通投稿',
+        topic: '专题投稿'
+      },
       tabs: {
         all: '全部投稿',
         mine: '我的投稿',

@@ -1720,6 +1720,10 @@ export const pages = {
       searchPlaceholder: 'Search songs',
       allTopics: 'All Topics',
       topicFilter: 'Topic',
+      topicSubTabs: {
+        normal: 'Normal',
+        topic: 'Topic'
+      },
       tabs: {
         all: 'All Requests',
         mine: 'My Requests',

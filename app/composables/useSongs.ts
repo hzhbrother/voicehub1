@@ -16,6 +16,7 @@ export interface FetchSongsOptions {
   sortBy?: string
   sortOrder?: string
   compact?: boolean
+  topicScope?: string
 }
 
 interface SongsQuery {
@@ -27,6 +28,7 @@ interface SongsQuery {
   sortBy: string
   sortOrder: string
   compact: boolean
+  topicScope: string
 }
 
 export const useSongs = (options: { pageSize?: number; compact?: boolean } = {}) => {
@@ -65,7 +67,8 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
     search: '',
     sortBy: '',
     sortOrder: '',
-    compact: defaultCompact
+    compact: defaultCompact,
+    topicScope: ''
   }
 
   let songsRequestVersion = 0
@@ -137,7 +140,8 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
       search: options.search !== undefined ? options.search : songsQuery.search,
       sortBy: options.sortBy !== undefined ? options.sortBy : songsQuery.sortBy,
       sortOrder: options.sortOrder !== undefined ? options.sortOrder : songsQuery.sortOrder,
-      compact: options.compact !== undefined ? options.compact : songsQuery.compact
+      compact: options.compact !== undefined ? options.compact : songsQuery.compact,
+      topicScope: options.topicScope !== undefined ? options.topicScope : songsQuery.topicScope
     }
     songsQuery = query
 
@@ -168,6 +172,7 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
         if (query.sortBy) params.append('sortBy', query.sortBy)
         if (query.sortOrder) params.append('sortOrder', query.sortOrder)
         if (query.compact) params.append('compact', '1')
+        if (query.topicScope) params.append('topicScope', query.topicScope)
         const url = `/api/songs${params.toString() ? '?' + params.toString() : ''}`
 
         // API请求
@@ -787,7 +792,8 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
       search: '',
       sortBy: '',
       sortOrder: '',
-      compact: defaultCompact
+      compact: defaultCompact,
+      topicScope: ''
     }
   }
 

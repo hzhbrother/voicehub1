@@ -1834,7 +1834,8 @@ const handleSongListQueryChange = async (query) => {
       scope: query.scope || '',
       search: query.search || '',
       sortBy: query.sortBy,
-      sortOrder: query.sortOrder
+      sortOrder: query.sortOrder,
+      topicScope: query.topicScope || ''
     })
     updateSongCounts()
   } catch (err) {

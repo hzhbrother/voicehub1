@@ -4795,8 +4795,8 @@ defineExpose({
   background: var(--surface-card-bg);
   border-radius: 13px;
   padding: 1.25rem;
-  flex: 0 0 24%;
-  min-width: 250px;
+  flex: 0 0 28%;
+  min-width: 280px;
   height: 100%;
   overflow-y: auto;
 }
@@ -5006,8 +5006,8 @@ defineExpose({
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  margin-top: 0.25rem;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
 }
 
 .on-behalf-head {
@@ -5055,8 +5055,8 @@ defineExpose({
 .on-behalf-detail {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 0.75rem;
+  gap: 0.75rem;
+  padding: 0.35rem 0.6rem;
   border: 1px solid var(--overlay-10);
   border-radius: 12px;
 }
@@ -5072,12 +5072,12 @@ defineExpose({
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--primary);
   color: #fff;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -5126,10 +5126,11 @@ defineExpose({
 
 .on-behalf-grid {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
+  flex-wrap: nowrap;
+  gap: 0.25rem 0.9rem;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .on-behalf-field {
@@ -5137,6 +5138,7 @@ defineExpose({
   align-items: baseline;
   gap: 0.25rem;
   min-width: 0;
+  flex-shrink: 1;
 }
 
 .on-behalf-label {
@@ -6042,7 +6044,7 @@ defineExpose({
   border-radius: 13px;
   display: flex;
   flex-direction: column;
-  min-height: 320px;
+  min-height: 0;
   padding: 0.5rem 1rem 1rem 1rem;
   position: relative;
   z-index: 1;
