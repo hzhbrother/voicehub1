@@ -27,6 +27,32 @@
           </div>
         </div>
 
+        <!-- 子页签切换 -->
+        <div class="flex items-center gap-1 p-1 bg-bg-secondary-90 border border-border-secondary rounded-lg">
+          <button
+            :class="[
+              'flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-bold transition-all',
+              activeSubTab === 'songs'
+                ? 'bg-primary text-white shadow-lg'
+                : 'text-text-secondary hover:text-text-primary'
+            ]"
+            @click="activeSubTab = 'songs'"
+          >
+            <Music :size="14" /> 歌曲
+          </button>
+          <button
+            :class="[
+              'flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-bold transition-all',
+              activeSubTab === 'topics'
+                ? 'bg-violet-500 text-white shadow-lg'
+                : 'text-text-secondary hover:text-text-primary'
+            ]"
+            @click="activeSubTab = 'topics'"
+          >
+            <Sparkles :size="14" /> 专题
+          </button>
+        </div>
+
         <div class="flex flex-wrap items-center gap-3">
           <!-- 桌面端批量操作 -->
           <Transition
@@ -90,6 +116,7 @@
 
       <!-- 过滤器栏 -->
       <div
+        v-if="activeSubTab === 'songs'"
         class="bg-bg-secondary-30 border border-border-secondary-60 rounded-xl p-4 flex flex-col lg:flex-row gap-4 items-stretch lg:items-center"
       >
         <div class="relative flex-1 group w-full lg:w-auto">
@@ -149,6 +176,7 @@
       </div>
     </div>
 
+    <template v-if="activeSubTab === 'songs'">
     <!-- 歌曲表格 -->
     <div
       class="bg-bg-secondary-10 border border-border-secondary-40 rounded-xl overflow-hidden shadow-2xl relative"
@@ -460,6 +488,10 @@
       :total-items="filteredSongs.length"
       :item-name="locale.paginationItemName"
     />
+    </template>
+
+    <!-- 专题管理 -->
+    <TopicManager v-else />
 
     <!-- 移动端悬浮批量操作栏 -->
     <Transition
@@ -1238,6 +1270,7 @@ import DuplicateSongsModal from '~/components/Admin/DuplicateSongsModal.vue'
 import SongDownloadDialog from '~/components/Admin/SongDownloadDialog.vue'
 import SongSourceReplaceModal from '~/components/Admin/SongSourceReplaceModal.vue'
 import SubmissionRemarkDialog from '~/components/Admin/SubmissionRemarkDialog.vue'
+import TopicManager from '~/components/Admin/TopicManager.vue'
 import Pagination from '~/components/UI/Common/Pagination.vue'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
@@ -1263,7 +1296,8 @@ import {
   MessageSquare,
   FolderPlus,
   FolderMinus,
-  Loader2
+  Loader2,
+  Sparkles
 } from '@lucide/vue'
 import { useSongs } from '~/composables/useSongs'
 import { useAdmin } from '~/composables/useAdmin'
@@ -1317,6 +1351,8 @@ const locale = computed(() => {
 })
 const { msg: getLocaleMessage, nested: getNestedMessage } = useLocaleText(locale)
 const loading = ref(false)
+// 投稿管理子页签：songs / topics
+const activeSubTab = ref('songs')
 const searchQuery = ref('')
 const statusFilter = ref('all')
 const poolFilter = ref('all')

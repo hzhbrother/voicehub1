@@ -135,14 +135,6 @@
               <LazyAdminRequestTimeManager />
             </div>
 
-            <!-- 专题管理 -->
-            <div
-              v-if="activeTab === 'topics' && permissions.canAccessPage('topics')"
-              class="animate-in fade-in slide-in-from-bottom-4 duration-500"
-            >
-              <LazyAdminTopicManager />
-            </div>
-
             <!-- 学期管理 -->
             <div
               v-if="activeTab === 'semesters' && permissions.canAccessPage('semesters')"
