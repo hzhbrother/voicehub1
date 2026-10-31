@@ -3008,6 +3008,8 @@ export const admin = {
     cardPending: '点歌券待核销',
     cardCode: '点歌券',
     topic: '专题',
+    topicFilter: '专题筛选',
+    allTopics: '全部专题',
     view: '查看',
     rejectRequest: '拒绝申请',
     saveDraft: '保存草稿',

@@ -310,6 +310,14 @@
                   label-key="label"
                   value-key="value"
                 />
+                <CustomSelect
+                  v-if="topicFilterOptions.length > 1"
+                  v-model="selectedTopicFilter"
+                  :label="locale.topicFilter"
+                  :options="topicFilterOptions"
+                  label-key="label"
+                  value-key="value"
+                />
                 <div class="grid grid-cols-2 gap-2">
                   <CustomSelect
                     v-model="selectedGrade"
@@ -2166,6 +2174,22 @@ const songSortOption = ref('votes-desc')
 const hasChanges = ref(false)
 const searchQuery = ref('')
 const selectedGrade = ref('')
+// 专题筛选：空值表示不筛选
+const selectedTopicFilter = ref('')
+const topicFilterList = ref([])
+const topicFilterOptions = computed(() => [
+  { label: locale.value.allTopics || '全部专题', value: '' },
+  ...topicFilterList.value.map((topic) => ({ label: topic.name, value: topic.id }))
+])
+// 加载专题筛选列表（管理端返回全部专题，含已结束的）
+const loadTopicFilters = async () => {
+  try {
+    topicFilterList.value = (await $fetch('/api/admin/topics')) || []
+  } catch (error) {
+    console.error('加载专题筛选列表失败:', error)
+    topicFilterList.value = []
+  }
+}
 const activeTab = ref('normal')
 const mobileTab = ref('pending')
 const mobileFiltersOpen = ref(false)
@@ -3084,6 +3108,11 @@ const allUnscheduledSongs = computed(() => {
         return title.includes(query) || artist.includes(query) || requester.includes(query)
       })
     }
+    if (selectedTopicFilter.value) {
+      poolSongs = poolSongs.filter(
+        (song) => (song.topicId || null) === selectedTopicFilter.value
+      )
+    }
     // 补充默认字段，保持与歌曲卡片渲染一致
     return poolSongs.map((item) => ({
       ...item,
@@ -3095,6 +3124,8 @@ const allUnscheduledSongs = computed(() => {
       submissionNote: item.submissionNote || null,
       preferredPlayTimeId: item.preferredPlayTimeId || null,
       preferredPlayDate: item.preferredPlayDate || null,
+      topicId: item.topicId || null,
+      topicName: item.topicName || null,
       musicId: item.musicId || null,
       musicPlatform: item.musicPlatform || null,
       requesterGrade: item.requesterGrade || null,
@@ -3153,6 +3184,13 @@ const allUnscheduledSongs = computed(() => {
       }
       return song.preferredPlayTimeId === selectedFilterPlayTime.value
     })
+  }
+
+  // 专题过滤（对普通投稿、重播、所有歌曲均生效）
+  if (selectedTopicFilter.value) {
+    unscheduledSongs = unscheduledSongs.filter(
+      (song) => (song.topicId || null) === selectedTopicFilter.value
+    )
   }
 
   // 歌单查重过滤
@@ -3488,6 +3526,7 @@ onMounted(async () => {
 
   // 先加载学期数据，然后加载其他数据
   await loadSemesters()
+  await loadTopicFilters()
   await loadData()
 
   // 添加事件监听器

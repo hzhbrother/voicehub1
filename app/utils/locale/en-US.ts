@@ -3088,6 +3088,8 @@ export const admin = {
     cardPending: 'Card Pending',
     cardCode: 'Request Card',
     topic: 'Topic',
+    topicFilter: 'Topic Filter',
+    allTopics: 'All Topics',
     view: 'View',
     rejectRequest: 'Reject Request',
     saveDraft: 'Save Draft',
