@@ -226,63 +226,67 @@
             </div>
           </div>
 
-          <!-- 投稿设置摘要 - 位于投稿限额提示下方，按钮打开投稿选项弹窗 -->
-          <div v-if="submissionOptionsSummary" class="submission-options-summary">
+          <!-- 投稿附加设置：投稿设置 + 专题投稿 -->
+          <div
+            v-if="submissionOptionsSummary || activeTopics.length > 0"
+            class="extra-options-card"
+          >
             <button
-              v-if="submissionOptionsAvailable && user"
-              class="submission-options-trigger"
+              v-if="submissionOptionsAvailable && user && submissionOptionsSummary"
+              class="extra-option-row"
               :aria-label="locale.submissionOptions"
-              :title="locale.submissionOptions"
               type="button"
               @click="openSubmissionOptions"
             >
-              <Icon name="settings" :size="13" />
-              <span>{{ locale.submissionOptions }}</span>
+              <span class="extra-option-icon">
+                <Icon name="settings" :size="16" />
+              </span>
+              <span class="extra-option-body">
+                <span class="extra-option-title">
+                  {{ locale.submissionOptions }}
+                  <span class="extra-option-tag">{{ locale.optional }}</span>
+                </span>
+                <span class="extra-option-desc">{{ submissionOptionsSummary }}</span>
+                <span v-if="submissionOptionsStatus" class="extra-option-status">
+                  {{ submissionOptionsStatus }}
+                </span>
+              </span>
+              <Icon class="extra-option-arrow" name="chevron-right" :size="16" />
             </button>
-            <Icon v-else :size="12" name="settings" class="shrink-0" />
-            <span>{{ submissionOptionsSummary }}</span>
-          </div>
-
-          <!-- 专题投稿选择 -->
-          <div v-if="activeTopics.length > 0" class="form-row mb-4">
-            <div class="form-group">
-              <div class="rounded-xl border border-border bg-bg-secondary/40 p-3">
-                <label class="custom-checkbox-wrapper mb-2">
-                  <input
-                    v-model="joinTopic"
-                    type="checkbox"
-                    class="custom-checkbox-input"
-                  />
-                  <span class="custom-checkbox-box">
-                    <svg
-                      class="custom-checkbox-icon"
-                      viewBox="0 0 12 10"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M1 5L4.5 8.5L11 1.5"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </span>
-                  <span class="custom-checkbox-text text-[13px] font-bold">参与本期专题投稿</span>
-                </label>
-                <div v-if="joinTopic" class="mt-2">
-                  <CustomSelect
-                    v-model="selectedTopicId"
-                    :options="activeTopics"
-                    label="选择专题"
-                    label-key="name"
-                    value-key="id"
-                    placeholder="请选择专题"
-                  />
-                </div>
-              </div>
+            <div v-else-if="submissionOptionsSummary" class="extra-option-row is-static">
+              <span class="extra-option-icon">
+                <Icon name="settings" :size="16" />
+              </span>
+              <span class="extra-option-body">
+                <span class="extra-option-title">{{ locale.submissionOptions }}</span>
+                <span class="extra-option-desc">{{ submissionOptionsSummary }}</span>
+              </span>
             </div>
+
+            <template v-if="activeTopics.length > 0">
+              <button class="extra-option-row" type="button" @click="joinTopic = !joinTopic">
+                <span class="extra-option-icon">
+                  <Icon name="list-ordered" :size="16" />
+                </span>
+                <span class="extra-option-body">
+                  <span class="extra-option-title">{{ locale.topicJoin }}</span>
+                  <span class="extra-option-desc">{{ locale.topicJoinHint }}</span>
+                </span>
+                <span :class="['extra-option-switch', { on: joinTopic }]">
+                  <span class="extra-option-knob" />
+                </span>
+              </button>
+              <div v-if="joinTopic" class="extra-option-select">
+                <CustomSelect
+                  v-model="selectedTopicId"
+                  :options="activeTopics"
+                  :label="locale.topicSelectLabel"
+                  label-key="name"
+                  value-key="id"
+                  :placeholder="locale.topicSelectPlaceholder"
+                />
+              </div>
+            </template>
           </div>
 
           <!-- 音乐平台选择按钮 -->
@@ -2627,37 +2631,49 @@ const submissionOptionsAvailable = computed(
     cardCodeEnabled.value
 )
 
-/** 生成投稿设置摘要。 */
+/** 生成投稿设置可配置项列表（用于入口卡片的说明行）。 */
 const submissionOptionsSummary = computed(() => {
-  // 读取 locale 文案。
-  const text = (key, fallback) => {
-    const value = locale.value?.[key]
-    if (typeof value === 'function') return String(value)
-    if (typeof value === 'string') return value
-    return fallback
-  }
-
   const items = []
   if (playTimeSelectionEnabled.value) {
-    items.push(text('submissionOptionItemSlot', '播出安排'))
+    items.push(locale.value?.submissionOptionItemSlot || '播出安排')
   }
   if (enableSubmissionRemarks.value) {
-    items.push(text('submissionOptionItemNote', '投稿留言'))
+    items.push(locale.value?.submissionOptionItemNote || '投稿留言')
   }
   if (allowAnonymousSubmission.value && !!user.value) {
-    items.push(text('submissionOptionItemAnonymous', '匿名投稿'))
+    items.push(locale.value?.submissionOptionItemAnonymous || '匿名投稿')
   }
   if (cardCodeEnabled.value) {
-    items.push(text('submissionOptionItemCardCode', '点歌券'))
+    items.push(locale.value?.submissionOptionItemCardCode || '点歌券')
   }
-  if (!items.length) return ''
+  return items.join(' · ')
+})
 
-  const joined = items.join('、')
-  const template = locale.value?.submissionOptionsSummary
-  // 正常走 locale 的 {0} 占位符；缺失时退回内置文案
-  if (typeof template === 'function') return template(joined)
-  if (typeof template === 'string') return template.replace('{0}', joined)
-  return `投稿设置包含：${joined}`
+/** 已选内容的摘要：未设置时为空，不占位 */
+const submissionOptionsStatus = computed(() => {
+  const parts = []
+  if (playTimeSelectionEnabled.value && preferredPlayTimeId.value) {
+    const slot = playTimes.value.find(
+      (item) => String(item.id) === String(preferredPlayTimeId.value)
+    )
+    if (slot) {
+      const dateLabel = preferredPlayDate.value
+        ? `${Number(preferredPlayDate.value.slice(5, 7))}/${Number(preferredPlayDate.value.slice(8, 10))} `
+        : ''
+      parts.push(`${dateLabel}${slot.name}`)
+    }
+  }
+  if (enableSubmissionRemarks.value && submissionNote.value.trim()) {
+    parts.push(locale.value?.submissionOptionItemNote || '投稿留言')
+  }
+  if (allowAnonymousSubmission.value && user.value && submissionAnonymous.value) {
+    parts.push(locale.value?.submissionOptionItemAnonymous || '匿名投稿')
+  }
+  if (cardCodeEnabled.value && trimmedCardCode.value) {
+    parts.push(locale.value?.submissionOptionItemCardCode || '点歌券')
+  }
+  if (!parts.length) return ''
+  return `${locale.value?.submissionOptionsApplied || '已设置'}：${parts.join(' · ')}`
 })
 
 /** 用户主动打开投稿选项弹窗：只保存选项，不触发投稿 */
@@ -5012,50 +5028,133 @@ defineExpose({
   color: var(--text-link-hover);
 }
 
-/* 投稿设置摘要 */
-.submission-options-summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.375rem 0.5rem;
+/* 投稿附加设置卡片（投稿设置 + 专题投稿） */
+.extra-options-card {
   margin-bottom: 0.5rem;
-  padding: 0.35rem 0.75rem;
-  border: 1px dashed var(--overlay-16);
-  border-radius: 8px;
+  border: 1px solid var(--overlay-10);
+  border-radius: 12px;
   background: var(--surface-card-bg-medium);
-  color: var(--text-tertiary);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
-  text-align: left;
+  overflow: hidden;
 }
 
-/* 摘要行内的投稿选项入口按钮 */
-.submission-options-trigger {
+.extra-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.extra-option-row + .extra-option-row {
+  border-top: 1px solid var(--overlay-8);
+}
+
+.extra-option-row.is-static {
+  cursor: default;
+}
+
+.extra-option-row:not(.is-static):hover {
+  background: var(--overlay-10);
+}
+
+.extra-option-icon {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  justify-content: center;
   flex-shrink: 0;
-  padding: 0.15rem 0.6rem;
-  border: 1px solid var(--overlay-16);
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--overlay-10);
   color: var(--overlay-75);
-  font-family: 'MiSans', sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
 }
 
-.submission-options-trigger:hover {
-  border-color: var(--overlay-30);
-  background: var(--overlay-20);
+.extra-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.extra-option-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: 'MiSans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
   color: var(--text-primary);
+}
+
+.extra-option-tag {
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: var(--overlay-10);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.extra-option-desc {
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extra-option-status {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--overlay-75);
+}
+
+.extra-option-arrow {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.extra-option-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--overlay-20);
+  transition: background 0.2s ease;
+}
+
+.extra-option-switch.on {
+  background: var(--color-accent);
+}
+
+.extra-option-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.extra-option-switch.on .extra-option-knob {
+  transform: translateX(16px);
+}
+
+.extra-option-select {
+  padding: 0 0.85rem 0.75rem;
 }
 
 .submission-status-horizontal {
