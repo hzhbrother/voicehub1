@@ -1,5 +1,5 @@
 CREATE TYPE "public"."card_code_assignment_status" AS ENUM('ASSIGNED', 'USED', 'RECYCLED', 'FAILED');--> statement-breakpoint
-ALTER TYPE "public"."card_code_status" ADD VALUE 'ASSIGNED' BEFORE 'LOCKED';--> statement-breakpoint
+ALTER TYPE "public"."card_code_status" ADD VALUE IF NOT EXISTS 'ASSIGNED' BEFORE 'LOCKED';--> statement-breakpoint
 CREATE TABLE "CardCodeAssignment" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"createdAt" timestamp DEFAULT now() NOT NULL,
