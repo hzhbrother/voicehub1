@@ -17,6 +17,7 @@ export interface FetchSongsOptions {
   sortOrder?: string
   compact?: boolean
   topicScope?: string
+  topicId?: string | number
 }
 
 interface SongsQuery {
@@ -29,6 +30,7 @@ interface SongsQuery {
   sortOrder: string
   compact: boolean
   topicScope: string
+  topicId: string | number
 }
 
 export const useSongs = (options: { pageSize?: number; compact?: boolean } = {}) => {
@@ -68,7 +70,8 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
     sortBy: '',
     sortOrder: '',
     compact: defaultCompact,
-    topicScope: ''
+    topicScope: '',
+    topicId: ''
   }
 
   let songsRequestVersion = 0
@@ -141,7 +144,8 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
       sortBy: options.sortBy !== undefined ? options.sortBy : songsQuery.sortBy,
       sortOrder: options.sortOrder !== undefined ? options.sortOrder : songsQuery.sortOrder,
       compact: options.compact !== undefined ? options.compact : songsQuery.compact,
-      topicScope: options.topicScope !== undefined ? options.topicScope : songsQuery.topicScope
+      topicScope: options.topicScope !== undefined ? options.topicScope : songsQuery.topicScope,
+      topicId: options.topicId !== undefined ? options.topicId : songsQuery.topicId
     }
     songsQuery = query
 
@@ -173,6 +177,7 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
         if (query.sortOrder) params.append('sortOrder', query.sortOrder)
         if (query.compact) params.append('compact', '1')
         if (query.topicScope) params.append('topicScope', query.topicScope)
+        if (query.topicId) params.append('topicId', String(query.topicId))
         const url = `/api/songs${params.toString() ? '?' + params.toString() : ''}`
 
         // API请求
@@ -793,7 +798,8 @@ export const useSongs = (options: { pageSize?: number; compact?: boolean } = {})
       sortBy: '',
       sortOrder: '',
       compact: defaultCompact,
-      topicScope: ''
+      topicScope: '',
+      topicId: ''
     }
   }
 

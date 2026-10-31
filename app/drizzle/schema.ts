@@ -247,6 +247,19 @@ export const notifications = pgTable('Notification', {
   index('notification_batch_id_idx').on(table.batchId)
 ]);
 
+// 首页公告发布历史表：每次发布只记一条，不按用户展开
+export const announcementHistory = pgTable('AnnouncementHistory', {
+  id: serial('id').primaryKey(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  content: text('content').notNull(),
+  senderId: integer('senderId'),
+  senderName: text('senderName'),
+  senderUsername: text('senderUsername'),
+  broadcastToGroups: boolean('broadcastToGroups').default(false).notNull()
+}, (table) => [
+  index('announcement_history_created_at_idx').on(table.createdAt)
+]);
+
 // 通知设置表
 export const notificationSettings = pgTable('NotificationSettings', {
   id: serial('id').primaryKey(),

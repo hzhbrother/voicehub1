@@ -4112,6 +4112,20 @@ export const admin = {
   notificationSender: {
     title: 'Send Notifications',
     desc: 'Instantly push announcements, activity updates, or important reminders to selected groups',
+    publishType: 'Publish Type',
+    publishTypes: {
+      announcement: 'Publish Announcement',
+      notification: 'Send Notification'
+    },
+    historyTypes: {
+      notification: 'Notifications',
+      announcement: 'Site Announcements'
+    },
+    announcementContent: 'Announcement Content',
+    announcementPlaceholder: 'Enter the homepage announcement, Markdown is supported...',
+    announcementPreviewHint: 'This is how the announcement looks on the homepage.',
+    clearAnnouncement: 'Clear banner',
+    confirmClearAnnouncement: 'Confirm clear',
     notificationTitle: 'Notification Title',
     titlePlaceholder: 'Enter notification title',
     notificationContent: 'Notification Content',
@@ -4140,7 +4154,7 @@ export const admin = {
     noUsersSelected: 'No users selected',
     send: 'Send',
     sending: 'Sending...',
-    previewTitle: 'Notification Preview',
+    previewTitle: 'Preview',
     previewSender: 'Administrator',
     senderLabel: 'Sender',
     previewTitlePlaceholder: 'Notification title',
@@ -4164,7 +4178,9 @@ export const admin = {
       selectUsers: 'Select users'
     },
     messages: {
-      sendSuccess: (count: number) => `Notification sent to ${count} users`
+      sendSuccess: (count: number) => `Notification sent to ${count} users`,
+      announcementSuccess: 'Announcement published, the homepage banner is updated',
+      announcementCleared: 'Announcement cleared, the homepage banner is removed'
     },
     errors: {
       adminOnly: 'Only admins can send system notifications',
@@ -4182,6 +4198,9 @@ export const admin = {
     history: {
       title: 'Sending History',
       description: 'Each send appears once; open its details to review recipient read status',
+      announcementTitle: 'Announcement History',
+      announcementDescription: 'Each announcement publish appears once with its sender and group forward status',
+      announcementEmptyDescription: 'Publish an announcement from the left panel and it will be listed here.',
       refresh: 'Refresh',
       refreshing: 'Refreshing...',
       searchPlaceholder: 'Search notification title or content',
@@ -4198,6 +4217,7 @@ export const admin = {
       read: 'Read',
       unread: 'Unread',
       notification: 'Notification',
+      groupForwarded: 'Forwarded to groups',
       sender: 'Sender',
       systemSender: 'System',
       recipient: 'Recipient',

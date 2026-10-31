@@ -220,7 +220,7 @@
             <Icon name="bell-ring" :size="16" />
           </div>
           <div class="announcement-content">
-            <span class="announcement-text">{{ siteAnnouncement }}</span>
+            <div class="announcement-text markdown-body" v-html="renderedAnnouncement" />
           </div>
         </div>
 
@@ -892,6 +892,7 @@ const {
 
 // 将投稿须知 Markdown 渲染为安全 HTML
 const renderedGuidelines = computed(() => renderMarkdown(submissionGuidelines.value))
+const renderedAnnouncement = computed(() => renderMarkdown(siteAnnouncement.value || ''))
 
 const auth = useAuth()
 const { showToast } = useToast()
@@ -1846,7 +1847,8 @@ const handleSongListQueryChange = async (query) => {
       search: query.search || '',
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
-      topicScope: query.topicScope || ''
+      topicScope: query.topicScope || '',
+      topicId: query.topicId || ''
     })
     updateSongCounts()
   } catch (err) {
@@ -2589,9 +2591,16 @@ if (
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--text-primary);
-  white-space: nowrap;
+  max-height: 3rem;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+/* 公告支持 Markdown，段落压成单行排版，避免把公告栏撑高 */
+.announcement-text :deep(p) {
+  display: inline;
+  margin: 0;
+}
+.announcement-text :deep(p:not(:first-child))::before {
+  content: ' ';
 }
 
 .section-tab {

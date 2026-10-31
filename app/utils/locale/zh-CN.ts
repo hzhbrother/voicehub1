@@ -3980,6 +3980,20 @@ export const admin = {
   notificationSender: {
     title: '向用户发送通知',
     desc: '即时推送系统公告、活动信息或重要提醒至指定群体',
+    publishType: '发布类型',
+    publishTypes: {
+      announcement: '发布公告',
+      notification: '发通知信息'
+    },
+    historyTypes: {
+      notification: '通知',
+      announcement: '首页公告'
+    },
+    announcementContent: '公告内容',
+    announcementPlaceholder: '请输入首页公告内容，支持 Markdown 格式...',
+    announcementPreviewHint: '这是公告在首页上的实际展示效果，可先在此确认排版。',
+    clearAnnouncement: '清空公告栏',
+    confirmClearAnnouncement: '确认清空',
     notificationTitle: '通知标题',
     titlePlaceholder: '请输入通知标题',
     notificationContent: '通知内容',
@@ -4006,9 +4020,9 @@ export const admin = {
     selectedUsers: (count: number) => `已选择用户 (${count})`,
     clearAll: '清空全部',
     noUsersSelected: '未选择任何用户',
-    send: '发送通知',
+    send: '发送',
     sending: '发送中...',
-    previewTitle: '通知预览',
+    previewTitle: '预览',
     previewSender: '管理员',
     senderLabel: '发送人',
     previewTitlePlaceholder: '通知标题',
@@ -4031,7 +4045,9 @@ export const admin = {
       selectUsers: '请选择用户'
     },
     messages: {
-      sendSuccess: (count: number) => `成功发送通知给 ${count} 名用户`
+      sendSuccess: (count: number) => `成功发送通知给 ${count} 名用户`,
+      announcementSuccess: '公告已发布，首页公告栏已更新',
+      announcementCleared: '公告已清空，首页公告栏已移除'
     },
     errors: {
       adminOnly: '只有管理员可以发送系统通知',
@@ -4049,6 +4065,9 @@ export const admin = {
     history: {
       title: '发送历史',
       description: '每次发送归为一条记录，用户已读情况可在明细中查看',
+      announcementTitle: '公告发布历史',
+      announcementDescription: '每次发布公告归为一条记录，展示发布人与群聊转发情况',
+      announcementEmptyDescription: '在左侧选择「发布公告」并发送后，发布记录会显示在这里。',
       refresh: '刷新',
       refreshing: '刷新中...',
       searchPlaceholder: '搜索通知标题或正文',
@@ -4065,6 +4084,7 @@ export const admin = {
       read: '已读',
       unread: '未读',
       notification: '通知',
+      groupForwarded: '已转发群聊',
       sender: '发送人',
       systemSender: '系统',
       recipient: '接收用户',

@@ -992,26 +992,6 @@
         />
       </section>
 
-      <!-- 站点公告 -->
-      <section class="lg:col-span-2">
-        <div class="flex items-center justify-between border-b border-border-secondary pb-4">
-          <h3
-            class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2"
-          >
-            <BellRing :size="16" class="text-primary" /> {{ locale.announcement || '站点公告' }}
-          </h3>
-        </div>
-        <textarea
-          v-model="formData.announcement"
-          :rows="3"
-          :placeholder="locale.announcementPlaceholder || '留空则不显示公告栏'"
-          :class="[inputClass, 'text-sm leading-relaxed min-h-[80px] resize-y']"
-        />
-        <p class="text-[10px] text-text-tertiary mt-1.5">
-          {{ locale.announcementHint || '设置后将在首页选项卡下方显示公告栏，留空则不显示。' }}
-        </p>
-      </section>
-
       <!-- 登录条款确认 -->
       <section class="lg:col-span-2 legal-consent-panel">
         <div class="legal-consent-header">
@@ -1078,8 +1058,7 @@ import {
   Palette,
   Star,
   Plus,
-  CalendarRange,
-  BellRing
+  CalendarRange
 } from '@lucide/vue'
 import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
@@ -1684,7 +1663,6 @@ const saveConfig = async () => {
       siteLogoUrl: (formData.value.siteLogoUrl || '').trim() || '/favicon.ico',
       submissionGuidelines:
         (formData.value.submissionGuidelines || '').trim() || defaultSubmissionGuidelines.value,
-      announcement: (formData.value.announcement || '').trim() || null,
       // 确保根据限额类型处理空值
       dailySubmissionLimit:
         activeLimitTab.value === 'daily' ? formData.value.dailySubmissionLimit : null,

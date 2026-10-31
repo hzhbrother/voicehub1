@@ -421,6 +421,13 @@
       "when": 1793451620033,
       "tag": "20261031130020_add_announcement",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1793455416245,
+      "tag": "20261031140336_add_announcement_history",
+      "breakpoints": true
     }
   ]
 }

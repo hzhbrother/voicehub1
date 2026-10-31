@@ -12,8 +12,32 @@
       <div class="lg:col-span-7 space-y-6">
         <div class="bg-bg-secondary-30 border border-border-secondary rounded-[2rem] p-8 shadow-xl">
           <div class="space-y-6">
-            <!-- 标题 -->
+            <!-- 发布类型：公告 / 通知 -->
             <div class="space-y-2">
+              <label class="text-[10px] font-black text-text-disabled uppercase tracking-[0.2em] px-1"
+                >{{ locale.publishType }}</label
+              >
+              <div class="flex gap-2">
+                <button
+                  v-for="opt in publishTypeOptions"
+                  :key="opt.id"
+                  :class="[
+                    'flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[11px] font-black transition-all',
+                    publishType === opt.id
+                      ? 'bg-primary-hover border-primary text-text-primary shadow-lg shadow-[var(--primary-glow)]'
+                      : 'bg-bg-primary border-border-secondary text-text-tertiary hover:border-border-tertiary hover:text-text-secondary'
+                  ]"
+                  type="button"
+                  @click="setPublishType(opt.id)"
+                >
+                  <component :is="opt.icon" :size="14" />
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 标题 -->
+            <div v-if="publishType === 'notification'" class="space-y-2">
               <label class="text-[10px] font-black text-text-disabled uppercase tracking-[0.2em] px-1"
                 >{{ locale.notificationTitle }}</label
               >
@@ -28,11 +52,11 @@
             <!-- 内容 -->
             <div class="space-y-2">
               <label class="text-[10px] font-black text-text-disabled uppercase tracking-[0.2em] px-1"
-                >{{ locale.notificationContent }}</label
+                >{{ publishType === 'announcement' ? locale.announcementContent : locale.notificationContent }}</label
               >
               <textarea
                 v-model="form.content"
-                :placeholder="locale.contentPlaceholder"
+                :placeholder="publishType === 'announcement' ? locale.announcementPlaceholder : locale.contentPlaceholder"
                 class="w-full bg-bg-primary border border-border-secondary rounded-2xl px-5 py-4 text-sm focus:outline-none focus:border-primary-30 transition-all text-text-primary placeholder:text-text-primary min-h-[160px] resize-none"
               />
               <p class="px-1 text-[10px] font-medium text-text-disabled">
@@ -40,8 +64,9 @@
               </p>
             </div>
 
-            <!-- 重要通知开关 -->
+            <!-- 重要通知开关：公告不产生站内通知，因此不提供 -->
             <label
+              v-if="publishType === 'notification'"
               class="flex cursor-pointer items-start gap-4 rounded-2xl border p-4 shadow-sm transition-colors"
               :class="
                 form.important
@@ -106,7 +131,7 @@
               </span>
             </label>
 
-            <div class="space-y-3 pt-4 border-t border-border-secondary-50">
+            <div v-if="publishType === 'notification'" class="space-y-3 pt-4 border-t border-border-secondary-50">
               <label class="text-[10px] font-black text-text-disabled uppercase tracking-[0.2em] px-1"
                 >{{ locale.scope }}</label
               >
@@ -129,7 +154,7 @@
             </div>
 
             <!-- 动态配置区 -->
-            <div class="pt-2">
+            <div v-if="publishType === 'notification'" class="pt-2">
               <Transition name="fade" mode="out-in">
                 <div
                   v-if="form.scope === 'ALL'"
@@ -374,7 +399,23 @@
             </div>
           </div>
 
-          <div class="mt-10 flex justify-end">
+          <div class="mt-10 flex items-center justify-end gap-3">
+            <button
+              v-if="publishType === 'announcement'"
+              :disabled="loading"
+              class="flex items-center gap-2 rounded-2xl border px-5 py-4 text-xs font-black uppercase tracking-[0.2em] transition-all"
+              :class="
+                clearConfirm
+                  ? 'border-error-40 bg-error-5 text-error'
+                  : 'border-border-secondary bg-bg-primary text-text-tertiary hover:border-error-30 hover:text-error'
+              "
+              type="button"
+              @click="clearAnnouncement"
+            >
+              <Trash2 :size="16" />
+              {{ clearConfirm ? locale.confirmClearAnnouncement : locale.clearAnnouncement }}
+            </button>
+
             <button
               :disabled="loading || !isFormValid"
               :class="[
@@ -405,9 +446,25 @@
           </h3>
 
           <div class="flex flex-1 flex-col items-center justify-center p-1 sm:p-4">
+            <!-- 首页公告预览：与首页公告栏同一布局 -->
+            <div v-if="publishType === 'announcement'" class="w-full max-w-[360px] space-y-4">
+              <div class="announcement-preview">
+                <div class="announcement-preview-icon">
+                  <Icon name="bell-ring" :size="16" />
+                </div>
+                <div v-if="form.content" class="markdown-body announcement-preview-text" v-html="previewContent" />
+                <p v-else class="text-sm italic leading-relaxed text-text-disabled">
+                  {{ locale.previewContentPlaceholder }}
+                </p>
+              </div>
+              <p class="text-[10px] font-black leading-normal text-text-tertiary">
+                {{ locale.announcementPreviewHint }}
+              </p>
+            </div>
+
             <!-- 重要通知预览 -->
             <section
-              v-if="form.important"
+              v-else-if="form.important"
               class="w-full max-w-[320px] overflow-hidden rounded-2xl border border-primary-300 bg-bg-primary shadow-2xl"
             >
               <div class="h-1.5 w-full bg-warning" />
@@ -502,6 +559,7 @@
             </article>
 
             <div
+              v-if="publishType === 'notification'"
               class="mt-6 flex w-full max-w-[320px] items-start gap-3 rounded-lg border border-warning-10 bg-warning-5 p-3"
             >
               <AlertCircle :size="14" class="mt-0.5 shrink-0 text-warning" />
@@ -514,7 +572,26 @@
       </div>
     </div>
 
-    <NotificationHistory :refresh-key="historyRefreshKey" />
+    <!-- 发送历史：通知 / 首页公告 分两类查看 -->
+    <div class="flex items-center gap-2">
+      <button
+        v-for="opt in historyTypeOptions"
+        :key="opt.id"
+        :class="[
+          'px-4 py-2 rounded-xl text-[11px] font-black border transition-all',
+          historyType === opt.id
+            ? 'bg-primary-hover border-primary text-text-primary'
+            : 'bg-bg-primary border-border-secondary text-text-tertiary hover:border-border-tertiary hover:text-text-secondary'
+        ]"
+        type="button"
+        @click="historyType = opt.id"
+      >
+        {{ opt.label }}
+      </button>
+    </div>
+
+    <NotificationHistory v-if="historyType === 'notification'" :refresh-key="historyRefreshKey" />
+    <AnnouncementHistory v-else :refresh-key="historyRefreshKey" />
   </div>
 </template>
 
@@ -536,11 +613,14 @@ import {
   Eye,
   MessageSquare,
   Megaphone,
+  Bell,
+  Trash2,
   Loader2
 } from '@lucide/vue'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import Icon from '~/components/UI/Icon.vue'
 import NotificationHistory from '~/components/Admin/NotificationHistory.vue'
+import AnnouncementHistory from '~/components/Admin/AnnouncementHistory.vue'
 import { useAuth } from '~/composables/useAuth'
 import { useAdmin } from '~/composables/useAdmin'
 import { useUserFilters } from '~/composables/useUserFilters'
@@ -611,6 +691,57 @@ const error = ref('')
 const success = ref('')
 const historyRefreshKey = ref(0)
 const previewContent = computed(() => renderMarkdown(form.value.content))
+
+// 发布类型：announcement=首页公告，notification=站内通知
+const publishType = ref('notification')
+const publishTypeOptions = computed(() => [
+  { id: 'announcement', label: getNestedMessage('publishTypes', 'announcement'), icon: Megaphone },
+  { id: 'notification', label: getNestedMessage('publishTypes', 'notification'), icon: Bell }
+])
+const setPublishType = (type) => {
+  if (publishType.value === type) return
+  publishType.value = type
+  clearConfirm.value = false
+  error.value = ''
+  success.value = ''
+}
+
+// 发送历史分类
+const historyType = ref('notification')
+const historyTypeOptions = computed(() => [
+  { id: 'notification', label: getNestedMessage('historyTypes', 'notification') },
+  { id: 'announcement', label: getNestedMessage('historyTypes', 'announcement') }
+])
+
+// 清空公告栏需要二次确认，避免误触把首页公告移除
+const clearConfirm = ref(false)
+const clearAnnouncement = async () => {
+  if (!clearConfirm.value) {
+    clearConfirm.value = true
+    return
+  }
+  clearConfirm.value = false
+  loading.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    await $fetch('/api/admin/notifications/announcement', {
+      method: 'DELETE',
+      ...getAuthConfig()
+    })
+    success.value = getNestedMessage('messages', 'announcementCleared')
+    setTimeout(() => {
+      success.value = ''
+    }, 3000)
+  } catch (err) {
+    error.value = err.message || getNestedMessage('errors', 'sendError')
+    setTimeout(() => {
+      error.value = ''
+    }, 3000)
+  } finally {
+    loading.value = false
+  }
+}
 
 // 用户搜索相关
 const userSearchQuery = ref('')
@@ -746,6 +877,10 @@ const getRoleText = (role) => {
 
 // 表单验证
 const isFormValid = computed(() => {
+  if (publishType.value === 'announcement') {
+    return Boolean(form.value.content.trim())
+  }
+
   if (!form.value.title || !form.value.content) {
     return false
   }
@@ -795,7 +930,7 @@ const scopeDescription = computed(() => {
   }
 })
 
-// 发送通知
+// 发布：公告写入站点设置，通知走原有发送接口
 const sendNotification = async () => {
   if (!isAdmin.value) {
     error.value = getNestedMessage('errors', 'adminOnly')
@@ -812,6 +947,24 @@ const sendNotification = async () => {
   success.value = ''
 
   try {
+    if (publishType.value === 'announcement') {
+      await $fetch('/api/admin/notifications/announcement', {
+        method: 'POST',
+        body: {
+          content: form.value.content,
+          broadcast: form.value.broadcast
+        },
+        ...getAuthConfig()
+      })
+      success.value = getNestedMessage('messages', 'announcementSuccess')
+      historyRefreshKey.value += 1
+      form.value.content = ''
+      setTimeout(() => {
+        success.value = ''
+      }, 3000)
+      return
+    }
+
     // 构建请求数据
     const notificationData = {
       title: form.value.title,
@@ -922,5 +1075,32 @@ onUnmounted(() => {
 .fade-leave-to {
   opacity: 0;
   transform: translateX(10px);
+}
+
+/* 首页公告预览：与首页公告栏保持同一视觉 */
+.announcement-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: var(--primary-light, rgba(59, 130, 246, 0.1));
+  border: 1px solid var(--primary-border, rgba(59, 130, 246, 0.25));
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+}
+.announcement-preview-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-top: 2px;
+  color: var(--primary);
+}
+.announcement-preview-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  max-height: 8rem;
+  overflow-y: auto;
 }
 </style>

@@ -153,23 +153,36 @@
         </div>
 
         <!-- 专题筛选：普通投稿 / 专题投稿 两档切换 -->
-        <div class="topic-sub-tabs">
-          <button
-            v-ripple
-            :class="['topic-sub-tab', { active: topicView === 'normal' }]"
-            type="button"
-            @click="setTopicView('normal')"
-          >
-            {{ locale.topicSubTabs.normal }}
-          </button>
-          <button
-            v-ripple
-            :class="['topic-sub-tab', { active: topicView === 'topics' }]"
-            type="button"
-            @click="setTopicView('topics')"
-          >
-            {{ locale.topicSubTabs.topic }}
-          </button>
+        <div class="topic-filters">
+          <div class="topic-sub-tabs">
+            <button
+              v-ripple
+              :class="['topic-sub-tab', { active: topicView === 'normal' }]"
+              type="button"
+              @click="setTopicView('normal')"
+            >
+              {{ locale.topicSubTabs.normal }}
+            </button>
+            <button
+              v-ripple
+              :class="['topic-sub-tab', { active: topicView === 'topics' }]"
+              type="button"
+              @click="setTopicView('topics')"
+            >
+              {{ locale.topicSubTabs.topic }}
+            </button>
+          </div>
+
+          <!-- 专题投稿下按具体专题筛选 -->
+          <div v-if="topicView === 'topics' && activeTopics.length > 0" class="topic-select-wrap">
+            <CustomSelect
+              v-model="selectedTopicId"
+              :options="topicSelectOptions"
+              size="sm"
+              :placeholder="locale.allTopics"
+              @change="onTopicSelectChange"
+            />
+          </div>
         </div>
 
         <div class="search-actions">
@@ -541,6 +554,7 @@ import { useAudioPlayer } from '~/composables/useAudioPlayer'
 import { useSemesters } from '~/composables/useSemesters'
 import { useSongs } from '~/composables/useSongs'
 import Icon from '~/components/UI/Icon.vue'
+import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import Pagination from '~/components/UI/Common/Pagination.vue'
 import MarqueeText from '~/components/UI/MarqueeText.vue'
 import ConfirmDialog from '~/components/UI/ConfirmDialog.vue'
@@ -617,6 +631,12 @@ const activeTab = ref('all') // 默认显示全部投稿
 const activeTopics = ref([])
 // normal=普通投稿（无专题），topics=专题投稿（有专题）
 const topicView = ref('normal')
+// 专题投稿下具体筛选的专题，null 表示全部专题
+const selectedTopicId = ref(null)
+const topicSelectOptions = computed(() => [
+  { label: locale.value.allTopics, value: null },
+  ...activeTopics.value.map((t) => ({ label: t.name, value: t.id }))
+])
 const topicNameMap = computed(() => {
   const map = {}
   activeTopics.value.forEach((t) => { map[t.id] = t.name })
@@ -675,7 +695,8 @@ const buildListQuery = () => ({
   search: searchQuery.value.trim(),
   sortBy: sortBy.value === 'date' ? 'createdAt' : 'votes',
   sortOrder: sortOrder.value,
-  topicScope: topicView.value
+  topicScope: topicView.value,
+  topicId: topicView.value === 'topics' && selectedTopicId.value ? selectedTopicId.value : ''
 })
 
 let lastEmittedQueryKey = ''
@@ -697,6 +718,15 @@ const emitListQueryDebounced = debounce((overrides = {}) => {
 const setTopicView = (view) => {
   if (topicView.value === view) return
   topicView.value = view
+  // 切回普通投稿时清空具体专题筛选
+  if (view === 'normal') selectedTopicId.value = null
+  currentPage.value = 1
+  emitListQuery({ page: 1 })
+}
+
+// 选择某个具体专题
+const onTopicSelectChange = (value) => {
+  selectedTopicId.value = value || null
   currentPage.value = 1
   emitListQuery({ page: 1 })
 }
@@ -930,11 +960,14 @@ const clientDisplayedSongs = computed(() => {
     result = result.filter((song) => song.replayRequested)
   }
 
-  // 应用专题筛选：normal=无专题，topics=有专题
+  // 应用专题筛选：normal=无专题，topics=有专题（可再按具体专题过滤）
   if (topicView.value === 'normal') {
     result = result.filter((song) => !song.topicId)
   } else if (topicView.value === 'topics') {
     result = result.filter((song) => !!song.topicId)
+    if (selectedTopicId.value) {
+      result = result.filter((song) => song.topicId === selectedTopicId.value)
+    }
   }
 
   // 应用搜索过滤器
@@ -2561,6 +2594,14 @@ const vRipple = {
   white-space: nowrap;
 }
 
+/* 专题筛选区：两档切换 + 具体专题下拉 */
+.topic-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .topic-sub-tabs {
   display: flex;
   align-items: center;
@@ -2597,6 +2638,12 @@ const vRipple = {
 .topic-sub-tab.active[class*='topics'],
 .topic-sub-tabs .topic-sub-tab:nth-child(2).active {
   background: #8b5cf6;
+}
+
+/* 专题投稿下具体专题筛选下拉 */
+.topic-select-wrap {
+  width: 140px;
+  flex-shrink: 0;
 }
 
 
