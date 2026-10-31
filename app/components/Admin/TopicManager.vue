@@ -211,14 +211,68 @@
 
                 <div>
                   <label class="block text-[10px] font-black text-text-disabled uppercase tracking-widest mb-1.5">
-                    封面图 URL
+                    封面图
                   </label>
+                  <div class="flex items-center gap-3">
+                    <div
+                      class="w-16 h-16 rounded-xl overflow-hidden border border-border-secondary-80 bg-bg-primary-50 flex items-center justify-center flex-shrink-0"
+                    >
+                      <img
+                        v-if="form.cover"
+                        :src="form.cover"
+                        alt="封面预览"
+                        class="w-full h-full object-cover"
+                      />
+                      <Sparkles v-else :size="20" class="text-text-disabled" />
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 px-3 py-2 bg-bg-primary-50 border border-border-secondary-60 hover:border-violet-400 hover:text-violet-400 text-text-secondary text-[11px] font-bold rounded-lg transition-all"
+                        @click="fileInput?.click()"
+                      >
+                        <Upload :size="13" /> 选择图片
+                      </button>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 px-3 py-2 bg-bg-primary-50 border border-border-secondary-60 hover:border-violet-400 hover:text-violet-400 text-text-secondary text-[11px] font-bold rounded-lg transition-all"
+                        @click="cameraInput?.click()"
+                      >
+                        <Camera :size="13" /> 拍照
+                      </button>
+                      <button
+                        v-if="form.cover"
+                        type="button"
+                        class="flex items-center gap-1.5 px-3 py-2 bg-bg-primary-50 border border-border-secondary-60 hover:border-error hover:text-error text-text-secondary text-[11px] font-bold rounded-lg transition-all"
+                        @click="form.cover = ''"
+                      >
+                        <X :size="13" /> 移除
+                      </button>
+                    </div>
+                  </div>
                   <input
+                    ref="fileInput"
+                    type="file"
+                    accept="image/*"
+                    class="hidden"
+                    @change="handleCoverFile"
+                  />
+                  <input
+                    ref="cameraInput"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    class="hidden"
+                    @change="handleCoverFile"
+                  />
+                  <input
+                    v-if="!form.cover || !String(form.cover).startsWith('data:')"
                     v-model="form.cover"
                     type="text"
-                    class="w-full bg-bg-primary-50 border border-border-secondary-80 rounded-lg px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-violet-400 transition-all placeholder:text-text-tertiary"
-                    placeholder="https://..."
+                    class="mt-2 w-full bg-bg-primary-50 border border-border-secondary-80 rounded-lg px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-violet-400 transition-all placeholder:text-text-tertiary"
+                    placeholder="或粘贴图片 URL"
                   />
+                  <p class="mt-1.5 text-[11px] text-text-tertiary">支持 JPG / PNG / WebP，图片会自动压缩</p>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -305,10 +359,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Sparkles, Clock, Plus, Edit2, Trash2 } from '@lucide/vue'
+import { Sparkles, Clock, Plus, Edit2, Trash2, Upload, Camera, X } from '@lucide/vue'
 import { useToast } from '~/composables/useToast'
 
 const toast = useToast()
+const fileInput = ref(null)
+const cameraInput = ref(null)
 const topics = ref([])
 const showModal = ref(false)
 const editingId = ref(null)
@@ -337,6 +393,53 @@ const resetForm = () => {
     expected: 0
   }
   editingId.value = null
+}
+
+// 压缩图片为最长边 512px 的 JPEG Data URL，控制存储体积
+const compressImage = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const max = 512
+        const scale = Math.min(1, max / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext('2d')
+        // 填充白底，避免透明 PNG 转 JPEG 后变黑
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.7))
+      }
+      img.onerror = () => reject(new Error('图片读取失败'))
+      img.src = reader.result
+    }
+    reader.onerror = () => reject(new Error('图片读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+const handleCoverFile = async (event) => {
+  const file = event.target.files?.[0]
+  if (event.target) event.target.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    toast.error('请选择图片文件')
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    toast.error('图片不能超过 10MB')
+    return
+  }
+  try {
+    form.value.cover = await compressImage(file)
+  } catch (err) {
+    console.error('处理封面图片失败:', err)
+    toast.error('图片处理失败')
+  }
 }
 
 const formatDate = (iso) => {
