@@ -1408,6 +1408,8 @@ VoiceHub/
 │   │       ├── social-accounts/     # 社交账号管理
 │   │       │   ├── meow.delete.ts   # 删除MeoW绑定
 │   │       │   └── meow.post.ts     # MeoW账号操作
+│   │       ├── submit-target/     # 代他人投稿用户信息
+│   │       │   └── [id].get.ts    # 获取被代投稿用户资料
 │   │       ├── search.get.ts        # 搜索用户
 │   │       └── social-accounts.get.ts # 获取社交账号
 │   ├── card-codes/         # 点歌券相关

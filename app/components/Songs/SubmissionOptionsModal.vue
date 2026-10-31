@@ -35,15 +35,31 @@
 
           <!-- 表单主体 -->
           <div class="options-body px-7 pb-6 space-y-5 overflow-y-auto">
-            <!-- 分组标题：投稿设置 -->
-            <div
-              v-if="slotEnabled || showNote || showAnonymous || showCardCode"
-              class="options-group-heading"
+            <!-- 投稿设置（可折叠） -->
+            <button
+              v-if="hasSettings"
+              class="options-accordion-head"
+              type="button"
+              @click="settingsOpen = !settingsOpen"
             >
-              <span class="options-group-title">{{ text.settingsGroupTitle }}</span>
-              <span class="options-group-desc">{{ text.settingsGroupDesc }}</span>
-            </div>
+              <span class="options-accordion-icon">
+                <Icon :size="16" name="settings" />
+              </span>
+              <span class="options-accordion-body">
+                <span class="options-accordion-title">
+                  <span>{{ text.settingsGroupTitle }}</span>
+                  <span class="options-tag">{{ text.optional }}</span>
+                </span>
+                <span class="options-accordion-desc">{{ text.settingsGroupDesc }}</span>
+              </span>
+              <Icon
+                :name="settingsOpen ? 'chevron-down' : 'chevron-right'"
+                :size="16"
+                class="options-accordion-arrow"
+              />
+            </button>
 
+            <div v-show="settingsOpen" class="options-accordion-content">
             <!-- 一、播出日期 + 时段（仅在时段选择功能开启时显示） -->
             <div v-if="slotEnabled" class="options-section">
               <div class="options-section-head">
@@ -243,16 +259,33 @@
                 <p class="options-hint">{{ text.cardCodeHelper }}</p>
               </div>
             </div>
+            </div>
 
-            <!-- 二、专题投稿 -->
-            <div v-if="topics.length > 0" class="options-section options-group--separated">
-              <div class="options-section-head">
-                <span class="options-section-title">
-                  <Icon :size="14" name="list-ordered" />
+            <!-- 二、专题投稿（可折叠） -->
+            <button
+              v-if="topics.length > 0"
+              class="options-accordion-head"
+              type="button"
+              @click="topicOpen = !topicOpen"
+            >
+              <span class="options-accordion-icon">
+                <Icon :size="16" name="list-ordered" />
+              </span>
+              <span class="options-accordion-body">
+                <span class="options-accordion-title">
                   <span>{{ text.topicSectionTitle }}</span>
                   <span class="options-tag">{{ text.optional }}</span>
                 </span>
-              </div>
+                <span class="options-accordion-desc">{{ text.topicJoinHint }}</span>
+              </span>
+              <Icon
+                :name="topicOpen ? 'chevron-down' : 'chevron-right'"
+                :size="16"
+                class="options-accordion-arrow"
+              />
+            </button>
+
+            <div v-show="topicOpen && topics.length > 0" class="options-accordion-content">
               <button
                 class="options-topic-toggle"
                 type="button"
@@ -263,7 +296,6 @@
                   <span class="options-switch-knob" />
                 </span>
               </button>
-              <p class="options-hint">{{ text.topicJoinHint }}</p>
               <div v-if="topicJoin" class="options-field">
                 <CustomSelect
                   :model-value="topicId"
@@ -471,6 +503,12 @@ const emit = defineEmits([
 const localDate = ref('')
 const localTimeId = ref('')
 const errorMessage = ref('')
+// 折叠面板：投稿设置、专题投稿默认收起，避免弹窗过高被底部播放器遮挡
+const settingsOpen = ref(false)
+const topicOpen = ref(false)
+const hasSettings = computed(
+  () => props.slotEnabled || props.showNote || props.showAnonymous || props.showCardCode
+)
 // 是否主动选中了下拉中的「手动输入券码」（选中后展开输入框）
 const manualCardCodeMode = ref(false)
 
@@ -596,6 +634,9 @@ watch(
     localDate.value = props.slotEnabled ? props.initialDate || '' : ''
     localTimeId.value = props.slotEnabled && props.initialTimeId ? String(props.initialTimeId) : ''
     errorMessage.value = ''
+    // 时段必选且尚未选择时展开投稿设置，其余情况保持收起
+    settingsOpen.value = !!props.slotEnabled && !!props.slotRequired && !props.initialTimeId
+    topicOpen.value = false
     // 打开时重置手动模式：由已保存券码是否在「我的点歌券」中决定
     manualCardCodeMode.value = false
   }
@@ -670,23 +711,73 @@ const handleConfirm = () => {
   border-top: 1px dashed var(--border-secondary-50);
 }
 
-/* 分组标题：投稿设置（含可选项目说明） */
-.options-group-heading {
+/* 折叠面板头部：投稿设置 / 专题投稿 */
+.options-accordion-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border-secondary-50);
+  border-radius: 0.75rem;
+  background: var(--bg-secondary-50);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.options-accordion-head:hover {
+  background: var(--overlay-10);
+}
+
+.options-accordion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--overlay-10);
+  color: var(--primary);
+}
+
+.options-accordion-body {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
-.options-group-title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--text-secondary);
+.options-accordion-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
-.options-group-desc {
+.options-accordion-desc {
+  overflow: hidden;
   font-size: 0.6875rem;
+  line-height: 1.4;
   color: var(--text-tertiary);
-  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.options-accordion-arrow {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.options-accordion-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-top: 1rem;
 }
 
 .options-topic-toggle {

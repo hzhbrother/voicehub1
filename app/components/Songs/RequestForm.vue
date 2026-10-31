@@ -119,17 +119,30 @@
         </div>
 
         <!-- 管理员代他人投稿 -->
-        <div v-if="isAdminUser" class="collaborators-section on-behalf-section">
-          <div class="section-label">{{ locale.onBehalfTitle }}</div>
-          <div class="collaborators-list">
-            <div v-if="onBehalfUser" class="collaborator-tag">
-              <span class="collaborator-name">{{ onBehalfUser.name }}</span>
-              <button class="remove-collaborator" type="button" @click="clearOnBehalfUser">
-                <Icon :size="12" name="close" />
-              </button>
-            </div>
+        <div v-if="isAdminUser" class="on-behalf-section">
+          <div class="on-behalf-head">
+            <div class="section-label">{{ locale.onBehalfTitle }}</div>
             <button
-              v-else
+              v-if="onBehalfUser"
+              class="on-behalf-change"
+              type="button"
+              @click="showOnBehalfSearch = true"
+            >
+              {{ locale.onBehalfChange }}
+            </button>
+            <button
+              v-if="onBehalfUser"
+              class="on-behalf-clear"
+              type="button"
+              @click="clearOnBehalfUser"
+            >
+              <Icon :size="12" name="close" />
+            </button>
+            <span v-if="!onBehalfUser" class="on-behalf-hint">{{ locale.onBehalfHint }}</span>
+          </div>
+
+          <div v-if="!onBehalfUser" class="on-behalf-picker">
+            <button
               class="add-collaborator-btn"
               type="button"
               @click="showOnBehalfSearch = true"
@@ -137,7 +150,56 @@
               <Icon :size="14" name="user" />
               {{ locale.onBehalfPick }}
             </button>
-            <span class="on-behalf-hint">{{ locale.onBehalfHint }}</span>
+          </div>
+
+          <div v-else class="on-behalf-detail">
+            <div class="on-behalf-identity">
+              <div class="on-behalf-avatar">
+                {{ (onBehalfUser.name || onBehalfUser.username || '?').slice(0, 1) }}
+              </div>
+              <div class="on-behalf-name-block">
+                <span class="on-behalf-name">{{ onBehalfUser.name || onBehalfUser.username }}</span>
+                <div class="on-behalf-badges">
+                  <span class="on-behalf-badge">{{ roleLabel(onBehalfUser.role) }}</span>
+                  <span
+                    :class="[
+                      'on-behalf-badge',
+                      onBehalfUser.status === 'active' ? 'is-active' : 'is-disabled'
+                    ]"
+                  >
+                    {{
+                      onBehalfUser.status === 'active'
+                        ? locale.onBehalfStatusActive
+                        : locale.onBehalfStatusDisabled
+                    }}
+                  </span>
+                </div>
+              </div>
+              <span v-if="onBehalfLoading" class="on-behalf-loading">{{ locale.processing }}</span>
+            </div>
+
+            <div class="on-behalf-grid">
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfUsername }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.username || '-' }}</span>
+              </div>
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfId }}</span>
+                <span class="on-behalf-value">#{{ onBehalfUser.id }}</span>
+              </div>
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfGrade }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.grade || '-' }}</span>
+              </div>
+              <div class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfClass }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.class || '-' }}</span>
+              </div>
+              <div v-if="onBehalfUser.email" class="on-behalf-field">
+                <span class="on-behalf-label">{{ locale.onBehalfEmail }}</span>
+                <span class="on-behalf-value">{{ onBehalfUser.email }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1429,13 +1491,28 @@ const collaborators = ref([])
 // 管理员代他人投稿：选择稿件归属的普通用户
 const showOnBehalfSearch = ref(false)
 const onBehalfUser = ref(null)
+const onBehalfLoading = ref(false)
 const isAdminUser = computed(
   () => !!user.value && ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.value.role)
 )
-const handleOnBehalfSelect = (selected) => {
+const roleLabel = (role) => locale.value.roleLabels?.[role] || role || '-'
+const handleOnBehalfSelect = async (selected) => {
   const target = Array.isArray(selected) ? selected[0] : selected
-  onBehalfUser.value = target || null
   showOnBehalfSearch.value = false
+  if (!target) {
+    onBehalfUser.value = null
+    return
+  }
+  onBehalfUser.value = target
+  onBehalfLoading.value = true
+  try {
+    const data = await $fetch(`/api/users/submit-target/${target.id}`)
+    if (data?.user) onBehalfUser.value = data.user
+  } catch (error) {
+    console.error('获取代投稿用户信息失败:', error)
+  } finally {
+    onBehalfLoading.value = false
+  }
 }
 const clearOnBehalfUser = () => {
   onBehalfUser.value = null
@@ -2678,15 +2755,18 @@ const openRequiredSlotOptions = (pending) => {
 // 投稿选项弹窗的界面文案
 const submissionOptionsText = computed(() => {
   const requiredMode = submissionOptionsMode.value === 'required'
+  const needSlot = requiresSlotSelection.value
   return {
-    // 标题随模式切换：强制选时段时强调时段，主动打开时强调「选项」
+    // 标题随模式切换：强制选时段时强调时段，其余为投稿确认
     title: requiredMode
-      ? locale.value.playSlotModalTitle || '选择播出时段'
+      ? (needSlot
+          ? locale.value.playSlotModalTitle || '选择播出时段'
+          : locale.value.submissionOptionsTitle || '投稿选项')
       : locale.value.submissionOptionsTitle || '投稿选项',
-    subtitle: requiredMode
+    subtitle: requiredMode && needSlot
       ? locale.value.playSlotModalSubtitle ||
         '时段必选；播出日期可选，留空则由后台排期安排播出日'
-      : locale.value.submissionOptionsSubtitle || '留言与点歌券会随本次投稿一并提交，均为选填',
+      : locale.value.submissionOptionsSubtitle || '投稿选项均为选填，展开后按需设置',
     // 播出时段
     slotSectionTitle: locale.value.playSlotSectionTitle || '播出安排',
     clearSlot: locale.value.clear || '清除',
@@ -4891,17 +4971,150 @@ defineExpose({
 .on-behalf-section {
   flex: none;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
   margin-top: 0.25rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px dashed var(--overlay-10);
-  border-radius: 10px;
-  background: var(--surface-card-bg-medium);
+}
+
+.on-behalf-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .on-behalf-hint {
-  align-self: center;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+.on-behalf-picker {
+  display: flex;
+}
+
+.on-behalf-change {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.on-behalf-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: var(--overlay-10);
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.on-behalf-clear:hover {
+  background: var(--overlay-20);
+}
+
+.on-behalf-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--overlay-10);
+  border-radius: 14px;
+}
+
+.on-behalf-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.on-behalf-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.on-behalf-name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.on-behalf-name {
+  font-family: 'MiSans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.on-behalf-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.on-behalf-badge {
+  padding: 0 0.4rem;
+  border-radius: 5px;
+  background: var(--overlay-10);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.on-behalf-badge.is-active {
+  color: var(--success);
+}
+
+.on-behalf-badge.is-disabled {
+  color: var(--danger, #f56c6c);
+}
+
+.on-behalf-loading {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.on-behalf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.5rem 0.9rem;
+}
+
+.on-behalf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.on-behalf-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.on-behalf-value {
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collaborators-list {
