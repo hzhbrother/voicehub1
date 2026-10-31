@@ -4889,8 +4889,13 @@ defineExpose({
 
 /* 管理员代他人投稿 */
 .on-behalf-section {
-  margin-top: 0.5rem;
-  align-items: center;
+  flex: none;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--overlay-10);
+  border-radius: 10px;
+  background: var(--surface-card-bg-medium);
 }
 
 .on-behalf-hint {
