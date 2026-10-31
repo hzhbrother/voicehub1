@@ -460,6 +460,13 @@
                         {{ callLocale('preferredPlayDate', `期望日期: ${song.preferredPlayDate}`, song.preferredPlayDate) }}
                       </span>
                       <span
+                        v-if="song.topicName"
+                        class="ml-0.5 px-1.5 py-0.5 rounded text-[9px] font-black bg-violet-500/20 text-violet-400 border border-violet-500/30 whitespace-nowrap shrink-0 max-w-[96px] truncate"
+                        :title="(locale.topic || '专题') + '：' + song.topicName"
+                      >
+                        {{ song.topicName }}
+                      </span>
+                      <span
                         v-if="activeTab === 'pool' && song.addedByName"
                         class="ml-0.5 px-1.5 py-0.5 bg-primary-10 text-primary rounded text-[9px] border border-primary-20 whitespace-nowrap shrink-0"
                       >
@@ -1019,6 +1026,19 @@
                         class="ml-1 px-1.5 py-0.5 bg-info-10 text-info rounded text-[9px] border border-info-20 whitespace-nowrap"
                       >
                         {{ callLocale('preferredPlayTime', `期望: ${getPlayTimeName(schedule.song.preferredPlayTimeId)}`, getPlayTimeName(schedule.song.preferredPlayTimeId)) }}
+                      </span>
+                      <span
+                        v-if="schedule.song.preferredPlayDate"
+                        class="ml-1 px-1.5 py-0.5 bg-primary-10 text-primary rounded text-[9px] border border-primary-20 whitespace-nowrap"
+                      >
+                        {{ callLocale('preferredPlayDate', `期望日期: ${schedule.song.preferredPlayDate}`, schedule.song.preferredPlayDate) }}
+                      </span>
+                      <span
+                        v-if="schedule.song.topicName"
+                        class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-violet-500/20 text-violet-400 border border-violet-500/30 whitespace-nowrap max-w-[96px] truncate"
+                        :title="(locale.topic || '专题') + '：' + schedule.song.topicName"
+                      >
+                        {{ schedule.song.topicName }}
                       </span>
                     </div>
                   </div>

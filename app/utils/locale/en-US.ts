@@ -3087,6 +3087,7 @@ export const admin = {
     viewRemark: 'View Remark',
     cardPending: 'Card Pending',
     cardCode: 'Request Card',
+    topic: 'Topic',
     view: 'View',
     rejectRequest: 'Reject Request',
     saveDraft: 'Save Draft',

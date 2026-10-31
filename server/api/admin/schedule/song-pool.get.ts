@@ -1,6 +1,6 @@
 import { defineEventHandler } from 'h3'
 import { db } from '~/drizzle/db'
-import { songs, scheduleSongPool, users, votes } from '~/drizzle/schema'
+import { songs, scheduleSongPool, topics, users, votes } from '~/drizzle/schema'
 import { inArray, count } from 'drizzle-orm'
 import { requireSongAdmin } from '~~/server/utils/requireSongAdmin'
 
@@ -35,6 +35,14 @@ export default defineEventHandler(async (event) => {
     userRows.forEach((u) => addedByUsersMap.set(u.id, u))
   }
 
+  // 批量加载专题名称（用于备选池展示专题标签）
+  const topicIds = [...new Set(songsRows.map((s) => s.topicId).filter(Boolean))]
+  const topicNameMap = new Map()
+  if (topicIds.length > 0) {
+    const topicRows = await db.select().from(topics).where(inArray(topics.id, topicIds))
+    topicRows.forEach((t) => topicNameMap.set(t.id, t.name))
+  }
+
   // 批量加载投票数
   const voteCountMap = new Map()
   if (poolSongIds.length > 0) {
@@ -65,6 +73,8 @@ export default defineEventHandler(async (event) => {
       preferredPlayTimeId: song.preferredPlayTimeId,
       // 期望播出日期：自动排期时该歌曲只在对应日期参与排期
       preferredPlayDate: song.preferredPlayDate,
+      topicId: song.topicId || null,
+      topicName: song.topicId ? (topicNameMap.get(song.topicId) || null) : null,
       cover: song.cover,
       semester: song.semester,
       musicId: song.musicId,

@@ -3,6 +3,7 @@ import {
   playTimes,
   schedules,
   songs,
+  topics,
   users,
   votes,
   songCollaborators,
@@ -93,6 +94,8 @@ export default defineEventHandler(async (event) => {
         songCreatedAt: songs.createdAt,
         songPreferredPlayTimeId: songs.preferredPlayTimeId,
         songPreferredPlayDate: songs.preferredPlayDate,
+        songTopicId: songs.topicId,
+        songTopicName: topics.name,
         requesterName: users.name,
         requesterGrade: users.grade,
         requesterClass: users.class,
@@ -104,6 +107,7 @@ export default defineEventHandler(async (event) => {
       .from(schedules)
       .innerJoin(songs, eq(schedules.songId, songs.id))
       .leftJoin(users, eq(songs.requesterId, users.id))
+      .leftJoin(topics, eq(topics.id, songs.topicId))
       .leftJoin(playTimes, eq(schedules.playTimeId, playTimes.id))
       .where(whereCondition)
       .orderBy(asc(schedules.playDate), asc(schedules.sequence), asc(schedules.createdAt))
@@ -361,6 +365,9 @@ export default defineEventHandler(async (event) => {
               : (schedule.songPreferredPlayTimeId ?? null),
             // 期望播出日期：自动排期命中该日期时优先安排；重播条目不含日期偏好，不沿用原始投稿的日期
             preferredPlayDate: hasReplayMeta ? null : (schedule.songPreferredPlayDate || null),
+            // 专题投稿归属：用于排期管理展示专题标签
+            topicId: schedule.songTopicId || null,
+            topicName: schedule.songTopicName || null,
             // 重播申请信息
             replayRequestCount: isReplaySong ? replayRequestCount : 0,
             replayRequesters: isReplaySong ? formattedReplayRequesters : [],

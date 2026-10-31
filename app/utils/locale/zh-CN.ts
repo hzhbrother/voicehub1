@@ -3007,6 +3007,7 @@ export const admin = {
     viewRemark: '查看备注留言',
     cardPending: '点歌券待核销',
     cardCode: '点歌券',
+    topic: '专题',
     view: '查看',
     rejectRequest: '拒绝申请',
     saveDraft: '保存草稿',
