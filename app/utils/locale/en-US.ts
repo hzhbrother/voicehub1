@@ -451,6 +451,25 @@ export const common = {
     login: 'Log In',
     related: 'Related documents',
     backHome: 'Back to home'
+  },
+  datePicker: {
+    placeholder: 'Select date',
+    today: 'Today',
+    clear: 'Clear',
+    prevMonth: 'Previous month',
+    nextMonth: 'Next month',
+    prevYear: 'Previous year',
+    nextYear: 'Next year',
+    weekdays: ['S', 'M', 'T', 'W', 'T', 'F', 'S'],
+    monthNames: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    yearSuffix: ''
+  },
+  timePicker: {
+    placeholder: 'Select time',
+    now: 'Now',
+    clear: 'Clear',
+    hour: 'h',
+    minute: 'm'
   }
 } as const
 
@@ -1483,6 +1502,8 @@ export const pages = {
     popupBlocked: 'The browser blocked the new tab. Allow pop-ups and try again.',
     originalLinkOpened: 'The original link was opened',
     fallbackSource: 'The current link is invalid. Switched to a fallback source.',
+    slowNetworkRetry: 'The current link loads too slowly. Switching to a fallback source.',
+    slowNetworkFailed: 'The playback link loads too slowly. Check your connection and retry.',
     consecutiveFailures: 'Several songs failed to play. Autoplay has stopped.',
     networkOffline: 'Network disconnected. Check your connection and try again.',
     scheduleSyncFailed: 'Queue update failed. The current queue was retained.',
@@ -1841,6 +1862,16 @@ export const pages = {
       qqLoginExpired: 'QQ Music session expired, please sign in again',
       preferredPlayTime: 'Preferred Time Slot',
       choosePlayTime: 'Choose time slot',
+      preferredPlayDate: 'Preferred Broadcast Date',
+      noSlotsForDate: 'No time slot is available on this date. Please pick another date.',
+      playSlotTimeRequiredError: 'Please select a time slot',
+      playSlotNotOpenOnDate: 'The selected time slot is not available on this date. Please pick another date or slot.',
+      playSlotModalTitle: 'Choose time slot',
+      playSlotModalSubtitle: 'Time slot is required; broadcast date is optional — leave it blank to let the schedule decide',
+      playSlotDateOptionalHint: 'No broadcast date set — the date is decided when scheduling',
+      playSlotTimeFreeHint: 'Any enabled time slot can be chosen',
+      playSlotTimeRestrictedHint: 'Only slots open on the selected date are listed',
+      weekdaysFull: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
       submissionNote: 'Submission Note',
       cardCode: 'Request Card',
       required: 'Required',
@@ -1879,6 +1910,27 @@ export const pages = {
       cardCodeLockedOrUnavailable: 'This request card is locked or unavailable',
       cardCodeRequiredForSite: 'This site requires a valid request card to submit songs',
       cardCodeTooLong: 'Request card code cannot exceed 100 characters',
+      submissionOptions: 'More options',
+      submissionOptionsTitle: 'Submission options',
+      submissionOptionsSubtitle:
+        'Your note and request card are submitted with this request; both are optional',
+      submissionOptionsEmptyHint: 'No configurable submission options are available on this site',
+      playSlotSectionTitle: 'Broadcast schedule',
+      submissionOptionsSummary: 'Submission settings include: {0}',
+      submissionOptionItemSlot: 'Broadcast schedule',
+      submissionOptionItemNote: 'Submission note',
+      submissionOptionItemAnonymous: 'Anonymous submission',
+      submissionOptionItemCardCode: 'Request card',
+      cardCodeMyCodes: 'My request cards',
+      cardCodeSelectLabel: 'Select a request card',
+      cardCodeSelectPlaceholder: 'Pick from my request cards, or enter a code manually',
+      cardCodeNoCodes: 'No request cards available',
+      cardCodeNoCodesHint: 'No request cards available. Pick "Enter code manually" to add one.',
+      cardCodeAddManually: 'Add card',
+      cardCodeManualInput: 'Enter code manually',
+      cardCodeManualOption: 'Enter code manually',
+      cardCodeManualPlaceholder: 'Type the request card code you received',
+      cardCodeMyCodesCount: (count: number) => `I have ${count} request card(s)`,
       notifications: {
         restrictionSameSong: 'This song is in a submission cooldown period. Please try again later',
         restrictionSameArtist:
@@ -1922,6 +1974,7 @@ export const pages = {
       publicToUsers: 'Remark visible to signed-in users',
       anonymousSubmission: 'Anonymous submission',
       submissionNoteApprovalHint: 'Public note will show after admin approval.',
+      submissionNotePlaceholder: 'Anything to add? (optional, up to 300 chars)',
       coverAlt: 'Cover',
       albumDetailsTitle: 'Click to view album details',
       album: 'Album: ',
@@ -2437,6 +2490,8 @@ export const admin = {
       reject: 'Reject Song',
       deleteSong: 'Delete Song',
       batchReject: 'Reject',
+      batchMarkPlayed: 'Mark as Played',
+      batchMarkUnplayed: 'Mark as Unplayed',
       addToPool: 'Add to Pool',
       removeFromPool: 'Remove from Pool'
     },
@@ -2445,6 +2500,7 @@ export const admin = {
       selectSemester: 'Select Semester',
       playTime: 'Play Time',
       selectPlayTime: 'Select Time',
+      playDate: 'Broadcast Date',
       status: 'Status',
       selectStatus: 'Select Status',
       pool: 'Pool',
@@ -2504,7 +2560,11 @@ export const admin = {
       deleteSongMessage: (title: string) => `Delete song "${title}"? This action cannot be undone.`,
       batchDeleteTitle: 'Batch Delete Songs',
       batchDeleteMessage: (count: number) =>
-        `Delete the selected ${count} songs? This action cannot be undone.`
+        `Delete the selected ${count} songs? This action cannot be undone.`,
+      markPlayedTitle: 'Confirm Mark as Played',
+      markPlayedMessage: (count: number) => `Mark the selected ${count} song(s) as played?`,
+      markUnplayedTitle: 'Confirm Mark as Unplayed',
+      markUnplayedMessage: (count: number) => `Revert the played status for the selected ${count} song(s)?`
     },
     rejectDialog: {
       title: 'Reject Song',
@@ -2536,6 +2596,7 @@ export const admin = {
       collaboratorHint: 'Add multiple collaborators; changes take effect after saving',
       preferredPlayTime: 'Preferred Time (optional)',
       selectPreferredPlayTime: 'Select preferred play time',
+      preferredPlayDate: 'Preferred Date',
       submissionNote: 'Song Remark',
       clearNote: 'Clear Remark',
       cancelClearNote: 'Undo Clear',
@@ -2744,6 +2805,11 @@ export const admin = {
         missing > 0
           ? `Batch reject completed: ${rejected} succeeded, ${missing} not found`
           : `Batch rejected ${rejected} songs, requesters notified`,
+      batchMarkPlayedSuccess: (count: number) => `Marked ${count} songs as played`,
+      batchMarkUnplayedSuccess: (count: number) =>
+        `Removed played status from ${count} songs`,
+      batchMarkPlayedNoop: 'All selected songs are already marked as played',
+      batchMarkUnplayedNoop: 'None of the selected songs are marked as played',
       rejectSuccess: 'Song rejected and requester notified',
       validatingUrl: 'Validating URL, please wait...',
       validatingCoverUrl: 'Validating cover URL, please wait...',
@@ -3096,6 +3162,10 @@ export const admin = {
       return `${Math.floor(sec / 60)}m ${String(Math.floor(sec % 60)).padStart(2, '0')}s left`
     },
     fixExistingNone: 'No scheduled songs yet',
+    fixExistingMissingDuration: (n) => `${n} missing duration`,
+    fixExistingMissingDurationTip: 'Fixed songs without duration are kept but excluded from the target duration; scheduling resolves them automatically, or use the button on the right',
+    fixExistingResolvingDuration: (progress) => `Resolving ${progress}`,
+    autoScheduleRunning: 'Working',
     replaySong: 'Replay Song',
     replay: 'Replay',
     draft: 'Draft',
@@ -3131,6 +3201,7 @@ export const admin = {
     emptySongs: 'No song records',
     pendingSongItemName: 'pending songs',
     preferredPlayTime: (name: string) => `Preferred: ${name}`,
+    preferredPlayDate: (date: string) => `Preferred date: ${date}`,
     tabs: {
       normal: 'Normal',
       replay: 'Replay Requests',
@@ -3260,7 +3331,13 @@ export const admin = {
       candidateDurationsProgressTotal: '{0} song(s)',
       allDurationsProgress: '{0} / {1}',
       autoScheduleNoResult: 'No matching song combination found',
-      autoScheduleNoMorePlans: 'No more unique plans available'
+      autoScheduleNoMorePlans: 'No more unique plans available',
+      playTimeConstraintViolation: (title: string, playTimeName: string) =>
+        `"${title}" specifies play time slot "${playTimeName}" and can only be scheduled in that slot`,
+      excludedByPlayTime: (count: number) =>
+        `${count} song(s) specify a different play time slot and were excluded as a hard constraint`,
+      preferredDateHits: (count: number) =>
+        `${count} song(s) prefer today and will be scheduled first`
     },
     playlistFilterModal: {
       title: 'Playlist Duplicate Filter',
@@ -3572,6 +3649,12 @@ export const admin = {
     title: 'Play Time Management',
     desc: 'Define regular broadcast windows. Users can request songs or view schedules within these periods.',
     enableSelection: 'Enable Time Selection',
+    requireSlot: 'Require Date & Slot',
+    requireSlotDesc: 'Require a time slot for song requests. The broadcast date is optional.',
+    weekdaysTitle: 'Available Weekdays',
+    weekdaysHint: 'No selection means available every day. After a user picks a date, only slots checked for that weekday are shown.',
+    weekdaysShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    weekdaysFull: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     add: 'Add Play Time',
     aboutTitle: 'About Time Limits',
     aboutDesc:
@@ -3597,6 +3680,10 @@ export const admin = {
     descriptionOptional: 'Description (Optional)',
     descriptionPlaceholder: 'Enter play time description...',
     enableThisPlayTime: 'Enable this play time',
+    defaultSlot: 'Set as default play time',
+    defaultSlotHint:
+      'Preselected when a user submits without choosing a slot. Only one default slot at a time.',
+    defaultBadge: 'Default',
     cancel: 'Cancel',
     saving: 'Saving...',
     saveSettings: 'Save Settings',
@@ -3607,16 +3694,19 @@ export const admin = {
       'This cannot be undone. Related song request and schedule play-time settings may be affected or cleared.',
     messages: {
       systemSettingsUpdated: 'System settings updated',
+      slotRequiredUpdated: 'Required setting updated',
       playTimeEnabled: 'Play time enabled',
       playTimeDisabled: 'Play time disabled',
       playTimeDeleted: 'Play time deleted',
       playTimeUpdated: 'Play time updated',
-      playTimeCreated: 'Play time created'
+      playTimeCreated: 'Play time created',
+      defaultSlotCleared: 'Play time disabled and default cleared'
     },
     errors: {
       adminOnly: 'Only admins can manage play times',
       fetchPlayTimesFailed: 'Failed to fetch play times',
       updateSystemSettingsFailed: 'Failed to update system settings',
+      updateSlotRequiredFailed: 'Failed to update required setting',
       updatePlayTimeStatusFailed: 'Failed to update play time status',
       deletePlayTimeFailed: 'Failed to delete play time',
       startBeforeEnd: 'Start time must be earlier than end time',
@@ -4141,6 +4231,12 @@ export const admin = {
     selectedItems: (count: number) => `${count} selected`,
     applyBulk: 'Apply Bulk',
     cancelSelection: 'Cancel Selection',
+    dispatch: 'Dispatch',
+    dispatchSelected: 'Dispatch Selected',
+    dispatchCoupon: 'Dispatch Coupons',
+    dispatchRowHint: 'Dispatch this coupon to selected users',
+    dispatchRowDisabledHint: 'This coupon is "{status}" and cannot be dispatched — switch it back to "Available" first',
+    dispatchNoAvailableHint: 'No coupon in "Available" status is selected — you can tick one in the list below',
     loading: 'Loading request cards...',
     cardCode: 'Request Card',
     note: 'Note',
@@ -4153,16 +4249,25 @@ export const admin = {
     createdAt: (time: string) => `Created: ${time}`,
     updatedAt: (time: string) => `Updated: ${time}`,
     available: 'Available',
+    assigned: 'Assigned',
     locked: 'Locked',
     redeemed: 'Redeemed',
     invalid: 'Invalid',
     lockedStatus: 'Locked',
+    assignedStatus: 'Assigned',
     redeemedStatus: 'Redeemed',
     invalidStatus: 'Invalid',
     setAvailable: 'Set Available',
     setLocked: 'Set Locked',
     setRedeemed: 'Set Redeemed',
     setInvalid: 'Set Invalid',
+    statusChangeTitle: 'Confirm Request Card Status',
+    statusChangeMessage: (count: number, status: string) =>
+      `Set the selected ${count} request card(s) to "${status}"?`,
+    statusChangeUnbindHint:
+      'Dispatched song request cards will be unbound and marked as recycled.',
+    statusChangeCancel: 'Cancel',
+    statusChangeConfirm: 'Confirm Change',
     unknown: 'Unknown',
     empty: 'No matching request cards found',
     itemName: 'request cards',
@@ -4188,7 +4293,7 @@ export const admin = {
     quickTipsTitle: 'Quick Tips',
     quickTips: [
       'Filter by status and keyword; search covers request cards and notes.',
-      'Switch single or bulk statuses to lock, redeem, or invalidate cards.',
+      'Change single or bulk statuses. Invalidating a dispatched card unbinds it; setting it to Available returns it to inventory and requires a new dispatch.',
       'Edit notes in place to record recipients, batches, or source details.',
       'Export generates a complete CSV from current filters; selected cards are exported first.'
     ],
@@ -4217,9 +4322,12 @@ export const admin = {
     sources: {
       adminManual: 'Manual Redeem',
       admin: 'Admin Action',
+      openApiManual: 'Open API Redeem',
       scheduleAuto: 'Schedule Auto',
+      songPlayed: 'Played Redeem',
       scheduleRemove: 'Schedule Remove',
       schedule: 'Schedule',
+      playbackCancel: 'Playback Cancel',
       withdraw: 'Withdraw'
     },
     messages: {
@@ -4247,11 +4355,101 @@ export const admin = {
       all: 'All',
       available: 'Available',
       unused: 'Unused',
+      assigned: 'Assigned',
+      assignedHint: 'Dispatched',
       locked: 'Locked',
       pendingRedeem: 'Pending',
       redeemed: 'Redeemed',
       completed: 'Completed'
-    }
+    },
+    assignTitle: 'Assign request cards',
+    assignDesc:
+      'Assign request cards to a user. They can pick one from the dropdown when submitting, or type the code manually under "More options"',
+    assignClearRecipients: 'Clear',
+    assignSearchUserPlaceholder: 'Search by name / username',
+    assignSearching: 'Searching...',
+    assignSearchResultCount: (count: number) => `Found ${count} user(s)`,
+    assignSelectAllResults: 'Select all results',
+    assignSearchEmpty: 'No matching users',
+    assignTreeSummary: (total: number, picked: number) => `${total} users total, ${picked} selected`,
+    assignToggleExpand: 'Expand / collapse',
+    assignTreeRefresh: 'Refresh',
+    assignTreeEmpty: 'No organization data yet',
+    assignTreeClassEmpty: 'No dispatchable users in this class',
+    assignTreeLoadFailed: 'Failed to load organization',
+    assignPickedCount: (count: number) => `${count} selected`,
+    assignPickedSummary: (count: number) => `${count} recipient(s) selected`,
+    assignSelectWholeGrade: 'Select grade',
+    assignSelectWholeClass: 'Select class',
+    assignUnsetGrade: 'Unset grade',
+    assignUnsetClass: 'Unset class',
+    assignTooManyRecipients: (max: number) => `Up to ${max} recipients per assignment`,
+    assignPreviewLoading: 'Matching recipients...',
+    assignDistributionHint: (codes: number, recipients: number) =>
+      `${codes} request card(s) selected. They are dealt in order across ${recipients} recipient(s); when there are more recipients than cards, the leftovers are listed in the result.`,
+    assignGenerateDistributionHint: (count: number, recipients: number) =>
+      `${count} new request card(s) will be generated and assigned to each of the ${recipients} recipient(s), ${count * recipients} in total. Every recipient gets their own cards — nobody is left out.`,
+    assignResultSummary: (assigned: number, recipients: number, failed: number) =>
+      `Assigned ${assigned} card(s) to ${recipients} user(s); ${failed} failed`,
+    assignSkippedRecipients: (count: number) => `${count} user(s) received no card (not enough cards): `,
+    assignInvalidRecipients: 'These users cannot receive cards: ',
+    assignSelectUser: 'Recipient',
+    assignSelectUserPlaceholder: 'Click to choose who receives the request cards',
+    assignNoUser: 'Please choose a recipient first',
+    assignSelectCodesHint: 'Only cards in the "Available" state can be assigned',
+    assignSelectedCodes: (count: number) => `${count} request card(s) selected`,
+    assignNoCodes: 'Please tick the request cards you want to assign in the list',
+    assignSearchCodePlaceholder: 'Search card code or note',
+    assignClearCodes: 'Clear',
+    assignCodeLoading: 'Loading available cards…',
+    assignCodeSummary: (selected: number, total: number) => `${selected} selected, ${total} available`,
+    assignSelectAllCodes: 'Select all on this page',
+    assignCodeEmpty: 'No "available" cards right now — switch to "Generate for recipients"',
+    assignCodeSearchEmpty: 'No matching available cards',
+    assignCodePresetTag: 'Not in results',
+    assignSource: 'Card source',
+    assignSourceSelected: 'Use existing cards',
+    assignSourceGenerate: 'Generate for recipients',
+    assignCountPerUser: 'Cards per recipient',
+    assignGenerateHint: (count: number, recipients: number) =>
+      `Generate ${count} new request card(s) for each of the ${recipients} recipient(s), ${count * recipients} in total — no need to tick cards in advance.`,
+    assignInvalidCount: 'Cards per recipient must be a positive integer',
+    assignGeneratedCodes: (count: number) => `${count} newly generated request card(s): `,
+    assignNotePlaceholder: 'Optional: assignment note, stored in the assignment record',
+    assignNotify: 'Also send an in-site notification',
+    assignSubmit: 'Assign',
+    assignmentsTitle: 'Assignment records',
+    assignmentsDesc: 'Tracks who assigned what to whom, when, and recycling history',
+    assignmentStatus: 'Assignment status',
+    allAssignmentStatuses: 'All statuses',
+    assignmentAssignee: 'Recipient',
+    assignmentDispatcher: 'Assigned by',
+    assignmentAssignedAt: 'Assigned at',
+    assignmentFailureReason: 'Failure reason',
+    assignmentStatusAssigned: 'Assigned',
+    assignmentStatTotal: 'Total',
+    assignmentStatusUsed: 'Used',
+    assignmentStatusRecycled: 'Recycled',
+    assignmentStatusFailed: 'Failed',
+    assignmentRecycle: 'Recycle',
+    assignmentRecycleConfirm: (code: string) =>
+      `Recycle request card ${code} from this user? It returns to the available pool.`,
+    assignmentNoRecords: 'No assignment records yet',
+    assignmentFilterPlaceholder: 'Search code / recipient / dispatcher',
+    assignResultTitle: 'Assignment result',
+    assignSuccess: (count: number) => `Assigned ${count} request card(s)`,
+    assignPartial: (success: number, failed: number) =>
+      `Finished: ${success} assigned, ${failed} failed`,
+    assignFailed: 'Failed to assign request cards',
+    assignAllFailed: 'All assignments failed. Check whether the selected cards are still available',
+    recycleSuccess: (count: number) => `Recycled ${count} request card(s)`,
+    recycleFailed: 'Failed to recycle request cards',
+    notifyFailedButAssigned:
+      'The card was assigned, but the notification failed. The user can still find it under "More options"',
+    messages2: {
+      fetchAssignmentsFailed: 'Failed to fetch assignment records',
+      recycleFailed: 'Failed to recycle request cards'
+    },
   },
   databaseManager: {
     title: 'Database Operations',
@@ -4966,6 +5164,7 @@ export const admin = {
       meowBinding: 'MeoW Account Binding',
       emailBinding: 'Email Binding',
       oauthBinding: 'OAuth Account Binding',
+      loading: 'Loading...',
       bound: (value: string) => `Bound: ${value}`,
       unbound: 'Unbound',
       oauthBindingsTitle: 'OAuth Binding Details',
@@ -5180,6 +5379,12 @@ export const serverErrors = {
   CARD_CODE_LOCKED_OR_UNAVAILABLE: 'This request card is locked or unavailable',
   CARD_CODE_REQUIRED_FOR_SITE: 'This site requires a valid request card to submit songs',
   CARD_CODE_TOO_LONG: 'Request card code cannot exceed 100 characters',
+  CARD_CODE_ASSIGN_FAILED: 'Could not dispatch request cards. Refresh and retry.',
+  CARD_CODE_RECYCLE_FAILED: 'Could not recall this request card. Refresh its status.',
+  CARD_CODE_ASSIGNMENT_NOT_FOUND: 'Request card dispatch record not found',
+  CARD_CODE_NOT_ASSIGNABLE: 'Request card cannot be dispatched in its current state',
+  CARD_CODE_RECIPIENT_UNAVAILABLE: 'Recipient is missing or awaiting approval',
+  CARD_CODE_BOUND_TO_SONG: 'Request card is linked to a request. Manage it through the song.',
   AUTH_CSRF_COOKIE_MISSING:
     'CSRF validation failed: the cookie is missing. Please restart from the login page.',
   AUTH_CHALLENGE_EXPIRED: 'Challenge has expired',
@@ -5363,6 +5568,13 @@ export const serverErrors = {
     'You can only request a replay for songs from the current semester',
   SONG_INVITATION_FAILED: 'Failed to process the invitation',
   SONG_SCHEDULED_CANNOT_WITHDRAW: 'Scheduled songs cannot be withdrawn',
+  SONG_PLAY_SLOT_REQUIRED: 'Please select a preferred play time slot',
+  SONG_PLAY_DATE_FORMAT_INVALID: 'Invalid broadcast date, expected YYYY-MM-DD',
+  SONG_PLAY_DATE_BEFORE_TODAY: 'The broadcast date cannot be earlier than today',
+  SONG_PLAY_SLOT_NOT_OPEN_ON_DATE:
+    'The selected slot is not open on {0} ({1}); pick another date or slot',
+  SONG_SCHEDULE_PREFERRED_TIME_MISMATCH:
+    'A song with a specified play time slot can only be scheduled in that slot',
   SONG_PLAYED_CANNOT_WITHDRAW: 'Played songs cannot be withdrawn',
   SONG_NO_ACTIVE_SEMESTER_REPLAY: 'There is no active semester, so a replay cannot be requested',
   SONG_RESTRICTION_SAME_SONG:
@@ -5506,5 +5718,7 @@ export const serverErrors = {
   NOTIFICATION_HISTORY_FETCH_FAILED: 'Failed to fetch notification history',
   NOTIFICATION_HISTORY_UPDATE_FAILED: 'Failed to update notification',
   NOTIFICATION_HISTORY_DELETE_FAILED: 'Failed to delete notification',
+  PLAY_TIME_DEFAULT_REQUIRES_ENABLED: 'A disabled play time slot cannot be set as the default',
+  PLAY_TIME_DEFAULT_CONFLICT: 'The default play time slot is being updated elsewhere, please retry',
   SYSTEM_BOARD_FAILED: 'System board data is unavailable. Please retry later.'
 } as const

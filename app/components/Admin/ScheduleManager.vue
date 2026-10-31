@@ -102,10 +102,11 @@
           </button>
         </div>
         <div class="p-6 space-y-6">
-          <input
+          <AppDatePicker
             v-model="manualSelectedDate"
-            class="w-full bg-bg-primary border border-border-secondary rounded-xl px-4 py-3 text-text-primary focus:outline-none focus:border-primary transition-colors"
-            type="date"
+            size="lg"
+            rounded="xl"
+            class-name="w-full"
           />
           <div class="flex gap-3">
             <button
@@ -443,7 +444,7 @@
                         }}
                       </span>
                     </div>
-                    <!-- 第二行：歌手 · 期望时段 -->
+                    <!-- 第二行：歌手 · 期望时段 · 期望日期 -->
                     <div class="text-[11px] text-text-tertiary truncate flex items-center gap-1">
                       <span class="truncate max-w-[120px]">{{ song.artist }}</span>
                       <span
@@ -451,6 +452,12 @@
                         class="ml-0.5 px-1.5 py-0.5 bg-info-10 text-info rounded text-[9px] border border-info-20 whitespace-nowrap shrink-0"
                       >
                         {{ callLocale('preferredPlayTime', `期望: ${getPlayTimeName(song.preferredPlayTimeId)}`, getPlayTimeName(song.preferredPlayTimeId)) }}
+                      </span>
+                      <span
+                        v-if="song.preferredPlayDate"
+                        class="ml-0.5 px-1.5 py-0.5 bg-primary-10 text-primary rounded text-[9px] border border-primary-20 whitespace-nowrap shrink-0"
+                      >
+                        {{ callLocale('preferredPlayDate', `期望日期: ${song.preferredPlayDate}`, song.preferredPlayDate) }}
                       </span>
                       <span
                         v-if="activeTab === 'pool' && song.addedByName"
@@ -1227,10 +1234,11 @@
       </div>
       <div class="p-6 space-y-4">
           <div class="text-xs text-text-tertiary">{{ locale.currentDate(selectedDate) }}</div>
-        <input
+        <AppDatePicker
           v-model="moveTargetDate"
-          class="w-full bg-bg-primary border border-border-secondary rounded-xl px-4 py-3 text-text-primary focus:outline-none focus:border-info transition-colors"
-          type="date"
+          size="lg"
+          rounded="xl"
+          class-name="w-full"
         />
         <template v-if="playTimeEnabled">
           <CustomSelect
@@ -1317,10 +1325,11 @@
           <div v-if="copyMode === 'single'" class="space-y-1.5">
             <div class="gap-3 flex items-center">
               <span class="text-[9px] text-text-disabled w-16 shrink-0 uppercase tracking-wider">{{ locale.copyDateRangeStart }}</span>
-              <input
+              <AppDatePicker
                 v-model="copyFromStart"
-                class="flex-1 bg-bg-primary border border-border-secondary rounded-xl px-3 py-2.5 text-text-primary focus:outline-none focus:border-primary transition-colors"
-                type="date"
+                size="md"
+                rounded="xl"
+                class-name="flex-1"
               />
             </div>
           </div>
@@ -1328,18 +1337,20 @@
           <div v-else class="space-y-1.5">
             <div class="gap-3 flex items-center">
               <span class="text-[9px] text-text-disabled w-16 shrink-0 uppercase tracking-wider">{{ locale.copyDateRangeStart }}</span>
-              <input
+              <AppDatePicker
                 v-model="copyFromStart"
-                class="flex-1 bg-bg-primary border border-border-secondary rounded-xl px-3 py-2.5 text-text-primary focus:outline-none focus:border-primary transition-colors"
-                type="date"
+                size="md"
+                rounded="xl"
+                class-name="flex-1"
               />
             </div>
             <div class="gap-3 flex items-center">
               <span class="text-[9px] text-text-disabled w-16 shrink-0 uppercase tracking-wider">{{ locale.copyDateRangeEnd }}</span>
-              <input
+              <AppDatePicker
                 v-model="copyFromEnd"
-                class="flex-1 bg-bg-primary border border-border-secondary rounded-xl px-3 py-2.5 text-text-primary focus:outline-none focus:border-primary transition-colors"
-                type="date"
+                size="md"
+                rounded="xl"
+                class-name="flex-1"
               />
             </div>
           </div>
@@ -1354,10 +1365,11 @@
           <div v-if="copyMode === 'single'" class="space-y-1.5">
             <div class="gap-3 flex items-center">
               <span class="text-[9px] text-text-disabled w-16 shrink-0 uppercase tracking-wider">{{ locale.cycleCopyTargetSingleDate }}</span>
-              <input
+              <AppDatePicker
                 v-model="copySingleTargetDate"
-                class="flex-1 bg-bg-primary border border-border-secondary rounded-xl px-3 py-2.5 text-text-primary focus:outline-none focus:border-primary transition-colors"
-                type="date"
+                size="md"
+                rounded="xl"
+                class-name="flex-1"
               />
             </div>
           </div>
@@ -1365,18 +1377,20 @@
           <div v-else class="space-y-1.5">
             <div class="gap-3 flex items-center">
               <span class="text-[9px] text-text-disabled w-16 shrink-0 uppercase tracking-wider">{{ locale.cycleCopyTargetStart }}</span>
-              <input
+              <AppDatePicker
                 v-model="copyToStart"
-                class="flex-1 bg-bg-primary border border-border-secondary rounded-xl px-3 py-2.5 text-text-primary focus:outline-none focus:border-primary transition-colors"
-                type="date"
+                size="md"
+                rounded="xl"
+                class-name="flex-1"
               />
             </div>
             <div class="gap-3 flex items-center">
               <span class="text-[9px] text-text-disabled w-16 shrink-0 uppercase tracking-wider">{{ locale.cycleCopyTargetEnd }}</span>
-              <input
+              <AppDatePicker
                 v-model="copyToEnd"
-                class="flex-1 bg-bg-primary border border-border-secondary rounded-xl px-3 py-2.5 text-text-primary focus:outline-none focus:border-primary transition-colors"
-                type="date"
+                size="md"
+                rounded="xl"
+                class-name="flex-1"
               />
             </div>
           </div>
@@ -1554,7 +1568,7 @@
 
           <!-- 工具栏 -->
           <div class="flex items-center gap-2 p-2 bg-bg-secondary-50 border border-border-secondary rounded-xl">
-            <div class="flex items-center gap-2 flex-1">
+            <div class="flex items-center gap-2 flex-1 flex-wrap">
               <Lock class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
               <span class="text-[10px] font-bold text-text-secondary uppercase tracking-wider shrink-0">
                 {{ locale.fixExistingSelected }}
@@ -1570,14 +1584,23 @@
                 />
               </button>
               <span
-                v-if="autoScheduleFixExisting && autoScheduleScheduledSeconds > 0"
-                class="text-[10px] font-bold text-primary"
+                v-if="autoScheduleFixExisting && autoScheduleFixedSongs.length > 0"
+                class="text-[10px] font-bold text-primary whitespace-nowrap"
               >
-                {{ locale.fixExistingCount(localScheduledSongs.length) }} ·
-                {{ locale.fixExistingRemaining(autoScheduleTargetMinutes || 0, autoScheduleScheduledSeconds) }}
+                {{ locale.fixExistingCount(autoScheduleFixedSongs.length) }}
+                <template v-if="autoScheduleScheduledSeconds > 0">
+                  · {{ locale.fixExistingRemaining(autoScheduleTargetMinutes || 0, autoScheduleScheduledSeconds) }}
+                </template>
               </span>
-              <span v-else-if="autoScheduleFixExisting && localScheduledSongs.length === 0" class="text-[10px] text-text-disabled">
+              <span v-else-if="autoScheduleFixExisting" class="text-[10px] text-text-disabled">
                 {{ locale.fixExistingNone }}
+              </span>
+              <span
+                v-if="autoScheduleFixExisting && autoScheduleFixedMissingDuration > 0"
+                class="text-[10px] font-bold text-warning whitespace-nowrap"
+                :title="locale.fixExistingMissingDurationTip"
+              >
+                {{ locale.fixExistingMissingDuration(autoScheduleFixedMissingDuration) }}
               </span>
             </div>
             <button
@@ -1690,8 +1713,26 @@
           </div>
 
           <div class="text-[11px] text-text-disabled">
-            {{ locale.availableCount(autoScheduleCandidates.length) }}
+            {{ locale.availableCount(autoSchedulePlacement.eligible.length) }}
           </div>
+
+          <!-- 期望时段约束提示 -->
+          <div
+            v-if="autoSchedulePlacement.excludedByPlayTime > 0"
+            class="px-3 py-2 rounded-xl bg-bg-tertiary/60 border border-border-secondary/60"
+          >
+            <div class="flex items-start gap-2 text-[10px] leading-relaxed text-text-secondary">
+              <AlertTriangle class="w-3.5 h-3.5 shrink-0 mt-px text-warning" />
+              <p>{{ locale.messages.excludedByPlayTime(autoSchedulePlacement.excludedByPlayTime) }}</p>
+            </div>
+          </div>
+          <!-- 期望日期是软偏好：只提示当天会优先安排多少首，不排除任何歌曲 -->
+          <p
+            v-if="autoScheduleDateHits > 0"
+            class="px-3 py-2 rounded-xl bg-bg-tertiary/60 border border-border-secondary/60 text-[10px] leading-relaxed text-text-secondary"
+          >
+            {{ locale.messages.preferredDateHits(autoScheduleDateHits) }}
+          </p>
 
           <div class="flex gap-2">
             <button
@@ -1701,12 +1742,13 @@
               {{ locale.cancel }}
             </button>
             <button
-              :disabled="!autoScheduleTargetMinutes || autoScheduleTargetMinutes <= 0 || autoScheduleCandidates.length === 0"
+              :disabled="!autoScheduleTargetMinutes || autoScheduleTargetMinutes <= 0 || autoSchedulePlacement.eligible.length === 0 || autoScheduleRunning"
               class="flex-1 py-3 bg-primary-hover hover:bg-primary text-text-primary text-xs font-black rounded-xl shadow-lg shadow-[var(--primary-glow)] transition-all uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               @click="runAutoSchedule"
             >
-              <Sparkles class="w-3.5 h-3.5" />
-              {{ locale.autoScheduleRun }}
+              <Loader2 v-if="autoScheduleRunning" class="w-3.5 h-3.5 animate-spin" />
+              <Sparkles v-else class="w-3.5 h-3.5" />
+              {{ autoScheduleRunning ? autoScheduleRunningText : locale.autoScheduleRun }}
             </button>
           </div>
         </div>
@@ -1966,6 +2008,7 @@ import ConfirmDialog from '../UI/ConfirmDialog.vue'
 import Icon from '~/components/UI/Icon.vue'
 import Pagination from '~/components/UI/Common/Pagination.vue'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
+import AppDatePicker from '~/components/UI/Common/AppDatePicker.vue'
 import LoadingState from '~/components/UI/Common/LoadingState.vue'
 import { useSongPlayer } from '~/composables/useSongPlayer'
 import { notifySchedulePlaylistChanged } from '~/composables/useSchedulePlaylistSync'
@@ -1975,7 +2018,14 @@ import { useLocale } from '~/utils/locale'
 import { useServerErrors } from '~/composables/useLocaleText'
 import { formatDuration, addDaysToString, getDaysBetween } from '~/utils/timeUtils'
 import { BUILTIN_PLATFORMS, getPlatformDisplayName } from '~/utils/platforms'
-import { autoSchedule, autoScheduleExhaustive, poolCandidateFromItem } from '~/utils/autoSchedule'
+import {
+  autoSchedule,
+  autoScheduleExhaustive,
+  poolCandidateFromItem,
+  fixedCandidatesFromScheduled,
+  filterByExpectedPlacement,
+  countExpectedDateHits
+} from '~/utils/autoSchedule'
 import { countSchedulesWithPlayTime } from '~/utils/schedulePlayTime'
 import { getMusicUrlResult, isKnownInvalidQqAudioUrl } from '~/utils/musicUrl'
 
@@ -2541,12 +2591,36 @@ watch(
 )
 loadAutoScheduleSettings()
 
-const autoScheduleScheduledSeconds = computed(() => {
-  if (!autoScheduleFixExisting.value) return 0
-  return localScheduledSongs.value.reduce((sum, s) => {
-    const dur = s.song && typeof s.song.durationSeconds === 'number' ? s.song.durationSeconds : 0
-    return sum + dur
-  }, 0)
+// 固定歌曲统一口径：数量、剩余时长、缺时长数都基于同一份规范化列表
+const autoScheduleFixedSongs = computed(() =>
+  autoScheduleFixExisting.value ? fixedCandidatesFromScheduled(localScheduledSongs.value) : []
+)
+
+const autoScheduleScheduledSeconds = computed(() =>
+  autoScheduleFixedSongs.value.reduce((sum, s) => sum + (s.durationSeconds || 0), 0)
+)
+
+// 固定歌曲中时长未知的数量：仍会固定，只是不计入目标时长
+const autoScheduleFixedMissingDuration = computed(() =>
+  autoScheduleFixedSongs.value.filter((s) => !s.durationSeconds).length
+)
+
+// 待补时长的固定歌曲：用原始歌曲对象，保留 playUrl/sourceInfo 等取链所需字段
+const autoScheduleFixedNeedsDuration = computed(() => {
+  const missingIds = new Set(
+    autoScheduleFixedSongs.value.filter((s) => !s.durationSeconds).map((s) => s.id)
+  )
+  const result = []
+  const seen = new Set()
+  for (const entry of localScheduledSongs.value) {
+    const song = entry?.song
+    const id = song ? Number(song.id) : null
+    if (!song || !Number.isFinite(id) || !missingIds.has(id) || seen.has(id)) continue
+    if (!song.musicPlatform || !song.musicId) continue
+    seen.add(id)
+    result.push(song)
+  }
+  return result
 })
 
 const actualExhaustive = computed(() => {
@@ -3000,6 +3074,7 @@ const allUnscheduledSongs = computed(() => {
       hasSubmissionNote: item.hasSubmissionNote || false,
       submissionNote: item.submissionNote || null,
       preferredPlayTimeId: item.preferredPlayTimeId || null,
+      preferredPlayDate: item.preferredPlayDate || null,
       musicId: item.musicId || null,
       musicPlatform: item.musicPlatform || null,
       requesterGrade: item.requesterGrade || null,
@@ -3072,8 +3147,17 @@ const allUnscheduledSongs = computed(() => {
     })
   }
 
+  // 使用点歌券的歌曲优先置顶，不随排序方式改变
+  const byCardCodeFirst = (a, b) => {
+    const aCard = a.cardCodeId || a.usedCardCode ? 1 : 0
+    const bCard = b.cardCodeId || b.usedCardCode ? 1 : 0
+    return bCard - aCard
+  }
+
   return [...unscheduledSongs].sort((a, b) => {
     if (activeTab.value === 'pool') {
+      const cardDiff = byCardCodeFirst(a, b)
+      if (cardDiff !== 0) return cardDiff
       return new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
     }
     // 重播申请默认按申请数量降序排列，如果数量相同则按时间
@@ -3082,6 +3166,10 @@ const allUnscheduledSongs = computed(() => {
         return (b.requestCount || 0) - (a.requestCount || 0)
       }
     }
+
+    // 重播 tab 以申请数为第一键，数量相同才轮到点歌券置顶
+    const cardDiff = byCardCodeFirst(a, b)
+    if (cardDiff !== 0) return cardDiff
 
     switch (songSortOption.value) {
       case 'time-desc':
@@ -3440,6 +3528,9 @@ onUnmounted(() => {
     refreshAutoCandidatesAbortController.abort()
     refreshAutoCandidatesAbortController = null
   }
+
+  // 卸载时作废进行中的自动排期任务
+  cancelAutoScheduleRun()
 
   if (dateSelector.value) {
     dateSelector.value.removeEventListener('wheel', handleDateSelectorWheel)
@@ -4153,15 +4244,16 @@ const refreshAutoCandidateDurations = async () => {
   refreshAutoCandidatesAbortController = new AbortController()
   const { signal } = refreshAutoCandidatesAbortController
 
-  const candidates = autoScheduleCandidates.value
-  if (candidates.length === 0) {
+  // 固定歌曲也要补齐时长，否则无法计入目标时长
+  const refreshTargets = [...autoScheduleCandidates.value, ...autoScheduleFixedNeedsDuration.value]
+  if (refreshTargets.length === 0) {
     if (window.$showNotification) {
       window.$showNotification(locale.value.messages.candidateDurationsSkipped, 'info')
     }
     return
   }
 
-  const toRefresh = candidates.filter((s) => s.musicPlatform && s.musicId)
+  const toRefresh = refreshTargets.filter((s) => s.musicPlatform && s.musicId)
   if (toRefresh.length === 0) {
     if (window.$showNotification) {
       window.$showNotification(locale.value.messages.candidateDurationsSkipped, 'info')
@@ -4184,6 +4276,9 @@ const refreshAutoCandidateDurations = async () => {
       const dur = result.durationSeconds
       const songIdx = songs.value.findIndex((s) => s.id === song.id)
       if (songIdx !== -1) songs.value[songIdx].durationSeconds = dur
+      for (const schedule of localScheduledSongs.value) {
+        if (schedule.song && schedule.song.id === song.id) schedule.song.durationSeconds = dur
+      }
       for (const r of replayRequests.value) {
         if (r.id === song.id) { r.durationSeconds = dur; break }
       }
@@ -4257,12 +4352,14 @@ const handleAutoScheduleEscape = (e) => {
 
 // 打开/关闭/重置时保留用户上次的排期配置（由 localStorage 记忆）
 const openAutoScheduleDialog = () => {
+  cancelAutoScheduleRun()
   autoScheduleResult.value = { songs: [], totalDuration: 0, diff: 0, absDiff: 0 }
   autoSchedulePlans.value = []
   currentPlanIndex.value = 0
   showAutoScheduleDialog.value = true
 }
 const closeAutoScheduleDialog = () => {
+  cancelAutoScheduleRun()
   showAutoScheduleDialog.value = false
   autoScheduleResult.value = { songs: [], totalDuration: 0, diff: 0, absDiff: 0 }
   autoSchedulePlans.value = []
@@ -4300,54 +4397,159 @@ const autoScheduleCandidates = computed(() => {
       .filter((item) => !excludeIds.has(item.songId))
       .map(poolCandidateFromItem)
     const baseIds = new Set(base.map((s) => s.id))
-    return [...base, ...poolCandidates.filter((p) => !baseIds.has(p.songId))]
+    return [...base, ...poolCandidates.filter((p) => !baseIds.has(p.id))]
   }
   return base
 })
 
-const buildPreSelected = () => {
-  return autoScheduleFixExisting.value ? localScheduledSongs.value.filter(
-    (s) => typeof s.song.durationSeconds === 'number' && s.song.durationSeconds > 0
-  ).map((s) => ({
-    id: s.song.id,
-    songId: s.song.id,
-    title: s.song.title,
-    artist: s.song.artist,
-    durationSeconds: s.song.durationSeconds || 0,
-    replayRequestId: s.replayRequestId || null,
-    musicId: s.song.musicId || null,
-    musicPlatform: s.song.musicPlatform || null,
-    requester: s.song.requester || null,
-    cover: s.song.cover || null,
-    createdAt: s.song.createdAt || null
-  })) : []
+// 自动排期按期望时段过滤，按期望日期排序。
+const autoScheduleOptions = computed(() => ({
+  targetDate: selectedDate.value,
+  targetPlayTimeId: selectedPlayTime.value
+    ? Number(selectedPlayTime.value)
+    : null
+}))
+
+// 硬约束过滤结果。
+const autoSchedulePlacement = computed(() =>
+  filterByExpectedPlacement(autoScheduleCandidates.value, autoScheduleOptions.value)
+)
+
+// 候选池中期望日期命中当天的歌曲数，仅用于提示优先安排
+const autoScheduleDateHits = computed(() =>
+  countExpectedDateHits(autoSchedulePlacement.value.eligible, autoScheduleOptions.value.targetDate)
+)
+
+const buildPreSelected = () => autoScheduleFixedSongs.value
+
+// 固定歌曲时长未知时先补时长，避免按 0 计入导致目标时长算不准
+const autoScheduleResolvingFixed = ref({ running: false, progress: '', total: 0 })
+// 补时长总预算：到期即中止并结束等待，不因取链悬挂而拖住排期
+const AUTO_SCHEDULE_FIXED_DURATION_TIMEOUT = 20000
+// 运行标识：关闭或重开弹窗时递增，作废旧任务的结果回写与方案回填
+let autoScheduleRunId = 0
+let autoScheduleResolveController = null
+const autoScheduleRunning = ref(false)
+
+const applyFixedDuration = (songId, durationSeconds) => {
+  for (const schedule of localScheduledSongs.value) {
+    if (schedule.song && schedule.song.id === songId) schedule.song.durationSeconds = durationSeconds
+  }
+  const songIdx = songs.value.findIndex((s) => s.id === songId)
+  if (songIdx !== -1) songs.value[songIdx].durationSeconds = durationSeconds
+  for (const poolItem of songPool.value) {
+    if (poolItem.songId === songId) { poolItem.durationSeconds = durationSeconds; break }
+  }
 }
 
-const runAutoSchedule = () => {
-  const candidates = autoScheduleCandidates.value
-  const candidateIds = new Set(candidates.map((s) => s.id))
-  const preSelected = buildPreSelected()
-  const fn = autoScheduleAlgorithm.value === 'auto'
-    ? (autoScheduleCandidates.value.length < 20 ? autoScheduleExhaustive : autoSchedule)
-    : (autoScheduleAlgorithm.value === 'exhaustive' ? autoScheduleExhaustive : autoSchedule)
-  const targetSongCount = Number.isFinite(autoScheduleTargetSongCount.value) && autoScheduleTargetSongCount.value > 0
-    ? Math.floor(autoScheduleTargetSongCount.value)
-    : null
-  const targetRequesterCount = Number.isFinite(autoScheduleTargetRequesterCount.value) && autoScheduleTargetRequesterCount.value > 0
-    ? Math.floor(autoScheduleTargetRequesterCount.value)
-    : null
-  const results = fn(autoScheduleDirection.value, autoScheduleTargetMinutes.value, candidates, preSelected, 10, targetSongCount, targetRequesterCount, heatWeightRatio())
-  const plansArray = Array.isArray(results) ? results : [results]
-  const first = plansArray[0]
-  if (!first || first.songs.length === 0) {
-    if (window.$showNotification) {
-      window.$showNotification(callLocale('messages.autoScheduleNoResult', '未能找到满足条件的歌曲组合'), 'warning')
+const resolveFixedSongDurations = async () => {
+  const runId = autoScheduleRunId
+  const missing = autoScheduleFixedNeedsDuration.value
+  if (missing.length === 0) return 0
+
+  const controller = new AbortController()
+  autoScheduleResolveController = controller
+  autoScheduleResolvingFixed.value = { running: true, progress: '', total: missing.length }
+
+  // 预算到期后由 race 结束等待，未完成任务的结果不再回写
+  let budgetExpired = false
+  let budgetTimer
+  const budget = new Promise((resolve) => {
+    budgetTimer = setTimeout(() => {
+      budgetExpired = true
+      controller.abort()
+      resolve()
+    }, AUTO_SCHEDULE_FIXED_DURATION_TIMEOUT)
+  })
+
+  let resolved = 0
+  let done = 0
+  const pending = runConcurrent(
+    missing.map((song) => ({
+      fn: async (signal) => {
+        if (signal?.aborted) return null
+        return await requestSongDuration(song, signal)
+      },
+      signal: controller.signal
+    })),
+    3,
+    undefined,
+    (idx, entry) => {
+      if (budgetExpired || runId !== autoScheduleRunId) return
+      done++
+      const durationSeconds = entry?.ok ? entry.result?.durationSeconds : null
+      if (durationSeconds) {
+        applyFixedDuration(missing[idx].id, durationSeconds)
+        resolved++
+      }
+      autoScheduleResolvingFixed.value.progress = `${done} / ${missing.length}`
     }
-    return
+  )
+
+  try {
+    await Promise.race([pending, budget])
+  } catch {
+    // 补时长失败不阻塞排期，未知时长继续按 0 处理
+  } finally {
+    clearTimeout(budgetTimer)
+    if (autoScheduleResolveController === controller) autoScheduleResolveController = null
+    if (runId === autoScheduleRunId) {
+      autoScheduleResolvingFixed.value = { running: false, progress: '', total: 0 }
+    }
   }
-  autoSchedulePlans.value = plansArray.map((p) => ({ ...p, candidateIds }))
-  currentPlanIndex.value = 0
-  autoScheduleResult.value = autoSchedulePlans.value[0]
+  return resolved
+}
+
+// 作废进行中的排期任务：关闭弹窗、重新打开或组件卸载时调用
+const cancelAutoScheduleRun = () => {
+  autoScheduleRunId++
+  autoScheduleResolveController?.abort()
+  autoScheduleResolveController = null
+  autoScheduleResolvingFixed.value = { running: false, progress: '', total: 0 }
+  autoScheduleRunning.value = false
+}
+
+const autoScheduleRunningText = computed(() => {
+  const { running, progress } = autoScheduleResolvingFixed.value
+  if (running && progress) return locale.value.fixExistingResolvingDuration(progress)
+  return locale.value.autoScheduleRunning
+})
+
+const runAutoSchedule = async () => {
+  if (autoScheduleRunning.value) return
+  const runId = ++autoScheduleRunId
+  autoScheduleRunning.value = true
+  try {
+    await resolveFixedSongDurations()
+    // 等待期间弹窗被关闭或重开：这次结果作废，不回填新弹窗
+    if (runId !== autoScheduleRunId) return
+    const candidates = autoScheduleCandidates.value
+    const candidateIds = new Set(candidates.map((s) => s.id))
+    const preSelected = buildPreSelected()
+    const fn = autoScheduleAlgorithm.value === 'auto'
+      ? (autoScheduleCandidates.value.length < 20 ? autoScheduleExhaustive : autoSchedule)
+      : (autoScheduleAlgorithm.value === 'exhaustive' ? autoScheduleExhaustive : autoSchedule)
+    const targetSongCount = Number.isFinite(autoScheduleTargetSongCount.value) && autoScheduleTargetSongCount.value > 0
+      ? Math.floor(autoScheduleTargetSongCount.value)
+      : null
+    const targetRequesterCount = Number.isFinite(autoScheduleTargetRequesterCount.value) && autoScheduleTargetRequesterCount.value > 0
+      ? Math.floor(autoScheduleTargetRequesterCount.value)
+      : null
+    const results = fn(autoScheduleDirection.value, autoScheduleTargetMinutes.value, candidates, preSelected, 10, targetSongCount, targetRequesterCount, heatWeightRatio(), autoScheduleOptions.value)
+    const plansArray = Array.isArray(results) ? results : [results]
+    const first = plansArray[0]
+    if (!first || first.songs.length === 0) {
+      if (window.$showNotification) {
+        window.$showNotification(callLocale('messages.autoScheduleNoResult', '未能找到满足条件的歌曲组合'), 'warning')
+      }
+      return
+    }
+    autoSchedulePlans.value = plansArray.map((p) => ({ ...p, candidateIds }))
+    currentPlanIndex.value = 0
+    autoScheduleResult.value = autoSchedulePlans.value[0]
+  } finally {
+    if (runId === autoScheduleRunId) autoScheduleRunning.value = false
+  }
 }
 
 const generateMorePlans = async () => {
@@ -4368,7 +4570,7 @@ const generateMorePlans = async () => {
   const targetRequesterCount = Number.isFinite(autoScheduleTargetRequesterCount.value) && autoScheduleTargetRequesterCount.value > 0
     ? Math.floor(autoScheduleTargetRequesterCount.value)
     : null
-  const results = fn(autoScheduleDirection.value, autoScheduleTargetMinutes.value, candidates, preSelected, requestCount, targetSongCount, targetRequesterCount, heatWeightRatio())
+  const results = fn(autoScheduleDirection.value, autoScheduleTargetMinutes.value, candidates, preSelected, requestCount, targetSongCount, targetRequesterCount, heatWeightRatio(), autoScheduleOptions.value)
   const plansArray = Array.isArray(results) ? results : [results]
   const existingKeys = new Set(autoSchedulePlans.value.map((p) => p.songs.map((s) => s.id).sort().join(',')))
   let addedCount = 0
@@ -4412,8 +4614,9 @@ const goToNextPlan = () => {
 
 const confirmAutoSchedule = () => {
   const candidateIds = autoScheduleResult.value.candidateIds || new Set()
-  const confirmed = autoScheduleResult.value.songs.filter((song) =>
-    candidateIds.has(song.id)
+  // 固定歌曲不在候选池中，不能按候选 id 过滤，否则会被当成失效候选丢弃
+  const confirmed = autoScheduleResult.value.songs.filter(
+    (song) => song.isFixed || candidateIds.has(song.id)
   )
   const baseId = Date.now()
   let appliedCount = 0
@@ -4714,6 +4917,39 @@ const setSongScheduledFlag = (songId, scheduled) => {
   if (songInList) songInList.scheduled = scheduled
 }
 
+// 当前视图是否允许放入指定了期望时段的歌曲：
+// 指定时段的歌曲只能加入对应时段。
+const getPlayTimeConflict = (song) => {
+  const preferredPlayTimeId = song?.preferredPlayTimeId || null
+  if (!preferredPlayTimeId) return null
+  const currentPlayTimeId = selectedPlayTime.value ? Number(selectedPlayTime.value) : null
+  if (currentPlayTimeId === preferredPlayTimeId) return null
+  return {
+    preferredPlayTimeId,
+    preferredPlayTimeName: getPlayTimeName(preferredPlayTimeId),
+    currentPlayTimeId
+  }
+}
+
+// 手工加入排期前校验期望时段约束，返回 true 表示允许加入
+const canAddToSchedule = (song) => {
+  const conflict = getPlayTimeConflict(song)
+  if (!conflict) return true
+  if (window.$showNotification) {
+    const name = conflict.preferredPlayTimeName || `时段#${conflict.preferredPlayTimeId}`
+    window.$showNotification(
+      callLocale(
+        'messages.playTimeConstraintViolation',
+        `《${song?.title || '该歌曲'}》指定了播出时段「${name}」，只能排到该时段`,
+        song?.title || '',
+        name
+      ),
+      'warning'
+    )
+  }
+  return false
+}
+
 // 从拖拽数据中查找歌曲（优先查 songs/replayRequests，再回退到 pool）
 const findSongFromDragData = (dragData) => {
   const songId = parseInt(dragData.songId)
@@ -4747,6 +4983,7 @@ const findSongFromDragData = (dragData) => {
         hasSubmissionNote: poolItem.hasSubmissionNote || false,
         submissionNote: poolItem.submissionNote || null,
         preferredPlayTimeId: poolItem.preferredPlayTimeId || null,
+        preferredPlayDate: poolItem.preferredPlayDate || null,
         semester: poolItem.semester || null
       }
     }
@@ -4761,6 +4998,8 @@ const addSongToScheduleFromDrag = (event) => {
 
   const existingIndex = localScheduledSongs.value.findIndex((s) => s.song.id === songId)
   if (existingIndex !== -1) return
+
+  if (!canAddToSchedule(song)) return
 
   const insertIndex = localScheduledSongs.value.length
 
@@ -4789,6 +5028,8 @@ const insertSongToScheduleAt = (event, dropIndex) => {
   const existingIndex = localScheduledSongs.value.findIndex((s) => s.song.id === songId)
   if (existingIndex !== -1) return
 
+  if (!canAddToSchedule(song)) return
+
   const newSchedule = {
     id: Date.now(),
     replayRequestId: song.replayRequestId || null,
@@ -4815,6 +5056,7 @@ const insertSongToScheduleAt = (event, dropIndex) => {
 const addSongToSchedule = (song) => {
   const existingIndex = localScheduledSongs.value.findIndex((s) => s.song.id === song.id)
   if (existingIndex !== -1) return
+  if (!canAddToSchedule(song)) return
 
   const newSchedule = {
     id: Date.now(),
@@ -5115,12 +5357,7 @@ const confirmMoveDate = async () => {
     } catch (error) {
       console.error('迁移排期日期失败:', error)
       if (window.$showNotification) {
-        const backendMessage =
-          getThrownMessage(error) || formatLocaleValue(locale.value?.unknown) || '未知错误'
-        window.$showNotification(
-          callLocale('errors.moveDateFailed', `迁移失败: ${backendMessage}`, backendMessage),
-          'error'
-        )
+        window.$showNotification(localizeServerError(error), 'error')
       }
     } finally {
       notifySchedulePlaylistChanged({ dates: [sourceDate, targetDate] })
@@ -5538,11 +5775,7 @@ const saveDraftConfirmed = async () => {
   } catch (error) {
     console.error('保存草稿失败:', error)
     if (window.$showNotification) {
-      const message = getThrownMessage(error) || '未知错误'
-      window.$showNotification(
-        callLocale('errors.saveDraftFailed', `保存草稿失败: ${message}`, message),
-        'error'
-      )
+      window.$showNotification(localizeServerError(error), 'error')
     }
   } finally {
     loading.value = false
@@ -5647,11 +5880,7 @@ const publishScheduleConfirmed = async () => {
   } catch (error) {
     console.error('发布排期失败:', error)
     if (window.$showNotification) {
-      const message = getThrownMessage(error) || '未知错误'
-      window.$showNotification(
-        callLocale('errors.publishScheduleFailed', `发布排期失败: ${message}`, message),
-        'error'
-      )
+      window.$showNotification(localizeServerError(error), 'error')
     }
   } finally {
     loading.value = false
@@ -5709,11 +5938,7 @@ const publishSingleDraftConfirmed = async (draft) => {
   } catch (error) {
     console.error('发布单个草稿失败:', error)
     if (window.$showNotification) {
-      const message = getThrownMessage(error) || '未知错误'
-      window.$showNotification(
-        callLocale('errors.publishDraftFailed', `发布草稿失败: ${message}`, message),
-        'error'
-      )
+      window.$showNotification(localizeServerError(error), 'error')
     }
   } finally {
     loading.value = false
@@ -5939,6 +6164,7 @@ const handleTouchEnd = (event) => {
 
 const handleTouchDropToSequence = async (targetElement) => {
   const song = touchDragData.value.item
+  if (!canAddToSchedule(song)) return
   const existingIndex = localScheduledSongs.value.findIndex((s) => s.song.id === song.id)
   if (existingIndex !== -1) return
 

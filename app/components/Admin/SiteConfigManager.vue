@@ -1013,7 +1013,12 @@
           <div class="legal-date-field">
             <label :class="labelClass">{{ locale.legalConsentUpdatedDate }}</label>
             <div class="legal-date-input-wrap mt-2">
-              <input v-model="formData.legalConsentUpdatedDate" type="date" :class="inputClass" />
+              <AppDatePicker
+                v-model="formData.legalConsentUpdatedDate"
+                size="md"
+                rounded="xl"
+                class-name="w-full"
+              />
             </div>
             <p class="legal-setting-hint">{{ locale.legalConsentUpdatedDateHint }}</p>
           </div>
@@ -1058,6 +1063,7 @@ import {
 import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import ImageUploadInput from '~/components/UI/Common/ImageUploadInput.vue'
+import AppDatePicker from '~/components/UI/Common/AppDatePicker.vue'
 import EsaCaptchaWidget from '~/components/Auth/EsaCaptchaWidget.vue'
 import { useToast } from '~/composables/useToast'
 import { joinThemeLogoUrl, splitThemeLogoUrl, useSiteConfig } from '~/composables/useSiteConfig'
@@ -1075,6 +1081,7 @@ import {
 } from '~/utils/esaCaptcha'
 import { usePermissions } from '~/composables/usePermissions'
 import { THEMES } from '~/composables/useTheme'
+import { stripSuperAdminOnlySettingFields } from '~/utils/settingsPermissions'
 import OAuthConfigManager from './OAuthConfigManager.vue'
 
 const { showToast: showNotification } = useToast()
@@ -1679,18 +1686,18 @@ const saveConfig = async () => {
           }
         : {})
     }
-    if (!isSuperAdmin.value) {
-      delete configToSave.defaultTheme
-      delete configToSave.enabledThemes
-    }
-    delete configToSave.schoolLogoHomeDarkUrl
-    delete configToSave.schoolLogoHomeLightUrl
+    // 超管专属字段不提交，避免普通管理员保存整表单被接口拒绝
+    const requestPayload = isSuperAdmin.value
+      ? { ...configToSave }
+      : stripSuperAdminOnlySettingFields(configToSave)
+    delete requestPayload.schoolLogoHomeDarkUrl
+    delete requestPayload.schoolLogoHomeLightUrl
 
     const response = await fetch('/api/admin/system-settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(configToSave)
+      body: JSON.stringify(requestPayload)
     })
 
     if (!response.ok) {
@@ -1831,29 +1838,6 @@ input[type='number'] {
 .legal-mode-option svg { width:14px; height:14px; flex:0 0 14px; }
 .legal-setting-hint { margin-top:10px; font-size:11px; line-height:1.6; }
 .legal-date-field { min-width:0; }
-.legal-date-input-wrap { position: relative; width: 100%; }
-.legal-date-input-wrap :deep(input[type="date"]) {
-  width: 100%;
-  color: var(--text-primary);
-}
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-datetime-edit),
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-datetime-edit-fields-wrapper),
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-datetime-edit-text),
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-datetime-edit-month-field),
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-datetime-edit-day-field),
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-datetime-edit-year-field) {
-  color: var(--text-primary);
-}
-/* 日历图标：深色主题下 UA 默认黑色图标在深色背景不可见，仅此时刷白；浅色主题保留默认黑色 */
-.legal-date-input-wrap :deep(input[type="date"]::-webkit-calendar-picker-indicator) {
-  cursor: pointer;
-  opacity: 1;
-}
-:root[data-theme='ClassicDark'] .legal-date-input-wrap :deep(input[type="date"]::-webkit-calendar-picker-indicator),
-:root[data-theme='ClassicDark'] .legal-date-input-wrap :deep(input[type="date"]::-webkit-calendar-picker-indicator:hover),
-:root[data-theme='ClassicDark'] .legal-date-input-wrap :deep(input[type="date"]:focus::-webkit-calendar-picker-indicator) {
-  filter: brightness(0) invert(1);
-}
 .legal-consent-panel > .grid { grid-template-columns:minmax(0,1fr) 240px; }
 @media (max-width:640px){.legal-consent-panel > .grid{grid-template-columns:1fr}}
 </style>

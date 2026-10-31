@@ -1704,6 +1704,8 @@ const handleRequest = async (songData) => {
         window.$showNotification(getHomeText('messages', 'requestSuccess', songData.title, songData.artist), 'success')
       }
 
+      requestFormRef.value?.resetForm?.()
+
       // 强制刷新歌曲列表
       await refreshSongs()
 
@@ -1730,6 +1732,9 @@ const handleRequest = async (songData) => {
       )
     }
     return false
+  } finally {
+    // 释放投稿中状态，否则投稿选项弹窗关闭后卡片会停在「处理中」
+    requestFormRef.value?.endSubmission?.()
   }
 }
 

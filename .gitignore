@@ -34,10 +34,12 @@ backups/
 .vscode
 .trae
 .qoder
+.qoder-credits
 .codebuddy
 .figma
 .codex
 .agents
+package-lock.json
 scripts/package-lock.json
 
 # Nix build output

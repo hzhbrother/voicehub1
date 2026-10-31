@@ -1,10 +1,11 @@
-import { createError, defineEventHandler, readBody, readMultipartFormData } from 'h3'
+import { defineEventHandler, readBody, readMultipartFormData } from 'h3'
 import { db } from '~/drizzle/db'
 import { pluginClearOrder, restorePluginRecord } from '~~/server/utils/music-source-plugins/backup'
 import {
   apiKeyPermissions,
   apiKeys,
   apiLogs,
+  cardCodeAssignments,
   cardCodeRedeemLogs,
   cardCodes,
   collaborationLogs,
@@ -36,18 +37,20 @@ import { omitMaskedSystemSettingsSecrets } from '~~/server/api/admin/system-sett
 import { restoreAstrbotBindings } from '~~/server/utils/astrbot-backup'
 import { validateThemeConfig } from '~~/server/utils/theme-config'
 import { createApiError } from '~~/server/utils/apiError'
+import { clearDefaultPlayTime } from '~~/server/utils/play-time-default'
 import { SERVER_ERROR_CODES } from '~~/server/config/constants'
 import { normalizeScheduleVisibilitySettings } from '~~/server/utils/system-settings-defaults'
+import { syncAllSequences } from '~~/server/utils/sequence-sync'
+import { getServerDate } from '~~/server/utils/serverTime'
+import { restoreCardCodeAssignmentRecord, syncRestoredCardCodeAssignment } from '~~/server/utils/card-code-backup'
 
 export default defineEventHandler(async (event) => {
   try {
     // 验证管理员权限
     const user = event.context.user
-    if (!user || user.role !== 'SUPER_ADMIN') {
-      throw createError({
-        statusCode: 403,
-        message: '只有超级管理员可以恢复备份'
-      })
+    if (!user) throw createApiError(401, SERVER_ERROR_CODES.AUTH_UNAUTHORIZED, '需要登录')
+    if (user.role !== 'SUPER_ADMIN') {
+      throw createApiError(403, SERVER_ERROR_CODES.COMMON_INSUFFICIENT_PERMISSION, '只有超级管理员可以恢复备份')
     }
 
     let backupData: any
@@ -63,10 +66,7 @@ export default defineEventHandler(async (event) => {
       const formData = await readMultipartFormData(event)
 
       if (!formData) {
-        throw createError({
-          statusCode: 400,
-          message: '请上传备份文件'
-        })
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '请上传备份文件')
       }
 
       let fileData = null
@@ -83,19 +83,13 @@ export default defineEventHandler(async (event) => {
       }
 
       if (!fileData) {
-        throw createError({
-          statusCode: 400,
-          message: '请上传备份文件'
-        })
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '请上传备份文件')
       }
 
       try {
         backupData = JSON.parse(fileData)
       } catch (error: any) {
-        throw createError({
-          statusCode: 400,
-          message: '备份文件格式错误'
-        })
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '备份文件格式错误')
       }
 
       console.log(`开始恢复上传的数据库备份`)
@@ -110,18 +104,12 @@ export default defineEventHandler(async (event) => {
       } = body
 
       if (!filename) {
-        throw createError({
-          statusCode: 400,
-          message: '请指定备份文件名或上传备份文件'
-        })
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '请指定备份文件名或上传备份文件')
       }
 
       const safeFilename = path.basename(filename)
       if (safeFilename !== filename) {
-        throw createError({
-          statusCode: 400,
-          message: '备份文件名不合法'
-        })
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '备份文件名不合法')
       }
 
       mode = bodyMode
@@ -138,19 +126,13 @@ export default defineEventHandler(async (event) => {
         const fileContent = await fs.readFile(filepath, 'utf8')
         backupData = JSON.parse(fileContent)
       } catch (error: any) {
-        throw createError({
-          statusCode: 404,
-          message: '备份文件不存在或格式错误'
-        })
+        throw createApiError(404, SERVER_ERROR_CODES.COMMON_TARGET_NOT_FOUND, '备份文件不存在或格式错误')
       }
     }
 
     // 验证备份文件格式
     if (!backupData.metadata || !backupData.data) {
-      throw createError({
-        statusCode: 400,
-        message: '备份文件格式无效'
-      })
+      throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '备份文件格式无效')
     }
 
     console.log(`备份文件信息:`)
@@ -162,10 +144,7 @@ export default defineEventHandler(async (event) => {
     const backupUsers: any[] = Array.isArray(backupData.data?.users) ? backupData.data.users : []
     const hasSuperAdminInBackup = backupUsers.some((record) => record?.role === 'SUPER_ADMIN')
     if (overwriteSuperAdmin && user.role !== 'SUPER_ADMIN') {
-      throw createError({
-        statusCode: 403,
-        message: '仅超级管理员可以覆盖超级管理员账号数据'
-      })
+      throw createApiError(403, SERVER_ERROR_CODES.COMMON_INSUFFICIENT_PERMISSION, '仅超级管理员可以覆盖超级管理员账号数据')
     }
     const shouldOverwriteSuperAdmin =
       mode === 'replace' && clearExisting && overwriteSuperAdmin && hasSuperAdminInBackup
@@ -202,6 +181,7 @@ export default defineEventHandler(async (event) => {
           await db.delete(apiKeys)
           await db.delete(notifications)
           await db.delete(notificationSettings)
+          await db.delete(cardCodeAssignments)
           await db.delete(cardCodeRedeemLogs)
           await db.delete(collaborationLogs)
           await db.delete(songCollaborators)
@@ -252,8 +232,11 @@ export default defineEventHandler(async (event) => {
             await db.delete(apiKeyPermissions)
           }
 
+          await db.delete(cardCodeAssignments)
+          await db.delete(cardCodeRedeemLogs)
+          await db.delete(cardCodes)
+
           if (preservedUserIdList.length > 0) {
-            await db.delete(cardCodeRedeemLogs)
             await db.delete(apiKeys).where(notInArray(apiKeys.createdByUserId, preservedUserIdList))
             await db
               .delete(notifications)
@@ -269,7 +252,6 @@ export default defineEventHandler(async (event) => {
               .where(notInArray(userIdentities.userId, preservedUserIdList))
             await db.delete(users).where(notInArray(users.id, preservedUserIdList))
           } else {
-            await db.delete(cardCodeRedeemLogs)
             await db.delete(apiKeys)
             await db.delete(notifications)
             await db.delete(notificationSettings)
@@ -285,7 +267,6 @@ export default defineEventHandler(async (event) => {
           await db.delete(schedules)
           await db.delete(votes)
           await db.delete(songs)
-          await db.delete(cardCodes)
           await db.delete(songBlacklists)
           await db.delete(emailTemplates)
           await db.delete(playTimes)
@@ -331,6 +312,7 @@ export default defineEventHandler(async (event) => {
       'schedules',
       'scheduleSongPool',
       'cardCodeRedeemLogs',
+      'cardCodeAssignments',
       'notificationSettings',
       'notifications',
       'apiKeys',
@@ -628,7 +610,7 @@ export default defineEventHandler(async (event) => {
                           providerUserId: record.providerUserId,
                           providerUsername: record.providerUsername,
                           avatar: record.avatar || null,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate()
                         }
 
                         if (
@@ -707,7 +689,7 @@ export default defineEventHandler(async (event) => {
                           newStatus: record.newStatus,
                           reason: record.reason || null,
                           operatorId: record.operatorId || record.changedBy || null,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -757,7 +739,7 @@ export default defineEventHandler(async (event) => {
                           return
                         }
 
-                        const mapUserId = async (field: 'lockedBy' | 'redeemedBy') => {
+                        const mapUserId = async (field: 'lockedBy' | 'redeemedBy' | 'assignedTo') => {
                           if (!record[field]) return null
                           const mappedUserId = userIdMapping.get(record[field])
                           if (mappedUserId) return mappedUserId
@@ -772,16 +754,21 @@ export default defineEventHandler(async (event) => {
 
                         cardCodeData.lockedBy = await mapUserId('lockedBy')
                         cardCodeData.redeemedBy = await mapUserId('redeemedBy')
+                        // 恢复点歌券持有人。
+                        cardCodeData.assignedTo = await mapUserId('assignedTo')
+                        cardCodeData.assignedAt = record.assignedAt
+                          ? new Date(record.assignedAt)
+                          : null
                         cardCodeData.lockedAt = record.lockedAt ? new Date(record.lockedAt) : null
                         cardCodeData.redeemedAt = record.redeemedAt
                           ? new Date(record.redeemedAt)
                           : null
                         cardCodeData.createdAt = record.createdAt
                           ? new Date(record.createdAt)
-                          : new Date()
+                          : getServerDate()
                         cardCodeData.updatedAt = record.updatedAt
                           ? new Date(record.updatedAt)
-                          : new Date()
+                          : getServerDate()
 
                         let restoredCardCode
                         if (mode === 'merge') {
@@ -831,6 +818,9 @@ export default defineEventHandler(async (event) => {
 
                         if (record.id && restoredCardCode?.id) {
                           cardCodeIdMapping.set(record.id, restoredCardCode.id)
+                        }
+                        if (mode === 'merge' && restoredCardCode) {
+                          await syncRestoredCardCodeAssignment(tx, restoredCardCode)
                         }
                         break
                       }
@@ -919,7 +909,8 @@ export default defineEventHandler(async (event) => {
                           'submissionNote',
                           'submissionNotePublic',
                           'submissionNotePublicStatus',
-                          'topicId'
+                          'topicId',
+                          'preferredPlayDate'
                         ]
                         songFields.forEach((field) => {
                           if (record.hasOwnProperty(field)) {
@@ -940,13 +931,13 @@ export default defineEventHandler(async (event) => {
                         if (record.hasOwnProperty('createdAt') && record.createdAt) {
                           songData.createdAt = new Date(record.createdAt)
                         } else {
-                          songData.createdAt = new Date()
+                          songData.createdAt = getServerDate()
                         }
 
                         if (record.hasOwnProperty('updatedAt') && record.updatedAt) {
                           songData.updatedAt = new Date(record.updatedAt)
                         } else {
-                          songData.updatedAt = new Date()
+                          songData.updatedAt = getServerDate()
                         }
 
                         let createdSong: any
@@ -1048,7 +1039,7 @@ export default defineEventHandler(async (event) => {
                       case 'playTimes':
                         // 动态构建播放时段数据，自动跳过不存在的字段
                         const playTimeData: any = {}
-                        const playTimeFields = ['name', 'startTime', 'endTime', 'description']
+                        const playTimeFields = ['name', 'startTime', 'endTime', 'description', 'weekdays']
 
                         playTimeFields.forEach((field) => {
                           if (record.hasOwnProperty(field)) {
@@ -1060,6 +1051,17 @@ export default defineEventHandler(async (event) => {
                         playTimeData.enabled = record.hasOwnProperty('enabled')
                           ? record.enabled
                           : true
+
+                        // 默认播出时段：备份含该字段才恢复。为 true 时先清空现有默认，
+                        // 避免与部分唯一索引冲突；备份内出现多条时以最后一条为准。
+                        if (record.hasOwnProperty('isDefault')) {
+                          // 不变式：默认时段必须启用，停用行钳位为 false，防手工编辑的备份落库后默认静默失效
+                          const wantsDefault = record.isDefault === true && playTimeData.enabled === true
+                          if (wantsDefault) {
+                            await clearDefaultPlayTime(tx)
+                          }
+                          playTimeData.isDefault = wantsDefault
+                        }
 
                         if (mode === 'merge') {
                           // 检查是否存在相同名称的播放时段
@@ -1211,6 +1213,7 @@ export default defineEventHandler(async (event) => {
                         let systemSettingsData: any = {}
                         const systemSettingsFields = [
                           'enablePlayTimeSelection',
+                          'playSlotRequired',
                           'instanceId',
                           'defaultTheme',
                           'enabledThemes',
@@ -1593,10 +1596,10 @@ export default defineEventHandler(async (event) => {
                         // 日期字段
                         notificationSettingsData.createdAt = record.createdAt
                           ? new Date(record.createdAt)
-                          : new Date()
+                          : getServerDate()
                         notificationSettingsData.updatedAt = record.updatedAt
                           ? new Date(record.updatedAt)
-                          : new Date()
+                          : getServerDate()
 
                         if (mode === 'merge') {
                           // 使用userId作为唯一标识进行upsert，因为数据库中userId有唯一约束
@@ -1708,10 +1711,10 @@ export default defineEventHandler(async (event) => {
                         // 日期字段
                         notificationData.createdAt = record.createdAt
                           ? new Date(record.createdAt)
-                          : new Date()
+                          : getServerDate()
                         notificationData.updatedAt = record.updatedAt
                           ? new Date(record.updatedAt)
-                          : new Date()
+                          : getServerDate()
 
                         if (mode === 'merge') {
                           // 检查是否存在相同的通知（按用户ID、类型和消息）
@@ -1794,8 +1797,8 @@ export default defineEventHandler(async (event) => {
                           reason: record.reason || null,
                           isActive: record.hasOwnProperty('isActive') ? record.isActive : true,
                           createdBy: validCreatedBy,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
+                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -1866,8 +1869,8 @@ export default defineEventHandler(async (event) => {
                           songId: validCollabSongId,
                           userId: validCollabUserId,
                           status: record.status || 'PENDING',
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
+                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : getServerDate()
                         }
 
                         // UUID 表直接插入，如果冲突则更新
@@ -1886,7 +1889,7 @@ export default defineEventHandler(async (event) => {
                           action: record.action,
                           operatorId: record.operatorId, // 可能需要映射，但 operatorId 是 integer
                           ipAddress: record.ipAddress,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate()
                         }
 
                         // 映射 operatorId
@@ -1938,8 +1941,8 @@ export default defineEventHandler(async (event) => {
                           submissionNote: record.submissionNote ?? null,
                           submissionNotePublic: record.submissionNotePublic === true,
                           submissionNotePublicStatus: record.submissionNotePublicStatus ?? null,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
+                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -2034,10 +2037,10 @@ export default defineEventHandler(async (event) => {
                           cardCodeId: validCardCodeId,
                           codeSnapshot: record.codeSnapshot,
                           redeemedBy: validRedeemedBy,
-                          redeemedAt: record.redeemedAt ? new Date(record.redeemedAt) : new Date(),
+                          redeemedAt: record.redeemedAt ? new Date(record.redeemedAt) : getServerDate(),
                           source: record.source || 'UNKNOWN',
                           songId: validLogSongId,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate()
                         }
 
                         if (!logData.codeSnapshot) {
@@ -2064,6 +2067,15 @@ export default defineEventHandler(async (event) => {
                               .values({ ...logData, id: record.id })
                           }
                         }
+                        break
+                      }
+
+                      case 'cardCodeAssignments': {
+                        const result = await restoreCardCodeAssignmentRecord(tx, record, mode, {
+                          users: userIdMapping,
+                          cardCodes: cardCodeIdMapping
+                        })
+                        if (result === 'skipped') return
                         break
                       }
 
@@ -2120,7 +2132,7 @@ export default defineEventHandler(async (event) => {
                         const voteData = {
                           userId: validVoteUserId,
                           songId: validVoteSongId,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -2188,8 +2200,8 @@ export default defineEventHandler(async (event) => {
                           expected: record.expected || 0,
                           accepted: record.accepted || 0,
                           past: record.past !== undefined ? record.past : false,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
+                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -2270,8 +2282,8 @@ export default defineEventHandler(async (event) => {
                           subject: record.subject,
                           html: record.html,
                           updatedByUserId: validEmailTemplateUpdatedByUserId,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
+                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -2356,8 +2368,8 @@ export default defineEventHandler(async (event) => {
                           keyPrefix: record.keyPrefix,
                           isActive: record.isActive !== undefined ? record.isActive : true,
                           expiresAt: record.expiresAt ? new Date(record.expiresAt) : null,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
-                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
+                          updatedAt: record.updatedAt ? new Date(record.updatedAt) : getServerDate(),
                           lastUsedAt: record.lastUsedAt ? new Date(record.lastUsedAt) : null,
                           createdByUserId: validApiKeyCreatedByUserId,
                           usageCount: record.usageCount || 0
@@ -2436,7 +2448,7 @@ export default defineEventHandler(async (event) => {
                         const apiKeyPermissionData = {
                           apiKeyId: validApiKeyPermissionApiKeyId,
                           permission: record.permission,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date()
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate()
                         }
 
                         if (mode === 'merge') {
@@ -2521,7 +2533,7 @@ export default defineEventHandler(async (event) => {
                           responseTimeMs: record.responseTimeMs,
                           requestBody: record.requestBody || null,
                           responseBody: record.responseBody || null,
-                          createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
+                          createdAt: record.createdAt ? new Date(record.createdAt) : getServerDate(),
                           errorMessage: record.errorMessage || null
                         }
 
@@ -2641,57 +2653,13 @@ export default defineEventHandler(async (event) => {
       console.error('恢复后设置一致性校验失败:', settingsError)
     }
 
-    // 重置所有自增序列
-    console.log(`🔄 开始重置自增序列...`)
-    const sequenceResetResults = []
-    const tablesToReset = [
-      'Song',
-      'User',
-      'UserIdentity',
-      'UserStatusLog',
-      'Vote',
-      'Schedule',
-      'Notification',
-      'NotificationSettings',
-      'PlayTime',
-      'Semester',
-      'SystemSettings',
-      'SongBlacklist',
-      'SongReplayRequest',
-      'RequestTime',
-      'EmailTemplate'
-    ]
-
-    for (const tableName of tablesToReset) {
-      try {
-        // 调用 fix-sequence 端点
-        const response = await ($fetch as any)('/api/admin/fix-sequence', {
-          method: 'POST',
-          body: { table: tableName },
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: getRequestHeader(event, 'authorization') || ''
-          }
-        })
-
-        if (response.success) {
-          sequenceResetResults.push(`${tableName}: 序列已重置`)
-          console.log(`✅ ${tableName} 序列重置成功`)
-        } else {
-          const errorMsg = `${tableName}: 序列重置失败 - ${response.error}`
-          sequenceResetResults.push(errorMsg)
-          console.warn(`⚠️ ${errorMsg}`)
-        }
-      } catch (sequenceError: any) {
-        const errorMsg = `${tableName}: 序列重置失败 - ${sequenceError.message}`
-        sequenceResetResults.push(errorMsg)
-        console.warn(`⚠️ ${errorMsg}`)
-      }
+    try {
+      await syncAllSequences()
+      restoreResults.details.sequenceResets = ['所有自增序列已同步']
+    } catch (sequenceError: any) {
+      console.error('恢复后同步自增序列失败:', sequenceError)
+      restoreResults.details.errors.push('同步自增序列失败')
     }
-
-    // 将序列重置结果添加到详情中
-    restoreResults.details.sequenceResets = sequenceResetResults
-    console.log(`✅ 序列重置完成`)
 
     if (restoreResults.details.errors.length > 0) {
       console.warn(`⚠️ 发生了 ${restoreResults.details.errors.length} 个错误`)
@@ -2716,9 +2684,7 @@ export default defineEventHandler(async (event) => {
     return restoreResults
   } catch (error: any) {
     console.error('恢复数据库备份失败:', error)
-    throw createError({
-      statusCode: error.statusCode || 500,
-      message: error.message || '恢复数据库备份失败'
-    })
+    if (error.statusCode && error.statusCode < 500) throw error
+    throw createApiError(500, SERVER_ERROR_CODES.SONG_OPERATION_FAILED, '恢复数据库备份失败')
   }
 })
