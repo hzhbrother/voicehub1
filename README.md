@@ -850,6 +850,7 @@ VoiceHub/
 │   │   │   │   ├── CustomSelect.vue   # 自定义选择器
 │   │   │   │   ├── DataTable.vue      # 通用数据表格组件
 │   │   │   │   ├── ErrorBoundary.vue  # 错误边界组件
+│   │   │   │   ├── ImageUploadInput.vue # 图片上传输入（本地选择/拍照）
 │   │   │   │   ├── InputField.vue     # 通用输入框组件
 │   │   │   │   ├── LoadingState.vue   # 加载状态组件
 │   │   │   │   ├── MethodCard.vue     # 可展开卡片组件
