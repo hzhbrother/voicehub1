@@ -12,9 +12,11 @@ import { maskStudentNameForPicker } from '~~/server/utils/studentMask'
 // 联合投稿候选人只包含普通用户与歌曲管理员，避免枚举后台账号
 const SEARCHABLE_ROLES = ['USER', 'SONG_ADMIN']
 const MAX_RESULTS = 5
+const ADMIN_MAX_RESULTS = 20
 const MAX_KEYWORD_LENGTH = 30
 const SEARCH_RATE_LIMIT = 60
 const SEARCH_RATE_WINDOW_MS = 60 * 1000
+const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN']
 
 // PostgreSQL LIKE 的默认转义符为反斜杠，转义通配符可防止用 % 或 _ 批量拉取用户
 const escapeLikePattern = (value: string) => value.replace(/[\\%_]/g, '\\$&')
@@ -66,11 +68,15 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    // 只返回选择候选人所需的最小字段，不返回用户名、年级等可用于登录爆破的信息
+    const isAdmin = ADMIN_ROLES.includes(user.role)
+    // 管理员可查看完整姓名与用户名，便于代他人投稿时准确识别人选；普通用户仍走脱敏
+    const limit = isAdmin ? ADMIN_MAX_RESULTS : MAX_RESULTS
+
     const results = await db
       .select({
         id: users.id,
         name: users.name,
+        username: users.username,
         grade: users.grade,
         class: users.class
       })
@@ -86,13 +92,14 @@ export default defineEventHandler(async (event) => {
           )
         )
       )
-      .limit(MAX_RESULTS)
+      .limit(limit)
 
     return {
       success: true,
       users: results.map((u) => ({
         id: u.id,
-        name: maskStudentNameForPicker(u.name || ''),
+        name: isAdmin ? u.name : maskStudentNameForPicker(u.name || ''),
+        username: isAdmin ? u.username : null,
         grade: u.grade || null,
         class: u.class || null
       }))

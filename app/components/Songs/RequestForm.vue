@@ -4745,8 +4745,9 @@ defineExpose({
   color: var(--text-primary);
   display: flex;
   gap: 2rem;
-  height: calc(100vh - 160px);
-  min-height: 650px;
+  /* 顶部导航 160px + 底部播放器 165px + 1rem 偏移 + 间距 */
+  height: calc(100vh - 160px - 195px);
+  min-height: 500px;
 }
 
 /* 桌面端样式 */
@@ -4762,8 +4763,8 @@ defineExpose({
   background: var(--surface-card-bg);
   border-radius: 13px;
   padding: 1.25rem;
-  flex: 0 0 35%; /* 稍微缩小规则区域占比 */
-  min-width: 300px;
+  flex: 0 0 28%;
+  min-width: 280px;
   height: 100%;
   overflow-y: auto;
 }

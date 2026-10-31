@@ -607,6 +607,14 @@ export async function requestSongForUser(
           throw createError({ statusCode: 400, message: '所选专题不存在或已关闭' })
         }
 
+        // 时间窗口校验：专题需在有效期内
+        const nowBeijing = getBeijingTimeISOString()
+        const startOk = !selectedTopic.startTime || selectedTopic.startTime <= nowBeijing
+        const endOk = !selectedTopic.endTime || selectedTopic.endTime > nowBeijing
+        if (!startOk || !endOk) {
+          throw createError({ statusCode: 400, message: '所选专题不在投稿有效期内' })
+        }
+
         // 名额校验：expected > 0 时检查 accepted < expected
         if (selectedTopic.expected > 0 && selectedTopic.accepted >= selectedTopic.expected) {
           throw createError({ statusCode: 403, message: '该专题投稿名额已满' })
