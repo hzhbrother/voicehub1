@@ -35,6 +35,15 @@
 
           <!-- 表单主体 -->
           <div class="options-body px-7 pb-6 space-y-5 overflow-y-auto">
+            <!-- 分组标题：投稿设置 -->
+            <div
+              v-if="slotEnabled || showNote || showAnonymous || showCardCode"
+              class="options-group-heading"
+            >
+              <span class="options-group-title">{{ text.settingsGroupTitle }}</span>
+              <span class="options-group-desc">{{ text.settingsGroupDesc }}</span>
+            </div>
+
             <!-- 一、播出日期 + 时段（仅在时段选择功能开启时显示） -->
             <div v-if="slotEnabled" class="options-section">
               <div class="options-section-head">
@@ -235,6 +244,39 @@
               </div>
             </div>
 
+            <!-- 二、专题投稿 -->
+            <div v-if="topics.length > 0" class="options-section options-group--separated">
+              <div class="options-section-head">
+                <span class="options-section-title">
+                  <Icon :size="14" name="list-ordered" />
+                  <span>{{ text.topicSectionTitle }}</span>
+                  <span class="options-tag">{{ text.optional }}</span>
+                </span>
+              </div>
+              <button
+                class="options-topic-toggle"
+                type="button"
+                @click="emit('update:topicJoin', !topicJoin)"
+              >
+                <span class="options-topic-toggle-text">{{ text.topicJoinLabel }}</span>
+                <span :class="['options-switch', { on: topicJoin }]">
+                  <span class="options-switch-knob" />
+                </span>
+              </button>
+              <p class="options-hint">{{ text.topicJoinHint }}</p>
+              <div v-if="topicJoin" class="options-field">
+                <CustomSelect
+                  :model-value="topicId"
+                  :options="topics"
+                  :label="text.topicSelectLabel"
+                  label-key="name"
+                  value-key="id"
+                  :placeholder="text.topicPlaceholder"
+                  @update:model-value="emit('update:topicId', $event)"
+                />
+              </div>
+            </div>
+
             <!-- 空内容提示 -->
             <p v-if="isEmpty" class="options-hint">
               {{ text.emptyHint }}
@@ -393,6 +435,21 @@ const props = defineProps({
   text: {
     type: Object,
     required: true
+  },
+  // 进行中的专题（为空时不显示专题区块）
+  topics: {
+    type: Array,
+    default: () => []
+  },
+  // 是否参与专题投稿（v-model:topic-join）
+  topicJoin: {
+    type: Boolean,
+    default: false
+  },
+  // 已选专题（v-model:topic-id）
+  topicId: {
+    type: [String, Number],
+    default: null
   }
 })
 
@@ -402,6 +459,8 @@ const emit = defineEmits([
   'update:notePublic',
   'update:noteAnonymous',
   'update:cardCodeDraft',
+  'update:topicJoin',
+  'update:topicId',
   'save-card-code',
   'clear-card-code',
   'select-my-card-code',
@@ -490,7 +549,12 @@ const handleCardCodeSelect = (value) => {
 
 /** 三段控件全部不可用时给出提示（例如留言、点歌券、时段均未开启） */
 const isEmpty = computed(
-  () => !props.slotEnabled && !props.showNote && !props.showAnonymous && !props.showCardCode
+  () =>
+    !props.slotEnabled &&
+    !props.showNote &&
+    !props.showAnonymous &&
+    !props.showCardCode &&
+    (props.topics || []).length === 0
 )
 
 const cardCodeStatusClass = computed(() => ({
@@ -604,6 +668,70 @@ const handleConfirm = () => {
 .options-group--separated {
   padding-top: 1.25rem;
   border-top: 1px dashed var(--border-secondary-50);
+}
+
+/* 分组标题：投稿设置（含可选项目说明） */
+.options-group-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.options-group-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.options-group-desc {
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.options-topic-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-secondary-50);
+  background: var(--bg-secondary-50);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.options-switch {
+  width: 2rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.options-switch.on {
+  background: var(--primary);
+}
+
+.options-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.options-switch.on .options-switch-knob {
+  transform: translateX(0.875rem);
 }
 
 .options-section-head {

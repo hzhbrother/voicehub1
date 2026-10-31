@@ -118,6 +118,29 @@
           </div>
         </div>
 
+        <!-- 管理员代他人投稿 -->
+        <div v-if="isAdminUser" class="collaborators-section on-behalf-section">
+          <div class="section-label">{{ locale.onBehalfTitle }}</div>
+          <div class="collaborators-list">
+            <div v-if="onBehalfUser" class="collaborator-tag">
+              <span class="collaborator-name">{{ onBehalfUser.name }}</span>
+              <button class="remove-collaborator" type="button" @click="clearOnBehalfUser">
+                <Icon :size="12" name="close" />
+              </button>
+            </div>
+            <button
+              v-else
+              class="add-collaborator-btn"
+              type="button"
+              @click="showOnBehalfSearch = true"
+            >
+              <Icon :size="14" name="user" />
+              {{ locale.onBehalfPick }}
+            </button>
+            <span class="on-behalf-hint">{{ locale.onBehalfHint }}</span>
+          </div>
+        </div>
+
         <!-- 搜索结果容器 -->
         <div class="search-results-container">
           <div v-if="!user" class="submission-status-horizontal login-required-notice">
@@ -224,69 +247,6 @@
                 <span class="status-value">{{ locale.cardCodeBypassesLimit }}</span>
               </div>
             </div>
-          </div>
-
-          <!-- 投稿附加设置：投稿设置 + 专题投稿 -->
-          <div
-            v-if="submissionOptionsSummary || activeTopics.length > 0"
-            class="extra-options-card"
-          >
-            <button
-              v-if="submissionOptionsAvailable && user && submissionOptionsSummary"
-              class="extra-option-row"
-              :aria-label="locale.submissionOptions"
-              type="button"
-              @click="openSubmissionOptions"
-            >
-              <span class="extra-option-icon">
-                <Icon name="settings" :size="16" />
-              </span>
-              <span class="extra-option-body">
-                <span class="extra-option-title">
-                  {{ locale.submissionOptions }}
-                  <span class="extra-option-tag">{{ locale.optional }}</span>
-                </span>
-                <span class="extra-option-desc">{{ submissionOptionsSummary }}</span>
-                <span v-if="submissionOptionsStatus" class="extra-option-status">
-                  {{ submissionOptionsStatus }}
-                </span>
-              </span>
-              <Icon class="extra-option-arrow" name="chevron-right" :size="16" />
-            </button>
-            <div v-else-if="submissionOptionsSummary" class="extra-option-row is-static">
-              <span class="extra-option-icon">
-                <Icon name="settings" :size="16" />
-              </span>
-              <span class="extra-option-body">
-                <span class="extra-option-title">{{ locale.submissionOptions }}</span>
-                <span class="extra-option-desc">{{ submissionOptionsSummary }}</span>
-              </span>
-            </div>
-
-            <template v-if="activeTopics.length > 0">
-              <button class="extra-option-row" type="button" @click="joinTopic = !joinTopic">
-                <span class="extra-option-icon">
-                  <Icon name="list-ordered" :size="16" />
-                </span>
-                <span class="extra-option-body">
-                  <span class="extra-option-title">{{ locale.topicJoin }}</span>
-                  <span class="extra-option-desc">{{ locale.topicJoinHint }}</span>
-                </span>
-                <span :class="['extra-option-switch', { on: joinTopic }]">
-                  <span class="extra-option-knob" />
-                </span>
-              </button>
-              <div v-if="joinTopic" class="extra-option-select">
-                <CustomSelect
-                  v-model="selectedTopicId"
-                  :options="activeTopics"
-                  :label="locale.topicSelectLabel"
-                  label-key="name"
-                  value-key="id"
-                  :placeholder="locale.topicSelectPlaceholder"
-                />
-              </div>
-            </template>
           </div>
 
           <!-- 音乐平台选择按钮 -->
@@ -867,6 +827,16 @@
       @select="handleUserSelect"
     />
 
+    <!-- 管理员代他人投稿：选择投稿人 -->
+    <UserSearchModal
+      v-if="isAdminUser"
+      v-model:show="showOnBehalfSearch"
+      :exclude-ids="[]"
+      :multiple="false"
+      :title="locale.onBehalfTitle"
+      @select="handleOnBehalfSelect"
+    />
+
     <Teleport to="body">
       <Transition
         enter-active-class="transition duration-300 ease-out"
@@ -1245,6 +1215,9 @@
       :card-code-status="cardCodeStatusText"
       :card-code-status-tone="cardCodeStatusTone"
       :card-code-checking="cardCodeValidation.checking"
+      v-model:topic-join="joinTopic"
+      v-model:topic-id="selectedTopicId"
+      :topics="activeTopics"
       :text="submissionOptionsText"
       @save-card-code="saveCardCode"
       @clear-card-code="clearCardCode"
@@ -1453,6 +1426,20 @@ const openPlaylistModal = (platform) => {
 }
 const showUserSearchModal = ref(false)
 const collaborators = ref([])
+// 管理员代他人投稿：选择稿件归属的普通用户
+const showOnBehalfSearch = ref(false)
+const onBehalfUser = ref(null)
+const isAdminUser = computed(
+  () => !!user.value && ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.value.role)
+)
+const handleOnBehalfSelect = (selected) => {
+  const target = Array.isArray(selected) ? selected[0] : selected
+  onBehalfUser.value = target || null
+  showOnBehalfSearch.value = false
+}
+const clearOnBehalfUser = () => {
+  onBehalfUser.value = null
+}
 
 const songService = useSongs({ compact: true })
 const playTimes = ref([])
@@ -2644,6 +2631,11 @@ const submissionOptionsAvailable = computed(
     cardCodeEnabled.value
 )
 
+/** 每次投稿前是否弹出投稿选项弹窗（有可配置项或专题时） */
+const submissionDialogNeeded = computed(
+  () => submissionOptionsAvailable.value || activeTopics.value.length > 0
+)
+
 /** 生成投稿设置可配置项列表（用于入口卡片的说明行）。 */
 const submissionOptionsSummary = computed(() => {
   const items = []
@@ -2660,33 +2652,6 @@ const submissionOptionsSummary = computed(() => {
     items.push(locale.value?.submissionOptionItemCardCode || '点歌券')
   }
   return items.join(' · ')
-})
-
-/** 已选内容的摘要：未设置时为空，不占位 */
-const submissionOptionsStatus = computed(() => {
-  const parts = []
-  if (playTimeSelectionEnabled.value && preferredPlayTimeId.value) {
-    const slot = playTimes.value.find(
-      (item) => String(item.id) === String(preferredPlayTimeId.value)
-    )
-    if (slot) {
-      const dateLabel = preferredPlayDate.value
-        ? `${Number(preferredPlayDate.value.slice(5, 7))}/${Number(preferredPlayDate.value.slice(8, 10))} `
-        : ''
-      parts.push(`${dateLabel}${slot.name}`)
-    }
-  }
-  if (enableSubmissionRemarks.value && submissionNote.value.trim()) {
-    parts.push(locale.value?.submissionOptionItemNote || '投稿留言')
-  }
-  if (allowAnonymousSubmission.value && user.value && submissionAnonymous.value) {
-    parts.push(locale.value?.submissionOptionItemAnonymous || '匿名投稿')
-  }
-  if (cardCodeEnabled.value && trimmedCardCode.value) {
-    parts.push(locale.value?.submissionOptionItemCardCode || '点歌券')
-  }
-  if (!parts.length) return ''
-  return `${locale.value?.submissionOptionsApplied || '已设置'}：${parts.join(' · ')}`
 })
 
 /** 用户主动打开投稿选项弹窗：只保存选项，不触发投稿 */
@@ -2766,6 +2731,14 @@ const submissionOptionsText = computed(() => {
     cardCodeManualInput: locale.value.cardCodeManualInput || '手动输入券码',
     cardCodeManualOption: locale.value.cardCodeManualOption || '手动输入券码',
     cardCodeManualPlaceholder: locale.value.cardCodeManualPlaceholder || '输入收到的点歌券码',
+    // 分组标题与专题投稿
+    settingsGroupTitle: locale.value.submissionOptions || '投稿设置',
+    settingsGroupDesc: submissionOptionsSummary.value,
+    topicSectionTitle: locale.value.topicJoin || '参与专题投稿',
+    topicJoinLabel: locale.value.topicJoin || '参与本期专题投稿',
+    topicJoinHint: locale.value.topicJoinHint || '开启后可选择一个进行中的专题',
+    topicSelectLabel: locale.value.topicSelectLabel || '选择专题',
+    topicPlaceholder: locale.value.topicSelectPlaceholder || '请选择专题',
     // 操作
     clear: locale.value.clear || '清除',
     save: locale.value.save || '保存',
@@ -3688,7 +3661,7 @@ const submitSong = async (result, options = {}) => {
   }
 
   // 校验投稿日期与时段。
-  if (requiresSlotSelection.value && options.replayRequest !== true && !options.fromSlotModal) {
+  if (submissionDialogNeeded.value && options.replayRequest !== true && !options.fromSlotModal) {
     // 记下本次投稿的卡片，弹窗关闭到请求返回期间按钮持续显示「处理中」
     submittingSongKey.value = getSearchResultKey(result)
     openRequiredSlotOptions({ result, options })
@@ -3854,7 +3827,8 @@ const submitSong = async (result, options = {}) => {
       collaborators: collaborators.value.map((u) => u.id),
       bilibiliCid: bilibiliCid || null,
       bilibiliPage: bilibiliPage,
-      topicId: selectedTopicForSubmit
+      topicId: selectedTopicForSubmit,
+      onBehalfOfUserId: isAdminUser.value ? (onBehalfUser.value?.id || null) : null
     }
     // 如果用户填写了点歌券，传递给后端
     if (cardCode.value && cardCode.value.trim()) {
@@ -3880,7 +3854,7 @@ const handleSubmit = async (fromSlotModal = false) => {
   if (submitting.value) return
 
   // 校验手动投稿日期与时段。
-  if (requiresSlotSelection.value && fromSlotModal !== true) {
+  if (submissionDialogNeeded.value && fromSlotModal !== true) {
     openRequiredSlotOptions({ manual: true })
     return
   }
@@ -3928,7 +3902,8 @@ const handleSubmit = async (fromSlotModal = false) => {
       submissionNotePublic: submissionNotePublic.value,
       submissionAnonymous: submissionAnonymous.value,
       collaborators: collaborators.value.map((u) => u.id),
-      topicId: selectedTopicForSubmit
+      topicId: selectedTopicForSubmit,
+      onBehalfOfUserId: isAdminUser.value ? (onBehalfUser.value?.id || null) : null
     }
     if (cardCode.value && cardCode.value.trim()) {
       songData.cardCode = cardCode.value.trim()
@@ -4257,7 +4232,7 @@ const handleManualSubmit = async (fromSlotModal = false) => {
   }
 
   // 播出时段：仅在后台开启「时段必选」且尚未选择时段时弹窗收集，确认后再继续提交
-  if (requiresSlotSelection.value && fromSlotModal !== true) {
+  if (submissionDialogNeeded.value && fromSlotModal !== true) {
     openRequiredSlotOptions({ manualForm: true })
     return
   }
@@ -4337,7 +4312,8 @@ const handleManualSubmit = async (fromSlotModal = false) => {
       submissionNote: submissionNote.value.trim() || null,
       submissionNotePublic: submissionNotePublic.value,
       submissionAnonymous: submissionAnonymous.value,
-      topicId: selectedTopicForSubmit
+      topicId: selectedTopicForSubmit,
+      onBehalfOfUserId: isAdminUser.value ? (onBehalfUser.value?.id || null) : null
     }
 
     if (cardCode.value && cardCode.value.trim()) {
@@ -4379,6 +4355,7 @@ const resetForm = () => {
   submissionAnonymous.value = false
   joinTopic.value = false
   selectedTopicId.value = null
+  onBehalfUser.value = null
   cardCode.value = ''
   cardCodeDraft.value = ''
   resetCardCodeValidation()
@@ -4910,6 +4887,18 @@ defineExpose({
   flex-shrink: 0; /* 防止标签被压缩 */
 }
 
+/* 管理员代他人投稿 */
+.on-behalf-section {
+  margin-top: 0.5rem;
+  align-items: center;
+}
+
+.on-behalf-hint {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 .collaborators-list {
   display: flex;
   flex-wrap: wrap;
@@ -5058,135 +5047,6 @@ defineExpose({
 .login-required-notice .login-link-btn:hover {
   background: var(--primary-35);
   color: var(--text-link-hover);
-}
-
-/* 投稿附加设置卡片（投稿设置 + 专题投稿） */
-.extra-options-card {
-  margin-bottom: 0.5rem;
-  border: 1px solid var(--overlay-10);
-  border-radius: 12px;
-  background: var(--surface-card-bg-medium);
-  overflow: hidden;
-}
-
-.extra-option-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.7rem 0.85rem;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.extra-option-row + .extra-option-row {
-  border-top: 1px solid var(--overlay-8);
-}
-
-.extra-option-row.is-static {
-  cursor: default;
-}
-
-.extra-option-row:not(.is-static):hover {
-  background: var(--overlay-10);
-}
-
-.extra-option-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: var(--overlay-10);
-  color: var(--overlay-75);
-}
-
-.extra-option-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.extra-option-title {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-family: 'MiSans', sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--text-primary);
-}
-
-.extra-option-tag {
-  padding: 0 0.35rem;
-  border-radius: 4px;
-  background: var(--overlay-10);
-  color: var(--text-tertiary);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 16px;
-}
-
-.extra-option-desc {
-  overflow: hidden;
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--text-tertiary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.extra-option-status {
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--overlay-75);
-}
-
-.extra-option-arrow {
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-}
-
-.extra-option-switch {
-  position: relative;
-  flex-shrink: 0;
-  width: 38px;
-  height: 22px;
-  border-radius: 999px;
-  background: var(--overlay-20);
-  transition: background 0.2s ease;
-}
-
-.extra-option-switch.on {
-  background: var(--color-accent);
-}
-
-.extra-option-knob {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: #fff;
-  transition: transform 0.2s ease;
-}
-
-.extra-option-switch.on .extra-option-knob {
-  transform: translateX(16px);
-}
-
-.extra-option-select {
-  padding: 0 0.85rem 0.75rem;
 }
 
 .submission-status-horizontal {

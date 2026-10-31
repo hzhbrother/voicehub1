@@ -89,6 +89,11 @@ const songRequestBodySchema = z.object({
     .nullable(),
   cardCode: z.string().trim().max(100, 'CARD_CODE_TOO_LONG').optional().nullable(),
   collaborators: z.array(z.union([z.string(), z.number()])).max(20, '联合投稿人不能超过20个').optional(),
+  // 管理员代他人投稿时指定投稿人（仅管理员可用，其余角色忽略）
+  onBehalfOfUserId: z.preprocess(
+    (value) => value === null || value === undefined || value === '' ? null : Number(value),
+    z.number().int().positive('代投稿用户 ID 无效').nullable()
+  ).optional(),
   topicId: z.preprocess(
     (value) => value === null || value === undefined || value === '' ? null : Number(value),
     z.number().int().positive('专题 ID 无效').nullable()
@@ -134,6 +139,20 @@ export async function requestSongForUser(
     const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.role)
     const restrictionPolicy = resolveSubmissionRestrictionPolicy(systemSettingsData)
     const semesterRestrictionOn = restrictionPolicy.mode === 'semester' && !isAdmin
+
+    // 管理员代他人投稿：校验目标用户，并把稿件归属到目标用户名下
+    let requesterId = user.id
+    if (isAdmin && requestBody.onBehalfOfUserId && requestBody.onBehalfOfUserId !== user.id) {
+      const targetUser = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, requestBody.onBehalfOfUserId))
+        .limit(1)
+      if (targetUser.length === 0) {
+        throw createApiError(400, SERVER_ERROR_CODES.COMMON_INVALID_PARAMS, '被代投稿的用户不存在')
+      }
+      requesterId = requestBody.onBehalfOfUserId
+    }
 
     const isBilibili =
       requestBody.musicPlatform === 'bilibili' ||
@@ -670,7 +689,7 @@ export async function requestSongForUser(
         .values({
           title: requestBody.title,
           artist: requestBody.artist,
-          requesterId: user.id,
+          requesterId: requesterId,
           preferredPlayTimeId: preferredPlayTime?.id || null,
           preferredPlayDate: playDate,
           semester: currentSemester,
@@ -701,7 +720,7 @@ export async function requestSongForUser(
       ) {
         const collaboratorIds = requestBody.collaborators.map((id: any) => Number(id)) as number[]
         const uniqueCollaboratorIds = [...new Set<number>(collaboratorIds)].filter(
-          (id) => !isNaN(id) && id !== user.id
+          (id) => !isNaN(id) && id !== requesterId
         )
 
         if (uniqueCollaboratorIds.length > 0) {
@@ -805,12 +824,12 @@ export async function requestSongForUser(
     // 通知失败不得影响投稿结果。
     try {
       const [requester] = await db.select({ name: users.name, username: users.username })
-        .from(users).where(eq(users.id, user.id)).limit(1)
+        .from(users).where(eq(users.id, requesterId)).limit(1)
       // 匿名投稿不在群聊推送里暴露真实姓名
       const displayName =
         song.submissionAnonymous === true
           ? '匿名投稿'
-          : (requester?.name || requester?.username || `用户 ${user.id}`)
+          : (requester?.name || requester?.username || `用户 ${requesterId}`)
       await enqueueAstrbotGroupEvent(
         'songRequest',
         '新的点歌投稿',
