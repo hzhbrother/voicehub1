@@ -442,6 +442,13 @@
       "when": 1793462934104,
       "tag": "20261031160854_drop_topics",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1793508139407,
+      "tag": "20261101044219_add_announcement_alignment",
+      "breakpoints": true
     }
   ]
 }

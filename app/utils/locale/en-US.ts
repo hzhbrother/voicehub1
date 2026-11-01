@@ -4125,6 +4125,13 @@ export const admin = {
     scrollSpeed: 'Scroll Speed',
     scrollSpeedHint:
       'Seconds needed for one full scroll cycle; a smaller value scrolls faster (8 - 120 seconds).',
+    alignment: 'Alignment',
+    alignments: {
+      left: 'Left',
+      center: 'Center',
+      right: 'Right'
+    },
+    alignmentHint: 'How the content is aligned inside the banner in static mode.',
     announcementTitleContentRequired: 'Announcement title and content are required',
     announcementTitleTooLong: (max: number) => `Announcement title cannot exceed ${max} characters`,
     announcementContentTooLong: (max: number) => `Announcement content cannot exceed ${max} characters`,
@@ -4205,7 +4212,16 @@ export const admin = {
       announcementColumn: 'Announcement',
       announcementUntitled: 'Untitled announcement',
       displayModeLabel: 'Display Mode',
+      alignment: 'Alignment',
+      alignments: {
+        left: 'Left',
+        center: 'Center',
+        right: 'Right'
+      },
       activeLabel: 'Live',
+      setActive: 'Set as Live',
+      setActiveSuccess: 'Announcement is now the live banner',
+      setActiveFailed: 'Failed to switch the live announcement, please retry',
       previewAction: 'Preview',
       previewEyebrow: 'Homepage Announcement Preview',
       previewFooterHint:
